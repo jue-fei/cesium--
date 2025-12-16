@@ -30,6 +30,10 @@ pnpm-debug.log*
 /public/storage
 /storage/*.key
 
+# Large files to exclude (3D models, textures, etc.)
+/public/3d/
+/public/Assets/
+
 # Cache files
 .nuxt
 .cache
