@@ -1,0 +1,18 @@
+{
+  "name": "cesium-project",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "serve": "vue-cli-service serve",
+    "build": "vue-cli-service build",
+    "lint": "vue-cli-service lint"
+  },
+  "dependencies": {
+    "vue": "^3.3.4",
+    "cesium": "^1.113.0"
+  },
+  "devDependencies": {
+    "@vue/cli-service": "^5.0.8",
+    "@vue/compiler-sfc": "^3.3.4"
+  }
+}

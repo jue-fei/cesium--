@@ -1,0 +1,137 @@
+:root {
+  /* 颜色变量 */
+  --primary-color: #4e7ddb;
+  --primary-dark: #2d42b5;
+  --primary-light: #3953d7;
+  --secondary-color: #ff6b6b;
+  --success-color: #47b881;
+  --warning-color: #ffa947;
+  --info-color: #5bc0de;
+
+  /* 背景颜色 */
+  --bg-primary: rgba(30, 30, 30, 0.95);
+  --bg-secondary: rgba(40, 40, 40, 0.95);
+  --bg-tertiary: rgba(60, 60, 60, 0.8);
+  --bg-hover: rgba(50, 50, 50, 0.95);
+
+  /* 文本颜色 */
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.9);
+  --text-muted: rgba(255, 255, 255, 0.7);
+  --text-disabled: rgba(255, 255, 255, 0.5);
+
+  /* 边框颜色 */
+  --border-primary: rgba(255, 255, 255, 0.1);
+  --border-secondary: rgba(255, 255, 255, 0.2);
+  --border-focus: var(--primary-color);
+
+  /* 阴影 */
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.3);
+
+  /* 间距 */
+  --spacing-xs: 4px;
+  --spacing-sm: 6px;
+  --spacing-md: 8px;
+  --spacing-lg: 10px;
+  --spacing-xl: 12px;
+  --spacing-2xl: 15px;
+  --spacing-3xl: 20px;
+
+  /* 边框圆角 */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* 过渡效果 */
+  --transition-fast: 0.2s ease;
+  --transition-base: 0.3s ease;
+
+  /* 字体大小 */
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-base: 14px;
+  --font-lg: 16px;
+  --font-xl: 18px;
+
+  /* 面板宽度 */
+  --panel-width: 320px;
+}
+
+/* 全局滑动条样式 */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  outline: none;
+}
+
+/* 全局滑动条轨道样式 */
+input[type="range"]::-webkit-slider-runnable-track {
+  background: var(--border-primary);
+  border-radius: 3px;
+  height: 6px;
+}
+
+/* 全局滑动条滑块样式 - Chrome/Safari/Edge */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  transition: all var(--transition-fast);
+  margin-top: -5px;
+  /* 使滑块垂直居中 */
+  position: relative;
+  z-index: 10;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* 全局滑动条滑块悬停样式 - Chrome/Safari/Edge */
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 8px rgba(78, 125, 219, 0.6);
+}
+
+/* 全局滑动条滑块样式 - Firefox */
+input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  position: relative;
+  z-index: 10;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* 全局滑动条滑块样式 - IE/Edge */
+input[type="range"]::-ms-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  position: relative;
+  z-index: 10;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Firefox 轨道样式修复 */
+input[type="range"]::-moz-range-track {
+  background: var(--border-primary);
+  border-radius: 3px;
+  height: 6px;
+  border: none;
+}
+
+/* Firefox 聚焦样式 */
+input[type="range"]:focus::-moz-range-thumb {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8), 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 3px var(--primary-color);
+}
