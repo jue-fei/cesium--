@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>功能测试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-section h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .test-instructions {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .test-result {
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .success {
+            color: green;
+        }
+        .failure {
+            color: red;
+        }
+        .warning {
+            color: orange;
+        }
+    </style>
+</head>
+<body>
+    <h1>3D模型功能测试</h1>
+    
+    <div class="test-section">
+        <h2>1. 模型隐藏显示功能测试</h2>
+        <div class="test-instructions">
+            <strong>测试步骤：</strong>
+            <ol>
+                <li>打开应用程序：http://localhost:8081</li>
+                <li>在模型列表中，尝试勾选/取消勾选不同的模型</li>
+                <li>观察3D场景中对应的模型是否显示/隐藏</li>
+            </ol>
+        </div>
+        <div class="test-result">
+            预期结果：勾选模型时，3D场景中对应的模型应显示；取消勾选时，模型应隐藏。
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. 全局透明度控制功能测试</h2>
+        <div class="test-instructions">
+            <strong>测试步骤：</strong>
+            <ol>
+                <li>打开应用程序：http://localhost:8081</li>
+                <li>拖动全局透明度滑块</li>
+                <li>观察3D场景中所有可见模型的透明度是否变化</li>
+            </ol>
+        </div>
+        <div class="test-result">
+            预期结果：拖动滑块时，所有可见模型的透明度应按比例变化。
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. 单个模型透明度控制功能测试</h2>
+        <div class="test-instructions">
+            <strong>测试步骤：</strong>
+            <ol>
+                <li>打开应用程序：http://localhost:8081</li>
+                <li>在模型列表中，尝试调整单个模型的透明度滑块</li>
+                <li>观察3D场景中对应的模型透明度是否变化</li>
+            </ol>
+        </div>
+        <div class="test-result">
+            预期结果：调整滑块时，对应的模型透明度应按比例变化。
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>4. 模型高亮功能测试</h2>
+        <div class="test-instructions">
+            <strong>测试步骤：</strong>
+            <ol>
+                <li>打开应用程序：http://localhost:8081</li>
+                <li>在模型列表中，点击"高亮"按钮</li>
+                <li>观察3D场景中对应的模型是否高亮显示</li>
+                <li>等待3秒后，观察模型是否恢复原来的颜色</li>
+            </ol>
+        </div>
+        <div class="test-result">
+            预期结果：点击高亮按钮时，模型应变为黄色；3秒后恢复原来的颜色。
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>5. 显示/隐藏所有模型功能测试</h2>
+        <div class="test-instructions">
+            <strong>测试步骤：</strong>
+            <ol>
+                <li>打开应用程序：http://localhost:8081</li>
+                <li>点击"显示所有"按钮</li>
+                <li>观察3D场景中所有模型是否显示</li>
+                <li>点击"隐藏所有"按钮</li>
+                <li>观察3D场景中所有模型是否隐藏</li>
+            </ol>
+        </div>
+        <div class="test-result">
+            预期结果：点击"显示所有"时，所有模型应显示；点击"隐藏所有"时，所有模型应隐藏。
+        </div>
+    </div>
+    
+    <script>
+        // 可以在此添加额外的测试代码
+        console.log('测试页面已加载');
+    </script>
+</body>
+</html>
