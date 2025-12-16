@@ -1,0 +1,51 @@
+<template>
+    <div id="cesiemContainer" ref="cesiemContainer"></div>
+</template>
+
+<script setup>
+    import *as Cesium from 'cesium'
+    import "./Widgets/widgests.css"
+    import { onMounted } from 'vue';
+
+    Cesium.CESIUM_BASE_URL = "/"
+
+
+    onMounted(() => {
+        var viewer = new Cesium.Viewer("cesiemContainer")
+    })
+
+</script>
+
+
+<style></style>
+
+
+
+
+
+<template>
+    <div id="cesiumContainer"></div>
+</template>
+
+<script setup>
+    import { onMounted } from 'vue';
+    import * as Cesium from 'cesium';
+    import 'cesium/Build/Cesium/Widgets/widgets.css';
+
+    onMounted(() => {
+        // 注意这里必须是 Viewer，不是 Viwer
+        const viewer = new Cesium.Viewer('cesiumContainer', {
+            // 可选配置项
+        });
+    });
+</script>
+
+<style>
+    #cesiumContainer {
+        width: 100%;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+</style>
