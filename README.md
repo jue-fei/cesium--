@@ -1,5 +1,7 @@
 # cesium1
 
+基于Vue.js和Cesium的3D地理信息系统项目
+
 ## Project setup
 ```
 npm install
