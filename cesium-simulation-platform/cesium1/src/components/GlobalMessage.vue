@@ -16,31 +16,13 @@ import useMessage from '@/composables/useMessage.js'
 
 const { message, messageType, isVisible } = useMessage()
 
-const messageTypeClass = computed(() => {
-  switch (messageType.value) {
-    case 'success':
-      return 'border-success'
-    case 'error':
-      return 'border-secondary'
-    case 'warning':
-      return 'border-warning'
-    case 'info':
-    default:
-      return 'border-primary'
-  }
-})
+const TYPE_MAP = {
+  success: { border: 'border-success', text: 'text-success' },
+  error: { border: 'border-secondary', text: 'text-secondary' },
+  warning: { border: 'border-warning', text: 'text-warning' },
+  info: { border: 'border-primary', text: 'text-primary' }
+}
 
-const iconColorClass = computed(() => {
-  switch (messageType.value) {
-    case 'success':
-      return 'text-success'
-    case 'error':
-      return 'text-secondary'
-    case 'warning':
-      return 'text-warning'
-    case 'info':
-    default:
-      return 'text-primary'
-  }
-})
+const messageTypeClass = computed(() => (TYPE_MAP[messageType.value] || TYPE_MAP.info).border)
+const iconColorClass = computed(() => (TYPE_MAP[messageType.value] || TYPE_MAP.info).text)
 </script>

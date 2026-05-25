@@ -22,7 +22,6 @@
         <el-icon :size="24">
           <component :is="getIcon(tool.icon)" />
         </el-icon>
-        <!-- <span class="item-label">{{ tool.name }}</span> -->
       </div>
     </el-tooltip>
   </div>
@@ -36,14 +35,15 @@ import {
   VideoPlay,
   DataLine,
   Mouse,
-  Odometer,
   Setting,
   EditPen,
   Histogram
 } from '@element-plus/icons-vue'
 import useUI from '@/composables/useUI.js'
+import { TOOL_REGISTRY } from '@/features/toolRegistry.js'
 
-const { tools, activeTool, toggleTool } = useUI()
+const tools = TOOL_REGISTRY.map(t => ({ id: t.id, name: t.name, icon: t.icon }))
+const { activeTool, toggleTool } = useUI()
 
 const iconMap = {
   Location,
@@ -53,7 +53,6 @@ const iconMap = {
   VideoPlay,
   DataLine,
   Mouse,
-  Odometer,
   Setting,
   Histogram
 }

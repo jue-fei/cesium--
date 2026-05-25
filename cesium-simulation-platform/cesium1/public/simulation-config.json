@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "description": "矿卡模拟运行参数 - 可被实时API数据覆盖",
+  "simulation": {
+    "updateIntervalMs": 1000,
+    "cycleTimeMs": 360000,
+    "cycleTimeNote": "当前设为6分钟（360000毫秒），如需快速演示可改为120000（2分钟）"
+  },
+  "speedProfile": {
+    "loading": { "min": 4, "max": 6 },
+    "loadedTransport": { "min": 23, "max": 30 },
+    "unloading": { "min": 4, "max": 6 },
+    "emptyReturn": { "min": 30, "max": 38 }
+  },
+  "phaseRatio": {
+    "loading": 0.15,
+    "loadedTransport": 0.35,
+    "unloading": 0.15,
+    "emptyReturn": 0.35
+  },
+  "vehicleStatus": {
+    "engineTemp": { "min": 80, "max": 100 },
+    "tirePressure": [8.0, 8.1, 8.2, 8.0],
+    "fuelLevel": { "min": 60, "max": 90 }
+  },
+  "locationMap": {
+    "装载中": "采场1装载区",
+    "重载运输": "采场1→采场2运输线",
+    "卸载中": "采场2卸载区",
+    "空载返程": "采场2→采场1返程线"
+  }
+}

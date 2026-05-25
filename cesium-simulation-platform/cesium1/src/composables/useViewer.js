@@ -1,36 +1,48 @@
 import { storeToRefs } from 'pinia'
 import * as Cesium from 'cesium'
 import { useViewerStore } from '@/stores/viewerStore.js'
-
-const DEFAULT_CESIUM_TOKEN = ''
+import {
+  getDisplayQualityProfile,
+  getTerrainQualityProfile
+} from '@/features/lod-optimization/services/viewerQualityProfiles.js'
 
 export default function useViewer() {
   const store = useViewerStore()
-  const { viewer: viewerRef, coordinateSystem, displayQuality, terrainQuality } = storeToRefs(store)
+  const { viewer, displayQuality, terrainQuality } = storeToRefs(store)
 
-  const initToken = () => {
-    if (typeof window !== 'undefined') {
-      const token = import.meta.env.VITE_CESIUM_TOKEN || DEFAULT_CESIUM_TOKEN
-      if (!token) {
-        console.warn('Cesium Token 缺失，请在 .env 中设置 VITE_CESIUM_TOKEN。')
-      }
-      Cesium.Ion.defaultAccessToken = token
-    }
+  const getViewer = () => {
+    const v = viewer.value
+    return v && !v.isDestroyed?.() ? v : null
   }
 
-  const configureSceneLighting = viewerInstance => {
-    if (!viewerInstance) return
-    viewerInstance.scene.globe.enableLighting = false
-    viewerInstance.scene.globe.dynamicAtmosphereLighting = false
-    viewerInstance.scene.globe.dynamicAtmosphereLightingFromSun = false
+  const requestRender = () => getViewer()?.scene?.requestRender()
+
+  const applyDisplayQuality = (quality = 'high') => {
+    const v = getViewer()
+    if (!v) return
+    const p = getDisplayQualityProfile(quality)
+    v.useBrowserRecommendedResolution = p.useBrowserRecommendedResolution
+    v.resolutionScale = p.resolutionScale
+    if (v.scene) {
+      v.scene.fxaa = p.fxaa
+      if (v.scene.postProcessStages?.fxaa) v.scene.postProcessStages.fxaa.enabled = p.fxaa
+    }
+    requestRender()
+  }
+
+  const applyTerrainQuality = (quality = 'high') => {
+    const globe = getViewer()?.scene?.globe
+    if (globe)
+      globe.maximumScreenSpaceError = getTerrainQualityProfile(quality).maximumScreenSpaceError
+    requestRender()
   }
 
   const initViewer = async (containerId = 'cesiumContainer') => {
-    if (viewerRef.value) return viewerRef.value
+    if (viewer.value) return viewer.value
 
-    initToken()
+    Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN || ''
 
-    const viewer = new Cesium.Viewer(containerId, {
+    const v = new Cesium.Viewer(containerId, {
       infoBox: false,
       timeline: false,
       animation: false,
@@ -43,78 +55,63 @@ export default function useViewer() {
       navigationInstructionsInitiallyVisible: false,
       fullscreenButton: false,
       terrainProvider: undefined,
-      contextOptions: {
-        webgl: {
-          preserveDrawingBuffer: true
-        }
-      }
+      contextOptions: { webgl: { preserveDrawingBuffer: true } }
     })
 
-    const creditContainer = viewer.cesiumWidget.creditContainer
-    if (creditContainer) {
-      creditContainer.style.display = 'none'
-    }
+    const cc = v.cesiumWidget.creditContainer
+    if (cc) cc.style.display = 'none'
 
-    configureSceneLighting(viewer)
-    store.setViewer(viewer)
+    v.scene.globe.enableLighting = false
+    v.scene.globe.dynamicAtmosphereLighting = false
+    v.scene.globe.dynamicAtmosphereLightingFromSun = false
 
-    return viewer
+    applyDisplayQuality(displayQuality.value)
+    applyTerrainQuality(terrainQuality.value)
+    store.setViewer(v)
+
+    return v
   }
 
-  const destroyViewer = () => {
-    store.destroyViewer()
-  }
+  const destroyViewer = () => store.destroyViewer()
 
   const resetViewToModel = async tileset => {
-    const viewer = viewerRef.value
-    if (viewer && tileset) {
-      await viewer.zoomTo(tileset)
-    }
-  }
-
-  const resetCursor = () => {
-    const viewer = viewerRef.value
-    if (viewer && viewer.canvas) {
-      viewer.canvas.style.cursor = 'default'
-    }
+    const v = getViewer()
+    if (v && tileset) await v.zoomTo(tileset)
   }
 
   const toggleFullscreen = () => {
-    const viewer = viewerRef.value
-    if (!viewer) return
+    const v = getViewer()
+    if (!v) return
     if (!document.fullscreenElement) {
-      const container = document.getElementById('cesiumContainer')
-      if (container?.requestFullscreen) {
-        container.requestFullscreen().catch(err => console.warn('Fullscreen failed:', err))
-      }
-    } else if (document.exitFullscreen) {
-      document.exitFullscreen()
+      document.getElementById('cesiumContainer')?.requestFullscreen?.()
+    } else {
+      document.exitFullscreen?.()
     }
   }
 
-  const getViewer = () => {
-    const viewer = viewerRef.value
-    if (!viewer) return null
-    if (typeof viewer.isDestroyed === 'function' && viewer.isDestroyed()) return null
-    return viewer
+  const updateDisplayQuality = quality => {
+    store.setDisplayQuality(quality)
+    applyDisplayQuality(quality)
+  }
+
+  const updateTerrainQuality = quality => {
+    store.setTerrainQuality(quality)
+    applyTerrainQuality(quality)
   }
 
   return {
-    viewerRef,
-    viewer: viewerRef,
+    viewer,
+    getViewer,
     initViewer,
     destroyViewer,
-    resetCursor,
     toggleFullscreen,
     resetViewToModel,
-    getViewer,
-
-    coordinateSystem,
     displayQuality,
     terrainQuality,
-
-    updateDisplayQuality: store.setDisplayQuality,
-    updateTerrainQuality: store.setTerrainQuality,
+    applyDisplayQuality,
+    applyTerrainQuality,
+    updateDisplayQuality,
+    updateTerrainQuality,
     updateCoordinateSystem: store.setCoordinateSystem
   }
 }

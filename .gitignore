@@ -1,0 +1,5 @@
+# Dependencies
+node_modules/
+
+# Debug
+cesium-simulation-platform/.dbg/

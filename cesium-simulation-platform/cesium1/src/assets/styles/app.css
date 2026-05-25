@@ -13,183 +13,194 @@
 html,
 body,
 * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-    color: rgb(var(--text-primary-rgb));
-    background-color: #000;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+  font-family:
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    'Open Sans',
+    'Helvetica Neue',
+    sans-serif;
+  color: rgb(var(--text-primary-rgb));
+  background-color: #000;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* 滚动条美化 */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-    background: transparent;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* Cesium容器 */
 #cesiumContainer {
-    @apply w-full h-screen fixed top-0 left-0 overflow-hidden;
+  @apply w-full h-screen fixed top-0 left-0 overflow-hidden;
 }
 
 /* ===== 通用工具类 (Utility Classes) ===== */
 /* 文本排版 */
 .text-primary {
-    color: rgb(var(--text-primary-rgb));
+  color: rgb(var(--text-primary-rgb));
 }
 
 .text-secondary {
-    color: rgb(var(--text-secondary-rgb));
+  color: rgb(var(--text-secondary-rgb));
 }
 
 .text-muted {
-    color: rgb(var(--text-muted-rgb));
+  color: rgb(var(--text-muted-rgb));
 }
 
 .text-sm {
-    font-size: theme('fontSize.sm');
+  font-size: theme('fontSize.sm');
 }
 
 .text-xs {
-    font-size: theme('fontSize.xs');
+  font-size: theme('fontSize.xs');
 }
 
 /* 布局辅助 */
 .flex-center {
-    @apply flex items-center justify-center;
+  @apply flex items-center justify-center;
 }
 
 .flex-between {
-    @apply flex items-center justify-between;
+  @apply flex items-center justify-between;
 }
 
 .gap-sm {
-    gap: theme('spacing.sm');
+  gap: theme('spacing.sm');
 }
 
 .gap-md {
-    gap: theme('spacing.md');
+  gap: theme('spacing.md');
 }
 
 /* 面板区块通用样式 */
 .panel-section {
-    @apply mb-xl;
+  @apply mb-xl;
 }
 
 .panel-section:last-child {
-    @apply mb-0;
+  @apply mb-0;
 }
 
 .panel-section-title {
-    @apply text-base font-semibold text-text-primary mb-md flex items-center gap-2;
+  @apply text-base font-semibold text-text-primary mb-md flex items-center gap-2;
 }
 
 .panel-section-title::before {
-    content: '';
-    @apply block w-[3px] h-3.5 bg-primary rounded-[2px];
+  content: '';
+  @apply block w-[3px] h-3.5 bg-primary rounded-[2px];
 }
 
 /* 控制项通用布局 */
 .control-item {
-    @apply mb-lg;
+  @apply mb-lg;
 }
 
 .control-header {
-    @apply flex justify-between items-center mb-1;
+  @apply flex justify-between items-center mb-1;
 }
 
 .control-label {
-    @apply text-sm text-text-secondary;
+  @apply text-sm text-text-secondary;
 }
 
 .control-value {
-    @apply text-xs font-mono text-primary-light bg-white/5 px-1.5 py-0.5 rounded;
+  @apply text-xs font-mono text-primary-light bg-white/5 px-1.5 py-0.5 rounded;
 }
 
 .control-body {
-    @apply flex items-center gap-3;
+  @apply flex items-center gap-3;
 }
 
 .control-slider {
-    @apply flex-1;
+  @apply flex-1;
 }
 
 .control-input {
-    width: 80px !important;
-    @apply shrink-0;
+  width: 80px !important;
+  @apply shrink-0;
 }
 
 /* ===== 通用滑块样式 ===== */
 .modern-slider {
-    @apply w-full h-4 appearance-none bg-transparent outline-none cursor-pointer m-0;
+  @apply w-full h-4 appearance-none bg-transparent outline-none cursor-pointer m-0;
 }
 
 /* WebKit Track */
 .modern-slider::-webkit-slider-runnable-track {
-    @apply w-full h-1.5 bg-white/15 rounded-full border-none cursor-pointer;
+  @apply w-full h-1.5 bg-white/15 rounded-full border-none cursor-pointer;
 }
 
 /* WebKit Thumb */
 .modern-slider::-webkit-slider-thumb {
-    @apply appearance-none h-4 w-4 rounded-full bg-gradient-to-br from-primary-light to-primary cursor-pointer -mt-[5px] shadow-sm transition-all duration-100 ease-linear border-none;
+  @apply appearance-none h-4 w-4 rounded-full bg-gradient-to-br from-primary-light to-primary cursor-pointer -mt-[5px] shadow-sm transition-all duration-100 ease-linear border-none;
 }
 
 .modern-slider::-webkit-slider-thumb:hover {
-    @apply scale-110 from-primary to-primary-light;
+  @apply scale-110 from-primary to-primary-light;
 }
 
 .modern-slider::-webkit-slider-thumb:active {
-    @apply scale-105 shadow-md;
+  @apply scale-105 shadow-md;
 }
 
 /* Firefox Track */
 .modern-slider::-moz-range-track {
-    @apply w-full h-1.5 bg-white/15 rounded-full border-none cursor-pointer;
+  @apply w-full h-1.5 bg-white/15 rounded-full border-none cursor-pointer;
 }
 
 /* Firefox Thumb */
 .modern-slider::-moz-range-thumb {
-    @apply h-4 w-4 border-none rounded-full bg-gradient-to-br from-primary-light to-primary cursor-pointer shadow-sm transition-transform duration-100 ease-linear;
+  @apply h-4 w-4 border-none rounded-full bg-gradient-to-br from-primary-light to-primary cursor-pointer shadow-sm transition-transform duration-100 ease-linear;
 }
 
 .modern-slider::-moz-range-thumb:hover {
-    @apply scale-110;
+  @apply scale-110;
 }
 
 /* ===== 通用数值输入框 ===== */
 .value-input {
-    @apply w-[70px] px-2 py-1 bg-white/10 border border-white/20 rounded text-text-primary text-[13px] text-center transition-all duration-200 outline-none;
+  @apply w-[70px] px-2 py-1 bg-white/10 border border-white/20 rounded text-text-primary text-[13px] text-center transition-all duration-200 outline-none;
 }
 
 .value-input:focus {
-    @apply border-primary bg-white/15;
-    box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.2);
+  @apply border-primary bg-white/15;
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.2);
 }
 
 .value-input::-webkit-inner-spin-button,
 .value-input::-webkit-outer-spin-button {
-    @apply appearance-none m-0;
+  @apply appearance-none m-0;
 }
 
-.value-input[type=number] {
-    -moz-appearance: textfield;
-    appearance: textfield;
+.value-input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }

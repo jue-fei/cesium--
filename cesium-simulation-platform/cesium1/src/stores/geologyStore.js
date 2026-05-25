@@ -17,14 +17,6 @@ export const useGeologyStore = defineStore('geology', () => {
     boreholes.value = data
   }
 
-  function addBoreholes(data) {
-    boreholes.value = [...boreholes.value, ...data]
-  }
-
-  function setSections(data) {
-    sections.value = data
-  }
-
   function addSection(section) {
     sections.value = [...sections.value, section]
   }
@@ -55,8 +47,6 @@ export const useGeologyStore = defineStore('geology', () => {
     orebodies,
     stats,
     setBoreholes,
-    addBoreholes,
-    setSections,
     addSection,
     setOrebodies,
     updateStats,

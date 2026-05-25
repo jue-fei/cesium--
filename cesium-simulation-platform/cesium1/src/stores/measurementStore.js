@@ -6,6 +6,8 @@ export const useMeasurementStore = defineStore('measurement', () => {
   const isAreaMeasuring = ref(false)
   const measurementPoints = ref([])
   const measurementDistance = ref(0)
+  const terrainDistance = ref(0)
+  const distanceMode = ref('straight')
   const measurementArea = ref(0)
   const measurementEntities = ref([])
   const measurementHistory = ref([])
@@ -15,6 +17,8 @@ export const useMeasurementStore = defineStore('measurement', () => {
     isAreaMeasuring,
     measurementPoints,
     measurementDistance,
+    terrainDistance,
+    distanceMode,
     measurementArea,
     measurementEntities,
     measurementHistory

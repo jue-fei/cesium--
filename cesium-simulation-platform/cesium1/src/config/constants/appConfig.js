@@ -1,52 +1,24 @@
 import * as Cesium from 'cesium'
-import appConstants from '../appConstants.json'
 
-const parseColor = hex => {
-  if (Cesium.Color && typeof Cesium.Color.fromCssColorString === 'function') {
-    return Cesium.Color.fromCssColorString(hex)
-  }
-  const normalized = String(hex || '')
-    .trim()
-    .replace(/^#/, '')
-  const m = normalized.match(/^[0-9a-fA-F]{6}$/)
-  if (!m) return new Cesium.Color(1, 1, 1, 1)
-  const r = parseInt(normalized.slice(0, 2), 16) / 255
-  const g = parseInt(normalized.slice(2, 4), 16) / 255
-  const b = parseInt(normalized.slice(4, 6), 16) / 255
-  return new Cesium.Color(r, g, b, 1)
-}
-
-export const ORE_GRADE_THRESHOLDS = {
-  HIGH: appConstants.oreGradeThresholds.high,
-  MEDIUM: appConstants.oreGradeThresholds.medium
-}
-
-export const MODEL_DEFAULTS = {
-  OPACITY: appConstants.modelDefaults.opacity,
-  VISIBLE: appConstants.modelDefaults.visible
-}
-
+export const ORE_GRADE_THRESHOLDS = { HIGH: 3.0, MEDIUM: 2.0 }
+export const MODEL_DEFAULTS = { OPACITY: 100, VISIBLE: true }
 export const HIGHLIGHT_CONFIG = {
-  COLOR: parseColor(appConstants.highlightConfig.colorHex),
-  DURATION: appConstants.highlightConfig.durationMs
+  COLOR: Cesium.Color.fromCssColorString('#ffff00'),
+  DURATION: 1000
 }
-
 export const BOREHOLE_CONFIG = {
-  COLOR: parseColor(appConstants.boreholeConfig.colorHex),
-  ALPHA: appConstants.boreholeConfig.alpha,
-  DEPTH_FAIL_ALPHA: appConstants.boreholeConfig.depthFailAlpha,
-  WIDTH: appConstants.boreholeConfig.width,
-  MARKER_IMAGE: appConstants.boreholeConfig.markerImage,
-  MARKER_SIZE: appConstants.boreholeConfig.markerSize
+  COLOR: Cesium.Color.fromCssColorString('#ff0000'),
+  ALPHA: 0.8,
+  DEPTH_FAIL_ALPHA: 0.3,
+  WIDTH: 3,
+  MARKER_IMAGE: '/icons/borehole-marker.png',
+  MARKER_SIZE: 24
 }
-
 export const SECTION_CONFIG = {
-  COLOR: parseColor(appConstants.sectionConfig.colorHex),
-  ALPHA: appConstants.sectionConfig.alpha,
-  DEPTH_FAIL_ALPHA: appConstants.sectionConfig.depthFailAlpha,
-  WIDTH: appConstants.sectionConfig.width
+  COLOR: Cesium.Color.fromCssColorString('#0000ff'),
+  ALPHA: 0.7,
+  DEPTH_FAIL_ALPHA: 0.3,
+  WIDTH: 2
 }
-
-export const DEFAULT_ORE_DENSITY = appConstants.defaultOreDensity
-export const ID_PREFIX = appConstants.idPrefix
-export const DEFAULT_COORDINATES = appConstants.defaultCoordinates
+export const DEFAULT_ORE_DENSITY = 2.5
+export const ID_PREFIX = 'feature_'

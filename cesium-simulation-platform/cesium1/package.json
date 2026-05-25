@@ -18,8 +18,17 @@
     "@element-plus/icons-vue": "^2.3.2",
     "cesium": "^1.138.0",
     "element-plus": "^2.13.2",
+    "exceljs": "^4.4.0",
     "pinia": "^2.3.1",
     "vue": "^3.5.29"
+  },
+  "lint-staged": {
+    "*.{js,vue,cjs,json,css}": [
+      "prettier --write"
+    ],
+    "*.{js,vue}": [
+      "eslint --fix"
+    ]
   },
   "devDependencies": {
     "@eslint/js": "^8.57.1",

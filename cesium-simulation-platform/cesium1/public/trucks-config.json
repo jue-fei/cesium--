@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "description": "矿卡运输单元静态配置 - 可被实时API数据覆盖",
+  "trucks": [
+    {
+      "truckId": "T001",
+      "name": "1号矿卡",
+      "driver": "张鹏",
+      "driverInfo": {
+        "age": 35,
+        "experience": "8年",
+        "license": "A2"
+      },
+      "vehicleInfo": {
+        "brand": "徐工XDE240",
+        "capacity": 72,
+        "maxSpeed": 40
+      },
+      "mineralType": {
+        "code": "CU",
+        "name": "铜矿石",
+        "grade": "1.2%",
+        "destination": "冶炼厂A区",
+        "color": "#B87333"
+      },
+      "phase": 0.0
+    },
+    {
+      "truckId": "T002",
+      "name": "2号矿卡",
+      "driver": "刘威",
+      "driverInfo": {
+        "age": 42,
+        "experience": "12年",
+        "license": "A2"
+      },
+      "vehicleInfo": {
+        "brand": "徐工XDE240",
+        "capacity": 72,
+        "maxSpeed": 40
+      },
+      "mineralType": {
+        "code": "FE",
+        "name": "铁矿石",
+        "grade": "45%",
+        "destination": "选矿厂B区",
+        "color": "#8B4513"
+      },
+      "phase": 0.33
+    },
+    {
+      "truckId": "T003",
+      "name": "3号矿卡",
+      "driver": "王超",
+      "driverInfo": {
+        "age": 28,
+        "experience": "5年",
+        "license": "A2"
+      },
+      "vehicleInfo": {
+        "brand": "徐工XDE240",
+        "capacity": 72,
+        "maxSpeed": 40
+      },
+      "mineralType": {
+        "code": "AU",
+        "name": "金矿石",
+        "grade": "3.5g/t",
+        "destination": "精炼厂C区",
+        "color": "#FFD700"
+      },
+      "phase": 0.66
+    }
+  ]
+}
