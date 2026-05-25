@@ -1,0 +1,150 @@
+:root {
+  /* 颜色变量 - 增强对比度 */
+  --primary-color: #409eff;
+  /* Element Plus 默认蓝 */
+  --primary-dark: #337ecc;
+  --primary-light: #79bbff;
+  --secondary-color: #f56c6c;
+  /* 红色警告 */
+  --success-color: #67c23a;
+  --warning-color: #e6a23c;
+  --info-color: #909399;
+  --primary-rgb: 64 158 255;
+  --primary-dark-rgb: 51 126 204;
+  --primary-light-rgb: 121 187 255;
+  --secondary-rgb: 245 108 108;
+  --success-rgb: 103 194 58;
+  --warning-rgb: 230 162 60;
+  --info-rgb: 144 147 153;
+
+  /* 背景颜色 - 更深的背景，提升白色文字可读性 */
+  --bg-primary: rgba(20, 24, 30, 0.95);
+  /* 深蓝灰背景 */
+  --bg-secondary: rgba(30, 35, 45, 0.95);
+  /* 稍浅的背景 */
+  --bg-tertiary: rgba(45, 50, 60, 0.9);
+  /* 组件背景 */
+  --bg-hover: rgba(50, 60, 80, 0.95);
+  --bg-primary-rgb: 20 24 30;
+  --bg-secondary-rgb: 30 35 45;
+  --bg-tertiary-rgb: 45 50 60;
+  --bg-hover-rgb: 50 60 80;
+
+  /* 文本颜色 - 纯白与高亮灰 */
+  --text-primary: #ffffff;
+  --text-secondary: #e5eaf3;
+  /* 亮灰 */
+  --text-muted: #a3a6ad;
+  /* 柔和灰 */
+  --text-disabled: #606266;
+  --text-primary-rgb: 255 255 255;
+  --text-secondary-rgb: 229 234 243;
+  --text-muted-rgb: 163 166 173;
+  --text-disabled-rgb: 96 98 102;
+
+  /* 边框颜色 */
+  --border-primary: rgba(255, 255, 255, 0.15);
+  --border-secondary: rgba(255, 255, 255, 0.25);
+  --border-focus: var(--primary-color);
+  --border-primary-rgb: 255 255 255;
+  --border-secondary-rgb: 255 255 255;
+
+  /* 阴影 - 增强深度感 */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.6);
+
+  /* 间距 - 紧凑化 */
+  --spacing-xs: 2px;
+  --spacing-sm: 6px;
+  --spacing-md: 10px;
+  --spacing-lg: 14px;
+  --spacing-xl: 18px;
+  --spacing-2xl: 22px;
+  --spacing-3xl: 28px;
+
+  /* 边框圆角 */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* 过渡效果 */
+  --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* 字体大小 */
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-base: 14px;
+  --font-lg: 16px;
+  --font-xl: 18px;
+
+  /* 面板宽度 */
+  --panel-width: 340px;
+}
+
+:root:not([data-theme]),
+:root[data-theme='dark'] {
+  --el-bg-color: var(--bg-primary);
+  --el-bg-color-overlay: var(--bg-secondary);
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-secondary);
+  --el-text-color-secondary: var(--text-muted);
+  --el-border-color: var(--border-primary);
+  --el-border-color-light: var(--border-secondary);
+  --el-fill-color-blank: transparent;
+}
+
+:root[data-theme='light'] {
+  --primary-color: #337ecc;
+  --primary-dark: #1f5fa6;
+  --primary-light: #79bbff;
+  --secondary-color: #f56c6c;
+  --success-color: #67c23a;
+  --warning-color: #e6a23c;
+  --info-color: #909399;
+  --primary-rgb: 51 126 204;
+  --primary-dark-rgb: 31 95 166;
+  --primary-light-rgb: 121 187 255;
+  --secondary-rgb: 245 108 108;
+  --success-rgb: 103 194 58;
+  --warning-rgb: 230 162 60;
+  --info-rgb: 144 147 153;
+
+  --bg-primary: rgba(245, 247, 250, 0.95);
+  --bg-secondary: rgba(255, 255, 255, 0.92);
+  --bg-tertiary: rgba(235, 238, 245, 0.92);
+  --bg-hover: rgba(235, 238, 245, 0.98);
+  --bg-primary-rgb: 245 247 250;
+  --bg-secondary-rgb: 255 255 255;
+  --bg-tertiary-rgb: 235 238 245;
+  --bg-hover-rgb: 235 238 245;
+
+  --text-primary: #1f2329;
+  --text-secondary: #2b2f36;
+  --text-muted: #6b7280;
+  --text-disabled: #9aa0a6;
+  --text-primary-rgb: 31 35 41;
+  --text-secondary-rgb: 43 47 54;
+  --text-muted-rgb: 107 114 128;
+  --text-disabled-rgb: 154 160 166;
+
+  --border-primary: rgba(31, 35, 41, 0.12);
+  --border-secondary: rgba(31, 35, 41, 0.18);
+  --border-focus: var(--primary-color);
+  --border-primary-rgb: 31 35 41;
+  --border-secondary-rgb: 31 35 41;
+
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.12);
+
+  --el-bg-color: var(--bg-primary);
+  --el-bg-color-overlay: var(--bg-secondary);
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-secondary);
+  --el-text-color-secondary: var(--text-muted);
+  --el-border-color: var(--border-primary);
+  --el-border-color-light: var(--border-secondary);
+  --el-fill-color-blank: transparent;
+}

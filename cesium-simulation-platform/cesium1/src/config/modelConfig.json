@@ -1,0 +1,75 @@
+{
+  "defaultLodConfig": {
+    "maximumScreenSpaceError": 16,
+    "cacheBytes": 536870912,
+    "maximumCacheOverflowBytes": 536870912,
+    "cullWithChildrenBounds": true,
+    "dynamicScreenSpaceError": true,
+    "dynamicScreenSpaceErrorDensity": 0.0002,
+    "dynamicScreenSpaceErrorFactor": 24.0,
+    "dynamicScreenSpaceErrorHeightFalloff": 0.25,
+    "cullRequestsWhileMoving": true,
+    "cullRequestsWhileMovingMultiplier": 60.0,
+    "preferLeaves": false,
+    "foveatedScreenSpaceError": true,
+    "foveatedConeSize": 0.1,
+    "foveatedMinimumScreenSpaceErrorRelaxation": 0.0,
+    "foveatedTimeDelay": 0.2,
+    "skipLevelOfDetail": false,
+    "baseScreenSpaceError": 1024,
+    "skipScreenSpaceErrorFactor": 16,
+    "skipLevels": 1,
+    "immediatelyLoadDesiredLevelOfDetail": false,
+    "loadSiblings": false,
+    "preloadWhenHidden": false,
+    "preloadFlightDestinations": true,
+    "progressiveResolutionHeightFraction": 0.3
+  },
+  "presets": {
+    "high_quality": {
+      "displayName": "高质量",
+      "config": {
+        "maximumScreenSpaceError": 8,
+        "cacheBytes": 1073741824,
+        "maximumCacheOverflowBytes": 1073741824,
+        "dynamicScreenSpaceError": true,
+        "foveatedScreenSpaceError": false,
+        "skipLevelOfDetail": false,
+        "preloadFlightDestinations": true
+      }
+    },
+    "balanced": {
+      "displayName": "平衡",
+      "config": {
+        "maximumScreenSpaceError": 16
+      }
+    },
+    "performance": {
+      "displayName": "高性能",
+      "config": {
+        "maximumScreenSpaceError": 32,
+        "cacheBytes": 268435456,
+        "maximumCacheOverflowBytes": 268435456,
+        "dynamicScreenSpaceError": true,
+        "skipLevelOfDetail": true,
+        "skipLevels": 2,
+        "cullRequestsWhileMoving": true,
+        "cullRequestsWhileMovingMultiplier": 80.0,
+        "foveatedScreenSpaceError": true,
+        "foveatedConeSize": 0.12,
+        "foveatedTimeDelay": 0.35,
+        "preloadWhenHidden": false
+      }
+    }
+  },
+  "defaultPosition": {
+    "longitude": 113.323,
+    "latitude": 23.106,
+    "height": -26
+  },
+  "defaultTransform": {
+    "rotationX": 15,
+    "rotationY": 0,
+    "rotationZ": 0
+  }
+}

@@ -1,0 +1,161 @@
+/**
+ * Element Plus Overrides
+ * 深度定制 Element Plus 组件样式，使其符合深色科技风格
+ */
+
+/* ==========================================================================
+   Slider (滑动条) - 核心优化
+   ========================================================================== */
+
+/* 1. 滑动条轨道背景 */
+.el-slider__runway {
+    background-color: var(--border-secondary) !important;
+    height: 6px !important; /* 统一为 6px */
+    border-radius: 3px !important;
+    margin: 16px 0 !important;
+}
+
+/* 2. 激活条颜色 */
+.el-slider__bar {
+    background-color: var(--primary-color) !important;
+    height: 6px !important;
+    border-radius: 3px !important;
+}
+
+/* 3. 滑块按钮 */
+.el-slider__button {
+    width: 16px !important;
+    height: 16px !important;
+    border: none !important;
+    background: linear-gradient(135deg, #60A5FA, #3B82F6) !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3) !important;
+    transition: transform 0.2s ease !important;
+}
+
+/* 4. 滑块悬停/激活状态 */
+.el-slider__button:hover,
+.el-slider__button-wrapper.dragging .el-slider__button {
+    transform: scale(1.15) !important;
+    background: linear-gradient(135deg, #3B82F6, #60A5FA) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* 5. 解决滑块遮挡问题的关键：调整 Wrapper 大小和定位 */
+.el-slider__button-wrapper {
+    width: 36px !important;
+    height: 36px !important;
+    top: -15px !important; /* 垂直居中修正: (6/2) - (36/2) = 3 - 18 = -15 */
+    z-index: 10;
+}
+
+/* ==========================================================================
+   Input Number (数字输入框) - 融入背景
+   ========================================================================== */
+
+.el-input-number.is-without-controls .el-input__wrapper {
+    padding: 0 8px !important;
+}
+
+.el-input__wrapper {
+    background-color: rgb(var(--bg-tertiary-rgb) / 0.55) !important;
+    box-shadow: none !important;
+    border: 1px solid var(--border-primary) !important;
+    border-radius: 4px !important;
+    transition: all 0.3s ease;
+}
+
+.el-input__wrapper:hover,
+.el-input__wrapper.is-focus {
+    background-color: rgb(var(--bg-hover-rgb) / 0.6) !important;
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 1px var(--primary-color) inset !important;
+}
+
+.el-input__inner {
+    color: var(--text-primary) !important;
+    font-family: 'JetBrains Mono', monospace !important; /* 数字使用等宽字体 */
+    font-size: 13px !important;
+    text-align: right !important; /* 数字靠右对齐 */
+}
+
+/* ==========================================================================
+   Button (按钮)
+   ========================================================================== */
+
+.el-button {
+    border-radius: 4px !important;
+    font-weight: 500 !important;
+    transition: all 0.2s ease !important;
+}
+
+.el-button--primary {
+    --el-button-bg-color: var(--primary-color) !important;
+    --el-button-border-color: var(--primary-color) !important;
+    --el-button-hover-bg-color: var(--primary-light) !important;
+}
+
+.el-button--default {
+    background-color: rgb(var(--bg-tertiary-rgb) / 0.45) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-secondary) !important;
+}
+
+.el-button--default:hover {
+    background-color: rgb(var(--bg-hover-rgb) / 0.65) !important;
+    border-color: var(--border-secondary) !important;
+    color: var(--text-primary) !important;
+}
+
+/* ==========================================================================
+   Card (卡片/面板)
+   ========================================================================== */
+
+.el-card {
+    background-color: var(--bg-primary) !important;
+    border: 1px solid var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+.el-card__header {
+    border-bottom: 1px solid var(--border-primary) !important;
+    padding: 16px 20px !important;
+}
+
+.el-card__body {
+    padding: 20px !important;
+}
+
+/* ==========================================================================
+   Tooltip (提示)
+   ========================================================================== */
+.el-popper.is-dark {
+    background: var(--bg-secondary) !important;
+    border: 1px solid var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+.el-popper__arrow::before {
+    background: var(--bg-secondary) !important;
+    border: 1px solid var(--border-primary) !important;
+}
+
+/* ==========================================================================
+   Select (下拉框)
+   ========================================================================== */
+.el-select-dropdown__item {
+    color: var(--text-secondary) !important;
+}
+
+.el-select-dropdown__item.hover, 
+.el-select-dropdown__item:hover {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.el-select-dropdown__item.selected {
+    color: var(--primary-color) !important;
+    font-weight: 600 !important;
+}
+
+.el-select .el-input__wrapper {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+}
