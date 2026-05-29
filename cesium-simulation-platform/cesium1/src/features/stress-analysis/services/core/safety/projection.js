@@ -1,15 +1,10 @@
 import * as Cesium from 'cesium'
+import { clamp01 } from '../shared/stressActionShared.js'
 import {
   buildSafetyContext,
   resolveLithologyRiskFactor,
   resolvePointLocalPosition
 } from './index.js'
-
-function clamp01(value) {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return 0
-  return Math.max(0, Math.min(1, n))
-}
 
 function buildDatasetSignature(sourceKind, data) {
   if (sourceKind === 'points') {

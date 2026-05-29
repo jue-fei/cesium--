@@ -5,6 +5,7 @@ import {
   resolvePointCenterDegrees
 } from '../interpolation/index.js'
 import { DEFAULT_COLOR_RAMP } from './heatmapPalette.js'
+import { STRESS_TURBO_RAMP_32 } from './stressColormap.js'
 import { clamp01 as clamp01Core } from '../shared/stressActionShared.js'
 
 export function resolveTilesetCenterInfo(tileset) {
@@ -164,8 +165,8 @@ const DEFAULT_SHADER_STYLE = Object.freeze({
   fieldMaskMode: 'none',
   fieldMaskPower: 2.2,
   contourEnabled: false,
-  contourLevels: 12,
-  contourWidth: 0.06,
+  contourLevels: 24,
+  contourWidth: 0.015,
   glowEnabled: false,
   glowThreshold: 0.8,
   glowStrength: 0.35,
@@ -177,6 +178,92 @@ export const clamp01 = clamp01Core
 
 function mixChannel(a, b, t) {
   return Math.round(a + (b - a) * t)
+}
+
+// ---- CIELAB 色彩空间转换（感知均匀插值） ----
+
+function srgbToLinear(c) {
+  const v = c / 255
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
+}
+
+function linearToSrgb(v) {
+  const c = v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055
+  return Math.round(Math.max(0, Math.min(1, c)) * 255)
+}
+
+// D65 白点
+const D65_X = 0.95047
+const D65_Y = 1.0
+const D65_Z = 1.08883
+
+function rgb2xyz(r, g, b) {
+  const rl = srgbToLinear(r)
+  const gl = srgbToLinear(g)
+  const bl = srgbToLinear(b)
+  return [
+    (0.4124564 * rl + 0.3575761 * gl + 0.1804375 * bl) * 100,
+    (0.2126729 * rl + 0.7151522 * gl + 0.0721750 * bl) * 100,
+    (0.0193339 * rl + 0.1191920 * gl + 0.9503041 * bl) * 100
+  ]
+}
+
+function xyz2lab(x, y, z) {
+  const fx = x / (D65_X * 100)
+  const fy = y / (D65_Y * 100)
+  const fz = z / (D65_Z * 100)
+  const k = 6 / 29
+  const k3 = k * k * k
+  const f = v => (v > k3 ? Math.cbrt(v) : v / (3 * k * k) + 4 / 29)
+  return [
+    116 * f(fy) - 16,
+    500 * (f(fx) - f(fy)),
+    200 * (f(fy) - f(fz))
+  ]
+}
+
+function lab2xyz(L, a, b) {
+  const fy = (L + 16) / 116
+  const fx = a / 500 + fy
+  const fz = fy - b / 200
+  const k = 6 / 29
+  const k3 = k * k * k
+  const g = v => (v > k ? v * v * v : 3 * k * k * (v - 4 / 29))
+  return [
+    g(fx) * D65_X * 100,
+    g(fy) * D65_Y * 100,
+    g(fz) * D65_Z * 100
+  ]
+}
+
+function xyz2rgb(x, y, z) {
+  const xl = x / 100
+  const yl = y / 100
+  const zl = z / 100
+  return [
+    linearToSrgb(3.2404542 * xl - 1.5371385 * yl - 0.4985314 * zl),
+    linearToSrgb(-0.9692660 * xl + 1.8760108 * yl + 0.0415560 * zl),
+    linearToSrgb(0.0556434 * xl - 0.2040259 * yl + 1.0572252 * zl)
+  ]
+}
+
+/** 在 CIELAB 空间中做感知均匀的颜色插值 */
+function lerpCIELAB(rgbaA, rgbaB, t) {
+  const xyzA = rgb2xyz(rgbaA[0], rgbaA[1], rgbaA[2])
+  const xyzB = rgb2xyz(rgbaB[0], rgbaB[1], rgbaB[2])
+  const labA = xyz2lab(xyzA[0], xyzA[1], xyzA[2])
+  const labB = xyz2lab(xyzB[0], xyzB[1], xyzB[2])
+  const L = labA[0] + (labB[0] - labA[0]) * t
+  const aa = labA[1] + (labB[1] - labA[1]) * t
+  const bb = labA[2] + (labB[2] - labA[2]) * t
+  const xyz = lab2xyz(L, aa, bb)
+  const rgb = xyz2rgb(xyz[0], xyz[1], xyz[2])
+  return [
+    rgb[0],
+    rgb[1],
+    rgb[2],
+    Math.round(rgbaA[3] + (rgbaB[3] - rgbaA[3]) * t)
+  ]
 }
 
 function ensureRampStops(ramp) {
@@ -212,8 +299,26 @@ function ensureRampStops(ramp) {
   return stops
 }
 
-export function buildColorLUTSpecFromRamp(ramp, size = 256) {
-  const lutSize = Number.isInteger(size) && size >= 2 ? size : 256
+/**
+ * 从色带数组构建 LUT 规格
+ * @param {Array} ramp 色带数组 [{value, color}, ...]
+ * @param {number|{size?: number, colorSpace?: 'rgb'|'cielab'}} sizeOrOptions
+ *    - number: 保持兼容旧调用，LUT 大小
+ *    - object: { size, colorSpace }，colorSpace='cielab' 时使用感知均匀插值
+ */
+export function buildColorLUTSpecFromRamp(ramp, sizeOrOptions = 256) {
+  const lutSize =
+    typeof sizeOrOptions === 'object'
+      ? Number.isInteger(sizeOrOptions.size) && sizeOrOptions.size >= 2
+        ? sizeOrOptions.size
+        : 256
+      : Number.isInteger(sizeOrOptions) && sizeOrOptions >= 2
+        ? sizeOrOptions
+        : 256
+  const colorSpace =
+    typeof sizeOrOptions === 'object' && sizeOrOptions.colorSpace === 'cielab'
+      ? 'cielab'
+      : 'rgb'
   const stops = ensureRampStops(ramp)
   const table = []
   let stopIdx = 0
@@ -226,22 +331,26 @@ export function buildColorLUTSpecFromRamp(ramp, size = 256) {
     const right = stops[Math.min(stopIdx + 1, stops.length - 1)]
     const span = Math.max(1e-6, right.value - left.value)
     const localT = clamp01((t - left.value) / span)
-    table.push([
-      mixChannel(left.rgba[0], right.rgba[0], localT),
-      mixChannel(left.rgba[1], right.rgba[1], localT),
-      mixChannel(left.rgba[2], right.rgba[2], localT),
-      mixChannel(left.rgba[3], right.rgba[3], localT)
-    ])
+    if (colorSpace === 'cielab') {
+      table.push(lerpCIELAB(left.rgba, right.rgba, localT))
+    } else {
+      table.push([
+        mixChannel(left.rgba[0], right.rgba[0], localT),
+        mixChannel(left.rgba[1], right.rgba[1], localT),
+        mixChannel(left.rgba[2], right.rgba[2], localT),
+        mixChannel(left.rgba[3], right.rgba[3], localT)
+      ])
+    }
   }
-  return { preset: 'custom', size: lutSize, table }
+  return { preset: 'custom', size: lutSize, table, colorSpace }
 }
 
-export function buildDefaultStressColorLUT(size = 256) {
-  return buildColorLUTSpecFromRamp(DEFAULT_COLOR_RAMP, size)
+export function buildDefaultStressColorLUT(size = 256, colorSpace = 'cielab') {
+  return buildColorLUTSpecFromRamp(STRESS_TURBO_RAMP_32, { size, colorSpace })
 }
 
 export function normalizeHeatmapDisplay(raw) {
-  const contrast = Number.isFinite(Number(raw?.contrast)) ? Number(raw.contrast) : 2.2
+  const contrast = Number.isFinite(Number(raw?.contrast)) ? Number(raw.contrast) : 1.0
   const gamma = Number.isFinite(Number(raw?.gamma)) ? Number(raw.gamma) : 0.65
   const cutoff = Number.isFinite(Number(raw?.cutoff)) ? Number(raw.cutoff) : 0.04
   const lowRangeOpacity = Number.isFinite(Number(raw?.lowRangeOpacity))
@@ -259,6 +368,12 @@ export function normalizeHeatmapDisplay(raw) {
   const maskModeRaw = String(raw?.maskMode || 'none')
   const maskMode = maskModeRaw === 'points' ? 'points' : 'none'
   const enableContour = raw?.enableContour !== undefined ? Boolean(raw.enableContour) : false
+  const contourLevels = Number.isFinite(Number(raw?.contourLevels))
+    ? Math.max(2, Math.min(40, Number(raw.contourLevels)))
+    : 24
+  const contourWidth = Number.isFinite(Number(raw?.contourWidth))
+    ? Math.max(0.003, Math.min(0.12, Number(raw.contourWidth)))
+    : 0.015
   const enableGlow = raw?.enableGlow !== undefined ? Boolean(raw.enableGlow) : false
   const enableMarker = raw?.enableMarker !== undefined ? Boolean(raw.enableMarker) : false
   return {
@@ -273,37 +388,42 @@ export function normalizeHeatmapDisplay(raw) {
     blendMode,
     maskMode,
     enableContour,
+    contourLevels,
+    contourWidth,
     enableGlow,
     enableMarker
   }
 }
 
 export function cloneColorRamp(ramp) {
+  const fallbackRamp = STRESS_TURBO_RAMP_32
   const source =
     Array.isArray(ramp) && ramp.length >= 4
       ? ramp
-      : [...(Array.isArray(ramp) ? ramp : []), ...DEFAULT_COLOR_RAMP].slice(
+      : [...(Array.isArray(ramp) ? ramp : []), ...fallbackRamp].slice(
           0,
-          DEFAULT_COLOR_RAMP.length
+          fallbackRamp.length
         )
   return source.map((r, idx) => ({
     value: clamp01(
-      Number(r?.value ?? DEFAULT_COLOR_RAMP[Math.min(idx, DEFAULT_COLOR_RAMP.length - 1)].value)
+      Number(r?.value ?? fallbackRamp[Math.min(idx, fallbackRamp.length - 1)].value)
     ),
     color: String(
-      r?.color || DEFAULT_COLOR_RAMP[Math.min(idx, DEFAULT_COLOR_RAMP.length - 1)].color
+      r?.color || fallbackRamp[Math.min(idx, fallbackRamp.length - 1)].color
     ),
     label:
       r?.label !== undefined
         ? String(r.label)
-        : DEFAULT_COLOR_RAMP[Math.min(idx, DEFAULT_COLOR_RAMP.length - 1)].label
+        : fallbackRamp[Math.min(idx, fallbackRamp.length - 1)].label
   }))
 }
 
 export function buildAdjustedColorRamp(baseRamp, display) {
   const ramp = cloneColorRamp(baseRamp)
   const tuned = normalizeHeatmapDisplay(display)
-  const minGap = 0.03
+  const n = ramp.length
+  // 自适应最小间距：色标越多间距越小，避免累计挤压
+  const minGap = n <= 8 ? 0.035 : n <= 12 ? 0.022 : 0.014
   const values = ramp.map((r, idx) => {
     const base = clamp01(Number(r.value))
     if (idx === ramp.length - 1) return 1
@@ -356,6 +476,8 @@ export function applyHeatmapDisplayToConfigObject(configObj, baseRamp, display) 
     anchorToModel: normalized.anchorToModel,
     fieldMaskMode: normalized.maskMode,
     contourEnabled: Boolean(normalized.enableContour),
+    contourLevels: normalized.contourLevels,
+    contourWidth: normalized.contourWidth,
     glowEnabled: Boolean(normalized.enableGlow),
     markerEnabled: Boolean(normalized.enableMarker)
   }
@@ -377,7 +499,7 @@ export function buildDefaultStressConfig(
     return {
       time: { frames: 1, dimension: '秒', speedMs: 500 },
       blendMode: 'max',
-      colorRamp: cloneColorRamp(DEFAULT_COLOR_RAMP),
+      colorRamp: cloneColorRamp(STRESS_TURBO_RAMP_32),
       colorLUT: buildDefaultStressColorLUT(),
       style: { ...DEFAULT_SHADER_STYLE, cutoff: 0.04, fieldMaskPower: 2.2 },
       sources: []
@@ -430,7 +552,7 @@ export function buildHeatmapConfigFromPointDataset(ds, options = {}) {
   return {
     time: { frames: time.frames, dimension: time.dimension, speedMs: time.speedMs },
     blendMode: 'max',
-    colorRamp: cloneColorRamp(DEFAULT_COLOR_RAMP),
+    colorRamp: cloneColorRamp(STRESS_TURBO_RAMP_32),
     colorLUT: buildDefaultStressColorLUT(),
     style: {
       ...DEFAULT_SHADER_STYLE,
@@ -492,12 +614,16 @@ export function buildShaderConfigFromScalarField(ds, scalarField, { unitStress, 
         ? Math.max(0.1, mask.power)
         : DEFAULT_SHADER_STYLE.fieldMaskPower,
       contourEnabled: Boolean(display.enableContour),
-      contourLevels: Number.isFinite(derived?.contour?.levels)
-        ? Math.max(2, derived.contour.levels)
-        : DEFAULT_SHADER_STYLE.contourLevels,
-      contourWidth: Number.isFinite(derived?.contour?.width)
-        ? Math.max(0.005, Math.min(0.2, derived.contour.width))
-        : DEFAULT_SHADER_STYLE.contourWidth,
+      contourLevels: Number.isFinite(display.contourLevels)
+        ? Math.max(2, Math.min(40, display.contourLevels))
+        : Number.isFinite(derived?.contour?.levels)
+          ? Math.max(2, derived.contour.levels)
+          : DEFAULT_SHADER_STYLE.contourLevels,
+      contourWidth: Number.isFinite(display.contourWidth)
+        ? Math.max(0.003, Math.min(0.12, display.contourWidth))
+        : Number.isFinite(derived?.contour?.width)
+          ? Math.max(0.003, Math.min(0.12, derived.contour.width))
+          : DEFAULT_SHADER_STYLE.contourWidth,
       glowEnabled: Boolean(display.enableGlow),
       glowThreshold: Number.isFinite(derived?.glow?.threshold)
         ? Math.max(0, Math.min(1, derived.glow.threshold))

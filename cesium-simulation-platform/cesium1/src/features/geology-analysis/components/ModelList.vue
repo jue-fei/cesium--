@@ -39,7 +39,8 @@
           </div>
           <select
             v-model="currentConfigFileLocal"
-            class="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500 transition-colors"
+            :disabled="undergroundViewEnabled || switching"
+            class="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             @change="handleLoadConfig"
           >
             <option value="">请选择配置文件</option>
@@ -47,10 +48,14 @@
               {{ file.name }}{{ isModelCached(file.path) ? ' ⚡' : '' }}
             </option>
           </select>
+          <p v-if="undergroundViewEnabled" class="mt-1 text-[11px] text-gray-500">
+            地下模式开启时不可切换模型
+          </p>
         </div>
         <div class="flex gap-2">
           <button
-            class="px-3 py-1 rounded bg-white/10 border border-white/20 text-xs text-gray-200 hover:bg-white/20 hover:text-white transition-colors"
+            :disabled="undergroundViewEnabled || switching"
+            class="px-3 py-1 rounded bg-white/10 border border-white/20 text-xs text-gray-200 hover:bg-white/20 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             @click="reloadCurrentConfig"
           >
             {{ switching ? '切换中...' : '刷新' }}
@@ -186,6 +191,7 @@ const {
   currentConfigFile,
   modelList,
   globalOpacity,
+  undergroundViewEnabled,
   onConfigChange,
   reloadCurrentConfig,
   updateGlobalOpacity,
@@ -229,6 +235,7 @@ const toggleConfigPanel = () => {
 }
 
 const handleLoadConfig = () => {
+  if (undergroundViewEnabled.value) return
   if (!currentConfigFileLocal.value) return
   switching.value = true
   onConfigChange(currentConfigFileLocal.value).finally(() => {

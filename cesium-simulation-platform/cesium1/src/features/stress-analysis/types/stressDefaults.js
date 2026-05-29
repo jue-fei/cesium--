@@ -10,8 +10,8 @@ export function createDefaultOverlayItems() {
 
 export function createDefaultHeatmapDisplay() {
   return {
-    contrast: 1.9,
-    gamma: 0.72,
+    contrast: 1.0,
+    gamma: 0.82,
     cutoff: 0,
     forceVisible: 0.18,
     diffuseMix: 0.85,
@@ -20,6 +20,8 @@ export function createDefaultHeatmapDisplay() {
     blendMode: 'max',
     maskMode: 'none',
     enableContour: true,
+    contourLevels: 24,
+    contourWidth: 0.04,
     enableGlow: false,
     enableMarker: false
   }

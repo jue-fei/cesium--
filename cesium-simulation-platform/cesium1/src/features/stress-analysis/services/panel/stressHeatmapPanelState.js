@@ -4,44 +4,63 @@ import {
   formatNumber,
   formatScientific
 } from '../../utils/stressPanelUtils.js'
+import { STRESS_COLORMAP_PRESETS } from '../core/render/stressColormap.js'
 
 export const HEATMAP_PANEL_DEFAULTS = {
-  contrast: 2.2,
-  gamma: 0.65,
-  cutoff: 0.04,
-  lowRangeOpacity: 0.12,
-  forceVisible: 0.18,
-  diffuseMix: 0.88,
-  emissiveMix: 0.72,
+  contrast: 1.08,
+  gamma: 0.72,
+  cutoff: 0.03,
+  lowRangeOpacity: 0.1,
+  forceVisible: 0.16,
+  diffuseMix: 0.84,
+  emissiveMix: 0.78,
   anchorToModel: true,
   blendMode: 'max',
   maskMode: 'none',
   enableContour: true,
+  contourLevels: 24,
+  contourWidth: 0.015,
   enableGlow: false,
-  enableMarker: false
+  enableMarker: false,
+  colormapPreset: 'turbo32'
 }
 
 const HEATMAP_PANEL_PRESETS = {
   clear: {
-    contrast: 2.5,
+    contrast: 1.18,
+    gamma: 0.72,
+    cutoff: 0.035,
+    lowRangeOpacity: 0.07,
+    forceVisible: 0.18,
+    colormapPreset: 'turbo32',
+    description: '清晰热力图：高对比度，层次分明，适合演示汇报'
+  },
+  continuous: {
+    contrast: 0.9,
+    gamma: 1.0,
+    cutoff: 0.01,
+    lowRangeOpacity: 0.28,
+    forceVisible: 0.1,
+    colormapPreset: 'viridis',
+    description: '低值连续：感知均匀，色盲友好，适合学术分析'
+  },
+  balanced: {
+    contrast: 1.08,
+    gamma: 0.8,
+    cutoff: 0.018,
+    lowRangeOpacity: 0.12,
+    forceVisible: 0.15,
+    colormapPreset: 'turbo32',
+    description: '平衡：日常分析推荐，通用场景适用'
+  },
+  alarm: {
+    contrast: 1.3,
     gamma: 0.55,
     cutoff: 0.06,
     lowRangeOpacity: 0.05,
-    forceVisible: 0.25
-  },
-  continuous: {
-    contrast: 1.4,
-    gamma: 0.92,
-    cutoff: 0.02,
-    lowRangeOpacity: 0.22,
-    forceVisible: 0.12
-  },
-  balanced: {
-    contrast: 1.85,
-    gamma: 0.72,
-    cutoff: 0.03,
-    lowRangeOpacity: 0.15,
-    forceVisible: 0.18
+    forceVisible: 0.28,
+    colormapPreset: 'inferno',
+    description: '预警模式：突出高应力区域，弱化背景噪声'
   }
 }
 
@@ -66,15 +85,33 @@ export function resolveHeatmapPanelState(next = {}) {
         : HEATMAP_PANEL_DEFAULTS.blendMode,
     maskMode: next.maskMode === 'points' ? 'points' : HEATMAP_PANEL_DEFAULTS.maskMode,
     enableContour: Boolean(next.enableContour),
+    contourLevels: Number.isFinite(Number(next.contourLevels))
+      ? Math.max(2, Math.min(40, Number(next.contourLevels)))
+      : HEATMAP_PANEL_DEFAULTS.contourLevels,
+    contourWidth: Number.isFinite(Number(next.contourWidth))
+      ? Math.max(0.01, Math.min(0.2, Number(next.contourWidth)))
+      : HEATMAP_PANEL_DEFAULTS.contourWidth,
     enableGlow: Boolean(next.enableGlow),
-    enableMarker: Boolean(next.enableMarker)
+    enableMarker: Boolean(next.enableMarker),
+    colormapPreset:
+      next.colormapPreset && STRESS_COLORMAP_PRESETS[next.colormapPreset]
+        ? next.colormapPreset
+        : 'turbo32'
   }
 }
 
 export function resolveHeatmapPresetState(mode) {
   if (mode === 'clear') return HEATMAP_PANEL_PRESETS.clear
   if (mode === 'continuous') return HEATMAP_PANEL_PRESETS.continuous
+  if (mode === 'alarm') return HEATMAP_PANEL_PRESETS.alarm
   return HEATMAP_PANEL_PRESETS.balanced
+}
+
+export function getHeatmapPresetList() {
+  return Object.entries(HEATMAP_PANEL_PRESETS).map(([key, preset]) => ({
+    key,
+    description: preset.description || key
+  }))
 }
 
 export function buildHeatmapDisplayPayload(state) {
@@ -90,9 +127,30 @@ export function buildHeatmapDisplayPayload(state) {
     blendMode: state.blendMode,
     maskMode: state.maskMode,
     enableContour: state.enableContour,
+    contourLevels: state.contourLevels,
+    contourWidth: state.contourWidth,
     enableGlow: state.enableGlow,
-    enableMarker: state.enableMarker
+    enableMarker: state.enableMarker,
+    colormapPreset: state.colormapPreset || 'turbo32'
   }
+}
+
+/** 获取所有可用的色图预设列表 */
+export function getColormapPresetOptions() {
+  return Object.entries(STRESS_COLORMAP_PRESETS).map(([key, preset]) => ({
+    value: key,
+    label: preset.name,
+    levels: preset.levels
+  }))
+}
+
+/** 根据预设 key 解析色带，失败时返回 turbo16 默认 */
+export function resolveColormapRamp(presetKey) {
+  const preset = STRESS_COLORMAP_PRESETS[presetKey]
+  if (preset && Array.isArray(preset.ramp)) {
+    return preset.ramp
+  }
+  return STRESS_COLORMAP_PRESETS.turbo16.ramp
 }
 
 export function resolveStressUnit(configUnit, unitStress, _unused) {
@@ -157,6 +215,21 @@ export function buildGradientValueTickRows(rangeState, tickCount = 12) {
     rows.push({
       text: formatScientific(value),
       major: i % 3 === 0 || i === tickCount || i === 0
+    })
+  }
+  return rows
+}
+
+export function buildContourValueRows(rangeState, contourLevels) {
+  const levels = Math.max(2, Math.min(40, Number(contourLevels) || 24))
+  const rows = []
+  for (let i = 0; i <= levels; i++) {
+    const colorT = i / levels
+    const rawT = rangeState.cutoff + (1 - rangeState.cutoff) * colorT
+    const value = rangeState.min + rangeState.span * rawT
+    rows.push({
+      text: formatScientific(value),
+      index: i
     })
   }
   return rows

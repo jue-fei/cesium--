@@ -15,26 +15,17 @@
  *   4. 综合安全评分 — AHP 多指标加权融合
  */
 
+import { clamp, clamp01, ensureArray } from '../shared/stressActionShared.js'
+
 // ============================================================================
 // 一、基础工具函数
 // ============================================================================
 
-function clamp(value, min, max) {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return min
-  return Math.max(min, Math.min(max, n))
-}
-function clamp01(value) {
-  return clamp(value, 0, 1)
-}
 function roundTo(value, digits = 2) {
   const n = Number(value)
   if (!Number.isFinite(n)) return 0
   const base = 10 ** digits
   return Math.round(n * base) / base
-}
-function ensureArray(value) {
-  return Array.isArray(value) ? value : []
 }
 
 function computeMeanStress(s) {

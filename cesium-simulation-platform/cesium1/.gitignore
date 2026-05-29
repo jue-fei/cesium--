@@ -83,3 +83,9 @@ src/aws-exports.js
 
 *storybook.log
 storybook-static
+
+# Simulation results (generated data)
+public/result/
+
+# Yarn (project uses npm)
+yarn.lock

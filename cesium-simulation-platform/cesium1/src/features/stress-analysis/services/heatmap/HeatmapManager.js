@@ -1,5 +1,10 @@
 import * as Cesium from 'cesium'
 import { warn } from '@/utils/errorHandler.js'
+import {
+  buildColorLUTSpecFromRamp,
+  cloneColorRamp
+} from '../core/render/index.js'
+import { STRESS_TURBO_RAMP_32 } from '../core/render/stressColormap.js'
 
 /**
  * @typedef {{
@@ -20,11 +25,13 @@ function isStressDebugEnabled() {
   try {
     const debugWindow = getStressDebugWindow()
     if (!debugWindow) return false
-    return debugWindow.__STRESS_DEBUG__ !== undefined ? Boolean(debugWindow.__STRESS_DEBUG__) : true
+    return debugWindow.__STRESS_DEBUG__ !== undefined ? Boolean(debugWindow.__STRESS_DEBUG__) : false
   } catch (e) {
     return false
   }
 }
+
+const clamp01 = v => Math.max(0, Math.min(1, v))
 
 const MAX_FIELD_FRAME_TEXTURE_CACHE = 16
 const MAX_SOURCE_TEXTURE_CACHE = 16
@@ -164,7 +171,6 @@ export class HeatmapManager {
     })
     const shader = new Cesium.CustomShader({
       uniforms: {
-        u_useLUT: { type: Cesium.UniformType.FLOAT, value: normalized.lut.enabled ? 1.0 : 0.0 },
         u_lutTexture: { type: Cesium.UniformType.SAMPLER_2D, value: normalized.lut.texture },
         u_lutSize: { type: Cesium.UniformType.FLOAT, value: normalized.lut.size },
         u_useSourceTex: { type: Cesium.UniformType.FLOAT, value: useSourceTex ? 1.0 : 0.0 },
@@ -182,14 +188,6 @@ export class HeatmapManager {
         u_glowThreshold: { type: Cesium.UniformType.FLOAT, value: normalized.glowThreshold },
         u_glowStrength: { type: Cesium.UniformType.FLOAT, value: normalized.glowStrength },
         u_anchorToModel: { type: Cesium.UniformType.FLOAT, value: anchorToModel ? 1.0 : 0.0 },
-        u_color0: { type: Cesium.UniformType.VEC3, value: normalized.colors[0] },
-        u_color1: { type: Cesium.UniformType.VEC3, value: normalized.colors[1] },
-        u_color2: { type: Cesium.UniformType.VEC3, value: normalized.colors[2] },
-        u_color3: { type: Cesium.UniformType.VEC3, value: normalized.colors[3] },
-        u_threshold0: { type: Cesium.UniformType.FLOAT, value: normalized.thresholds[0] },
-        u_threshold1: { type: Cesium.UniformType.FLOAT, value: normalized.thresholds[1] },
-        u_threshold2: { type: Cesium.UniformType.FLOAT, value: normalized.thresholds[2] },
-        u_threshold3: { type: Cesium.UniformType.FLOAT, value: normalized.thresholds[3] },
         u_diffuseMix: { type: Cesium.UniformType.FLOAT, value: normalized.diffuseMix },
         u_emissiveMix: { type: Cesium.UniformType.FLOAT, value: normalized.emissiveMix },
         u_blendMode: { type: Cesium.UniformType.FLOAT, value: normalized.blendMode },
@@ -233,27 +231,9 @@ export class HeatmapManager {
         }
 
         vec3 mapColor(float v) {
-          if (u_useLUT > 0.5) {
-            float size = max(2.0, u_lutSize);
-            float i = clamp(v, 0.0, 1.0) * (size - 1.0);
-            float u = (floor(i) + 0.5) / size;
-            return texture(u_lutTexture, vec2(u, 0.5)).rgb;
-          }
-
-          vec3 c0 = u_color0;
-          vec3 c1 = u_color1;
-          vec3 c2 = u_color2;
-          vec3 c3 = u_color3;
-          float t0 = u_threshold0;
-          float t1 = u_threshold1;
-          float t2 = u_threshold2;
-          float t3 = u_threshold3;
-
-          if (v <= t0) return c0;
-          if (v <= t1) return mix(c0, c1, (v - t0) / max(0.0001, (t1 - t0)));
-          if (v <= t2) return mix(c1, c2, (v - t1) / max(0.0001, (t2 - t1)));
-          if (v <= t3) return mix(c2, c3, (v - t2) / max(0.0001, (t3 - t2)));
-          return c3;
+          float size = max(2.0, u_lutSize);
+          float u = (clamp(v, 0.0, 1.0) * (size - 1.0) + 0.5) / size;
+          return texture(u_lutTexture, vec2(u, 0.5)).rgb;
         }
 
         ${sourceAccessor}
@@ -404,7 +384,9 @@ export class HeatmapManager {
           if (u_contourEnabled > 0.5) {
             float levels = max(2.0, u_contourLevels);
             float f = abs(fract(displayW * levels) - 0.5);
-            float line = 1.0 - smoothstep(0.0, clamp(u_contourWidth, 0.001, 0.2), f);
+            float lineW = clamp(u_contourWidth, 0.001, 0.12);
+            float pixelAA = max(fwidth(f), 1e-7);
+            float line = 1.0 - smoothstep(lineW, lineW + pixelAA, f);
             material.emissive = mix(material.emissive, vec3(1.0), line * 0.35 * displayW);
           }
 
@@ -512,7 +494,6 @@ export class HeatmapManager {
       }
     }
 
-    shader.setUniform('u_useLUT', normalized.lut.enabled ? 1.0 : 0.0)
     shader.setUniform('u_lutTexture', normalized.lut.texture)
     shader.setUniform('u_lutSize', normalized.lut.size)
     shader.setUniform('u_useSourceTex', useSourceTex ? 1.0 : 0.0)
@@ -536,10 +517,6 @@ export class HeatmapManager {
     shader.setUniform('u_forceVisible', normalized.forceVisible)
     shader.setUniform('u_lowRangeOpacity', normalized.lowRangeOpacity)
     shader.setUniform('u_sourceCount', normalized.sourceCount)
-    for (let i = 0; i < normalized.colors.length; i++) {
-      shader.setUniform(`u_color${i}`, normalized.colors[i])
-      shader.setUniform(`u_threshold${i}`, normalized.thresholds[i])
-    }
     if (!useSourceTex) {
       this.setSourceUniforms(shader, directSources, sourceCentersMC)
     }
@@ -805,33 +782,14 @@ export class HeatmapManager {
 
   normalizeStressConfig(config) {
     const colorRamp = Array.isArray(config.colorRamp) ? config.colorRamp : []
-    const defaults = [
-      { value: 0.0, color: '#000080' },
-      { value: 0.1667, color: '#0066CC' },
-      { value: 0.3333, color: '#00CCFF' },
-      { value: 0.5, color: '#00CC66' },
-      { value: 0.625, color: '#99CC00' },
-      { value: 0.7083, color: '#FFCC00' },
-      { value: 0.7917, color: '#FF8800' },
-      { value: 0.875, color: '#FF0000' },
-      { value: 1.0, color: '#990000' }
-    ]
-    const normalizedRamp =
-      colorRamp.length >= 4 ? colorRamp : [...colorRamp, ...defaults].slice(0, defaults.length)
-    const ramp =
-      normalizedRamp.length <= 4
-        ? normalizedRamp
-        : [0, 1 / 3, 2 / 3, 1].map((t, idx, arr) => {
-            const rawIndex = Math.round(t * (normalizedRamp.length - 1))
-            const prevIndex = idx > 0 ? arr[idx - 1] : -1
-            const resolvedIndex = Math.max(prevIndex + 1, rawIndex)
-            arr[idx] = Math.min(resolvedIndex, normalizedRamp.length - (arr.length - idx))
-            return normalizedRamp[arr[idx]]
-          })
-    const thresholds = ramp.map(r => r.value)
-    const colors = ramp.map(r => Cesium.Color.fromCssColorString(r.color))
+    const fullRamp =
+      colorRamp.length >= 4 ? colorRamp : cloneColorRamp(STRESS_TURBO_RAMP_32)
 
-    const lut = this.prepareColorLUT(config.colorLUT)
+    // 始终使用 CIELAB 色彩空间从完整色带构建 LUT，消除 4 段降级路径
+    const lutSpec = config.colorLUT
+      ? config.colorLUT
+      : buildColorLUTSpecFromRamp(fullRamp, { size: 256, colorSpace: 'cielab' })
+    const lut = this.prepareColorLUT(lutSpec)
 
     const blendMap = { max: 0, add: 1, overlay: 2 }
     const blendMode = blendMap[config.blendMode] ?? 0
@@ -856,10 +814,10 @@ export class HeatmapManager {
     const contourEnabled = style.contourEnabled ? 1.0 : 0.0
     const contourLevels = Number.isFinite(style.contourLevels)
       ? Math.max(2, style.contourLevels)
-      : 12
+      : 24
     const contourWidth = Number.isFinite(style.contourWidth)
-      ? Math.max(0.001, Math.min(0.2, style.contourWidth))
-      : 0.06
+      ? Math.max(0.001, Math.min(0.12, style.contourWidth))
+      : 0.015
 
     const glowEnabled = style.glowEnabled === undefined ? 0.0 : style.glowEnabled ? 1.0 : 0.0
     const glowThreshold = Number.isFinite(style.glowThreshold)
@@ -947,8 +905,6 @@ export class HeatmapManager {
     const sourceCount = useSourceTex ? sources.length : sourcesDirect.length
 
     return {
-      thresholds,
-      colors,
       lut,
       blendMode,
       sources,
@@ -1433,11 +1389,56 @@ export class HeatmapManager {
       pixelFormat: Cesium.PixelFormat.RGBA,
       pixelDatatype: Cesium.PixelDatatype.UNSIGNED_BYTE,
       repeat: false,
-      minificationFilter: Cesium.TextureMinificationFilter.NEAREST,
-      magnificationFilter: Cesium.TextureMagnificationFilter.NEAREST
+      minificationFilter: Cesium.TextureMinificationFilter.LINEAR,
+      magnificationFilter: Cesium.TextureMagnificationFilter.LINEAR
     })
 
     return { enabled: true, texture, size }
+  }
+
+  buildColorLUTFromRamp(ramp) {
+    const list = (Array.isArray(ramp) ? ramp : [])
+      .map(r => ({
+        t: Math.max(0, Math.min(1, Number(r?.value ?? 0))),
+        color: String(r?.color || '#000000')
+      }))
+      .sort((a, b) => a.t - b.t)
+    if (list.length < 2) {
+      return { enabled: false, texture: this.getEmptyColorLUTTexture(), size: 1 }
+    }
+    if (list[0].t > 0) list.unshift({ t: 0, color: list[0].color })
+    if (list[list.length - 1].t < 1) list.push({ t: 1, color: list[list.length - 1].color })
+
+    const lutSize = 256
+    const rgba = new Uint8Array(lutSize * 4)
+    let seg = 0
+    for (let i = 0; i < lutSize; i++) {
+      const t = i / (lutSize - 1)
+      while (seg < list.length - 2 && list[seg + 1].t < t) seg++
+      const a = list[seg]
+      const b = list[Math.min(seg + 1, list.length - 1)]
+      const span = Math.max(0.0001, b.t - a.t)
+      const localT = Math.max(0, Math.min(1, (t - a.t) / span))
+      const ca = Cesium.Color.fromCssColorString(a.color)
+      const cb = Cesium.Color.fromCssColorString(b.color)
+      const offset = i * 4
+      rgba[offset] = Math.round(Cesium.Math.lerp(ca.red, cb.red, localT) * 255)
+      rgba[offset + 1] = Math.round(Cesium.Math.lerp(ca.green, cb.green, localT) * 255)
+      rgba[offset + 2] = Math.round(Cesium.Math.lerp(ca.blue, cb.blue, localT) * 255)
+      rgba[offset + 3] = 255
+    }
+
+    const texture = new Cesium.TextureUniform({
+      typedArray: rgba,
+      width: lutSize,
+      height: 1,
+      pixelFormat: Cesium.PixelFormat.RGBA,
+      pixelDatatype: Cesium.PixelDatatype.UNSIGNED_BYTE,
+      repeat: false,
+      minificationFilter: Cesium.TextureMinificationFilter.LINEAR,
+      magnificationFilter: Cesium.TextureMagnificationFilter.LINEAR
+    })
+    return { enabled: true, texture, size: lutSize }
   }
 
   jetRGB(t) {
@@ -1476,7 +1477,27 @@ export class HeatmapManager {
     return this.computeRobustRange(values, mapper)
   }
 
-  computeRobustRange(values, mapper = null) {
+  /** 计算数据偏度 —— 正值=右偏（极端高值），负值=左偏 */
+  computeSkewness(arr) {
+    if (arr.length < 3) return 0
+    const n = arr.length
+    let sum = 0
+    for (let i = 0; i < n; i++) sum += arr[i]
+    const mean = sum / n
+    let m2 = 0
+    let m3 = 0
+    for (let i = 0; i < n; i++) {
+      const d = arr[i] - mean
+      m2 += d * d
+      m3 += d * d * d
+    }
+    if (m2 < 1e-12) return 0
+    const variance = m2 / n
+    const std = Math.sqrt(variance)
+    return (m3 / n) / (std * std * std)
+  }
+
+  computeRobustRange(values, mapper = null, quantileOpts = null) {
     const arr = []
     if (Array.isArray(values)) {
       for (let i = 0; i < values.length; i++) {
@@ -1496,8 +1517,29 @@ export class HeatmapManager {
       return { min: v, max: v === 0 ? 1 : v + Math.abs(v) * 0.1 || 1 }
     }
     arr.sort((a, b) => a - b)
-    const loIdx = Math.max(0, Math.floor(arr.length * 0.02))
-    const hiIdx = Math.min(arr.length - 1, Math.ceil(arr.length * 0.98))
+
+    // 自适应分位数裁剪 —— 根据数据偏度动态调整裁剪比例
+    let loQ = 0.02
+    let hiQ = 0.98
+    if (quantileOpts) {
+      loQ = Number.isFinite(Number(quantileOpts.lo)) ? clamp01(Number(quantileOpts.lo)) : loQ
+      hiQ = Number.isFinite(Number(quantileOpts.hi)) ? clamp01(Number(quantileOpts.hi)) : hiQ
+    } else {
+      const skew = this.computeSkewness(arr)
+      if (skew > 1.5) {
+        // 右偏分布（多数低应力，少数高应力）→ 保留更多上尾极端值
+        loQ = 0.01
+        hiQ = 0.995
+      } else if (skew < -1.5) {
+        // 左偏分布 → 保留更多下尾
+        loQ = 0.005
+        hiQ = 0.97
+      }
+      // 接近对称分布 → 标准 2%-98% 裁剪
+    }
+
+    const loIdx = Math.max(0, Math.floor(arr.length * loQ))
+    const hiIdx = Math.min(arr.length - 1, Math.ceil(arr.length * hiQ))
     const lo = arr[loIdx]
     const hi = arr[hiIdx]
     if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo >= hi) {

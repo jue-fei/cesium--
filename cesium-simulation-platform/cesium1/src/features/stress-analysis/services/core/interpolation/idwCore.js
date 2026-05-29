@@ -16,7 +16,7 @@
  * 注意：这里的 fitness 基于交叉验证的 RMSE + bias + variance 加权，
  * 默认使用空间阻塞验证，尽量让参数选择更贴近真实空间外推。
  */
-import { computeAnisotropicDistanceSquared, createAnisotropyParams } from './config.js'
+import { clamp01, computeAnisotropicDistanceSquared, createAnisotropyParams } from './config.js'
 
 function createSeededRng(seed) {
   // 确定性线性同余生成器，用于稳定的优化运行
@@ -189,12 +189,6 @@ function assignSpatialFolds(points, foldCount, rng) {
     foldSizes[targetFold] += blockIndices.length
   }
   return folds
-}
-
-function clamp01(value) {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return 0
-  return Math.max(0, Math.min(1, n))
 }
 
 function smoothstep01(value) {

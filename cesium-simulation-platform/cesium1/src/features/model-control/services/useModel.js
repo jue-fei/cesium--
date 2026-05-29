@@ -532,6 +532,7 @@ export default function useModel() {
 
         updatePosition(savedPosition)
         updateTransform(savedTransform)
+        syncUndergroundViewIfNeeded()
 
         if (cameraSaved && viewer) {
           viewer.camera.setView({
@@ -654,6 +655,11 @@ export default function useModel() {
     })
   }
 
+  const syncUndergroundViewIfNeeded = () => {
+    if (!undergroundViewEnabled.value || !tilesetRef.value) return
+    applyUndergroundView(true)
+  }
+
   const setUndergroundViewEnabled = enabled => {
     undergroundViewEnabled.value = !!enabled
     applyUndergroundView(undergroundViewEnabled.value)
@@ -691,6 +697,7 @@ export default function useModel() {
     currentTransform = { ...DEFAULT_TRANSFORM }
     modelPosition.value = { ...DEFAULT_POSITION }
     modelTransform.value = { ...DEFAULT_TRANSFORM }
+    syncUndergroundViewIfNeeded()
     showOperationMessage('模型已重置到初始位置', 'success')
   }
 
@@ -704,6 +711,7 @@ export default function useModel() {
       currentTransform,
       originalBoundingSphereCenter
     )
+    syncUndergroundViewIfNeeded()
   }
 
   const updateTransform = newTransform => {
@@ -717,6 +725,7 @@ export default function useModel() {
       currentTransform,
       originalBoundingSphereCenter
     )
+    syncUndergroundViewIfNeeded()
   }
 
   const updateLodConfig = newConfig => {
@@ -783,6 +792,8 @@ export default function useModel() {
         } else {
           await loadModelProperties()
         }
+
+        syncUndergroundViewIfNeeded()
       }
 
       if (loadResult.position) modelPosition.value = loadResult.position

@@ -1,6 +1,7 @@
-import { applyHeatmapDisplayToConfigObject, normalizeHeatmapDisplay } from '../render/index.js'
+import { applyHeatmapDisplayToConfigObject, cloneColorRamp, normalizeHeatmapDisplay } from '../render/index.js'
 import { resolvePointRenderMode, resolvePointSourceStrategy } from '../shared/stressActionShared.js'
 import { clampInt } from '../interpolation/config.js'
+import { resolveColormapRamp } from '../../panel/stressHeatmapPanelState.js'
 
 export function createStressDataControlService(ctx, rebuilders) {
   const { rebuildConfig, rebuildConfigFromDataset } = rebuilders
@@ -89,13 +90,20 @@ export function createStressDataControlService(ctx, rebuilders) {
         next?.enableContour !== undefined ? Boolean(next.enableContour) : curr.enableContour,
       enableGlow: next?.enableGlow !== undefined ? Boolean(next.enableGlow) : curr.enableGlow,
       enableMarker:
-        next?.enableMarker !== undefined ? Boolean(next.enableMarker) : curr.enableMarker
+        next?.enableMarker !== undefined ? Boolean(next.enableMarker) : curr.enableMarker,
+      colormapPreset: next?.colormapPreset || curr.colormapPreset || 'turbo32'
     }
     const normalized = normalizeHeatmapDisplay(merged)
-    ctx.heatmapDisplay.value = normalized
+    ctx.heatmapDisplay.value = { ...normalized, colormapPreset: merged.colormapPreset }
+
+    const rampInput =
+      merged.colormapPreset && merged.colormapPreset !== (curr.colormapPreset || 'turbo32')
+        ? resolveColormapRamp(merged.colormapPreset)
+        : ctx.heatmapBaseRamp.value
+
     ctx.heatmapBaseRamp.value = applyHeatmapDisplayToConfigObject(
       ctx.config.value,
-      ctx.heatmapBaseRamp.value,
+      rampInput,
       normalized
     ).baseRamp
     ctx.applyToModel()

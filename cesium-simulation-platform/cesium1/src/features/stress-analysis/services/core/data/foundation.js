@@ -91,8 +91,8 @@ function normalizeHeatmapDerived(derived) {
   const glow = derived['高应力发光'] ?? derived['glow'] ?? {}
   const marker = derived['点标记'] ?? derived['marker'] ?? {}
   const contourEnabled = Boolean(contour['启用'] ?? contour['enabled'] ?? false)
-  const contourLevels = Number(contour['级数'] ?? contour['levels'] ?? 12)
-  const contourWidth = Number(contour['宽度'] ?? contour['width'] ?? 0.06)
+  const contourLevels = Number(contour['级数'] ?? contour['levels'] ?? 24)
+  const contourWidth = Number(contour['宽度'] ?? contour['width'] ?? 0.04)
   const glowEnabled = Boolean(glow['启用'] ?? glow['enabled'] ?? false)
   const glowThreshold = Number(glow['阈值'] ?? glow['threshold'] ?? 0.8)
   const glowStrength = Number(glow['强度'] ?? glow['strength'] ?? 0.35)

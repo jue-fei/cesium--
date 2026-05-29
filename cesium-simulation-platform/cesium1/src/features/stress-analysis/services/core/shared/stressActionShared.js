@@ -18,10 +18,20 @@ export const resolvePlaybackSpeedMs = value => {
   return Number.isFinite(n) && n > 0 ? n : 500
 }
 
+export function clamp(value, min, max) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return min
+  return Math.max(min, Math.min(max, n))
+}
+
 export function clamp01(value) {
   const n = Number(value)
   if (!Number.isFinite(n)) return 0
   return Math.max(0, Math.min(1, n))
+}
+
+export function ensureArray(value) {
+  return Array.isArray(value) ? value : []
 }
 
 export function resolveLinearElasticMaterial(material) {

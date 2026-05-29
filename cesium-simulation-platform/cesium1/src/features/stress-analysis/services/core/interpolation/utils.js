@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium'
 import { resolvePointOffset } from '../shared/stressActionShared.js'
+import { clamp01 } from './config.js'
 
 // ============ Point Center Parsing (from pointCenter.js) ============
 
@@ -48,13 +49,6 @@ export function parsePointCenter(
 
   return { ok: false, data: null }
 }
-
-function clamp01(value) {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return 0
-  return Math.max(0, Math.min(1, n))
-}
-
 // ============ Coordinate Utils ============
 
 export function cartesianToDegreesIfValid(cartesian) {

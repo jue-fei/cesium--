@@ -1,3 +1,5 @@
+import { apiConfig } from '@/services/api/initApiConfig.js'
+
 export const DEFAULT_LOD_CONFIG = {
   maximumScreenSpaceError: 16,
   cacheBytes: 536870912,
@@ -106,3 +108,32 @@ export const DEFAULT_ADAPTIVE_LOAD_CONFIG = {
 export const DEFAULT_POSITION = { longitude: 113.323, latitude: 23.106, height: -26 }
 export const DEFAULT_TRANSFORM = { rotationX: 15, rotationY: 0, rotationZ: 0 }
 export const DEFAULT_MODEL_CONFIG_PATH = '/3d/demo4/feature.json'
+
+// 从数据库 API 获取实时配置
+export function getApiLodConfig() {
+  return apiConfig.app?.default_lod_config || DEFAULT_LOD_CONFIG
+}
+
+export function getApiLodPresets() {
+  return apiConfig.app?.lod_presets || PRESETS
+}
+
+export function getApiAdaptiveLoadConfig() {
+  return apiConfig.app?.adaptive_load_config || DEFAULT_ADAPTIVE_LOAD_CONFIG
+}
+
+export function getApiDefaultPosition() {
+  const api = apiConfig.app?.default_position
+  if (api) return { ...DEFAULT_POSITION, ...api }
+  return DEFAULT_POSITION
+}
+
+export function getApiDefaultTransform() {
+  const api = apiConfig.app?.default_transform
+  if (api) return { ...DEFAULT_TRANSFORM, ...api }
+  return DEFAULT_TRANSFORM
+}
+
+export function getApiDefaultModelConfigPath() {
+  return apiConfig.app?.default_model_config_path?.value || DEFAULT_MODEL_CONFIG_PATH
+}

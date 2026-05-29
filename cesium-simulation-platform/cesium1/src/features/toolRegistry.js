@@ -1,3 +1,5 @@
+import { apiConfig, onConfigLoaded } from '@/services/api/initApiConfig.js'
+
 export const TOOL_REGISTRY = [
   {
     id: 'model_control',
@@ -60,3 +62,28 @@ export const TOOL_REGISTRY = [
     loader: () => import('@/features/system-tools/components/SystemTools.vue')
   }
 ]
+
+// 本地 loader 映射表（组件懒加载函数不可序列化，保留在本地）
+const LOCAL_LOADER_MAP = Object.fromEntries(
+  TOOL_REGISTRY.map(t => [t.id, t.loader])
+)
+
+// 从数据库 API 获取工具列表（合并 API 元数据与本地 loader）
+export function getApiToolRegistry() {
+  const apiTools = apiConfig.system?.tools
+  if (!apiTools?.length) return TOOL_REGISTRY
+
+  return apiTools.map(t => ({
+    id: t.tool_id || t.id,
+    name: t.name,
+    icon: t.icon,
+    loader: LOCAL_LOADER_MAP[t.tool_id] || LOCAL_LOADER_MAP[t.id] || (() => Promise.resolve(null))
+  }))
+}
+
+// 等待 API 配置加载完成后回调
+export function onToolsReady(fn) {
+  onConfigLoaded(() => {
+    fn(getApiToolRegistry())
+  })
+}

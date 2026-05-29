@@ -870,7 +870,73 @@
               />
             </div>
           </div>
+          <div
+            v-show="heatmapEnableContour"
+            class="flex items-center gap-3"
+          >
+            <div class="text-sm text-text-muted w-[92px] shrink-0">等值线密度</div>
+            <el-slider
+              class="flex-1 min-w-0"
+              :min="2"
+              :max="40"
+              :step="1"
+              :model-value="heatmapContourLevels"
+              @update:model-value="onContourLevelsChange"
+            />
+            <div class="text-xs font-mono w-[52px] text-right">
+              {{ heatmapContourLevels }}
+            </div>
+          </div>
+          <div
+            v-show="heatmapEnableContour"
+            class="flex items-center gap-3"
+          >
+            <div class="text-sm text-text-muted w-[92px] shrink-0">等值线宽度</div>
+            <el-slider
+              class="flex-1 min-w-0"
+              :min="0.003"
+              :max="0.12"
+              :step="0.003"
+              :model-value="heatmapContourWidth"
+              @update:model-value="onContourWidthChange"
+            />
+            <div class="text-xs font-mono w-[52px] text-right">
+              {{ formatNumber(heatmapContourWidth, 2) }}
+            </div>
+          </div>
+          <div
+            v-show="heatmapEnableContour && contourValueRows.length"
+            class="rounded-md border border-border-primary/60 px-3 py-2"
+          >
+            <div class="text-sm text-text-muted mb-2">等值线数值对照</div>
+            <div class="grid grid-cols-3 gap-x-2 gap-y-1 text-[11px] font-mono text-text-primary max-h-[160px] overflow-y-auto">
+              <div
+                v-for="row in contourValueRows"
+                :key="row.index"
+                class="flex items-center gap-1"
+              >
+                <span class="text-text-muted shrink-0">L{{ row.index }}</span>
+                <span class="truncate">{{ row.text }}</span>
+              </div>
+            </div>
+          </div>
           <div class="flex flex-wrap items-center justify-end gap-2">
+            <div class="flex items-center gap-1.5">
+              <span class="text-xs text-gray-400">色图</span>
+              <el-select
+                v-model="heatmapColormapPreset"
+                size="small"
+                class="!w-40"
+                @change="applyHeatmapPanelTuning()"
+              >
+                <el-option
+                  v-for="opt in colormapPresetOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
+            </div>
             <el-button
               size="small"
               type="primary"
@@ -897,6 +963,9 @@ import StressChartSvg from './StressChartSvg.vue'
 import StressPointTensorDetails from './StressPointTensorDetails.vue'
 import WarningList from './WarningList.vue'
 import { useStressPanelController } from '../services/panel/useStressPanelController.js'
+import { getColormapPresetOptions } from '../services/panel/stressHeatmapPanelState.js'
+
+const colormapPresetOptions = getColormapPresetOptions()
 
 const {
   fileInput,
@@ -1018,12 +1087,26 @@ const {
   heatmapBlendMode,
   heatmapMaskMode,
   heatmapEnableContour,
+  heatmapContourLevels,
+  heatmapContourWidth,
   heatmapEnableGlow,
   heatmapEnableMarker,
+  heatmapColormapPreset,
+  contourValueRows,
   onUndo,
   onRedo,
   applyHeatmapPanelTuning,
   applyHeatmapPreset,
   formatNumber
 } = useStressPanelController()
+
+function onContourLevelsChange(v) {
+  heatmapContourLevels.value = Math.max(2, Math.min(40, Number(v) || 24))
+  applyHeatmapPanelTuning()
+}
+
+function onContourWidthChange(v) {
+  heatmapContourWidth.value = Math.max(0.003, Math.min(0.12, Number(v) || 0.015))
+  applyHeatmapPanelTuning()
+}
 </script>

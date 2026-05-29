@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import useMessage from './composables/useMessage.js'
+import { initApiConfig } from './services/api/initApiConfig.js'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import './assets/styles/variables.css'
 
@@ -35,5 +36,8 @@ window.onunhandledrejection = event => {
   }
   showMessage(`异步错误: ${event.reason?.message || event.reason || '未知'}`, 'error')
 }
+
+// 初始化数据库配置（非阻塞，失败自动降级到本地默认值）
+initApiConfig()
 
 app.mount('#app')

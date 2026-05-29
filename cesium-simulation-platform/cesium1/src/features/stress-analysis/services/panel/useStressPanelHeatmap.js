@@ -1,5 +1,6 @@
 import { computed, ref, watch } from 'vue'
 import {
+  buildContourValueRows,
   buildGradientLegendCss,
   buildGradientValueTickRows,
   buildHeatmapDisplayPayload,
@@ -30,8 +31,11 @@ export function useStressPanelHeatmap({
   const heatmapBlendMode = ref(HEATMAP_PANEL_DEFAULTS.blendMode)
   const heatmapMaskMode = ref(HEATMAP_PANEL_DEFAULTS.maskMode)
   const heatmapEnableContour = ref(false)
+  const heatmapContourLevels = ref(HEATMAP_PANEL_DEFAULTS.contourLevels)
+  const heatmapContourWidth = ref(HEATMAP_PANEL_DEFAULTS.contourWidth)
   const heatmapEnableGlow = ref(false)
   const heatmapEnableMarker = ref(false)
+  const heatmapColormapPreset = ref(HEATMAP_PANEL_DEFAULTS.colormapPreset)
   const heatmapTuningExpanded = ref(false)
 
   const gradientScaleRangeText = computed(() => {
@@ -57,6 +61,14 @@ export function useStressPanelHeatmap({
     return buildGradientValueTickRows(resolveCurrentGradientRangeState())
   })
 
+  const contourValueRows = computed(() => {
+    if (!heatmapEnableContour.value) return []
+    return buildContourValueRows(
+      resolveCurrentGradientRangeState(),
+      heatmapContourLevels.value
+    )
+  })
+
   const applyHeatmapPanelTuning = () => {
     setHeatmapDisplay(
       buildHeatmapDisplayPayload({
@@ -71,8 +83,11 @@ export function useStressPanelHeatmap({
         blendMode: heatmapBlendMode.value,
         maskMode: heatmapMaskMode.value,
         enableContour: heatmapEnableContour.value,
+        contourLevels: heatmapContourLevels.value,
+        contourWidth: heatmapContourWidth.value,
         enableGlow: heatmapEnableGlow.value,
-        enableMarker: heatmapEnableMarker.value
+        enableMarker: heatmapEnableMarker.value,
+        colormapPreset: heatmapColormapPreset.value
       })
     )
   }
@@ -104,8 +119,12 @@ export function useStressPanelHeatmap({
     heatmapBlendMode,
     heatmapMaskMode,
     heatmapEnableContour,
+    heatmapContourLevels,
+    heatmapContourWidth,
     heatmapEnableGlow,
     heatmapEnableMarker,
+    heatmapColormapPreset,
+    contourValueRows,
     applyHeatmapPanelTuning,
     applyHeatmapPreset,
     gradientScaleRangeText,
@@ -131,7 +150,12 @@ export function useStressPanelHeatmap({
     heatmapBlendMode.value = nextState.blendMode
     heatmapMaskMode.value = nextState.maskMode
     heatmapEnableContour.value = nextState.enableContour
+    heatmapContourLevels.value = nextState.contourLevels
+    heatmapContourWidth.value = nextState.contourWidth
     heatmapEnableGlow.value = nextState.enableGlow
     heatmapEnableMarker.value = nextState.enableMarker
+    if (nextState.colormapPreset) {
+      heatmapColormapPreset.value = nextState.colormapPreset
+    }
   }
 }
