@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "description": "矿卡模拟运行参数 - 可被实时API数据覆盖",
+  "description": "矿卡模拟运行参数",
   "simulation": {
     "updateIntervalMs": 1000,
-    "cycleTimeMs": 360000,
-    "cycleTimeNote": "当前设为6分钟（360000毫秒），如需快速演示可改为120000（2分钟）"
+    "cycleTimeMs": 30000,
+    "cycleTimeNote": "当前设为30秒一圈，便于观察矿卡沿路径行驶"
   },
   "speedProfile": {
     "loading": { "min": 4, "max": 6 },

@@ -1,6 +1,7 @@
 import { computeValueRange } from '../computation/index.js'
 import { resolvePointOffset } from '../shared/stressActionShared.js'
 import { resolveMetricFixedRange } from '../safety/index.js'
+import { selectNeighborsBySector } from '../shared/sectorNeighborSelection.js'
 import {
   optimizeIDWParameters,
   createPointSpatialIndex,
@@ -21,14 +22,6 @@ import {
   resolveInterpolationPointLimit,
   resolveOptimizationConfig
 } from './pointInterpolationConfig.js'
-
-/**
- * 插值引擎门面（Facade）。
- * 这里继续保留稳定入口语义，但真实实现已经与核心算法收束到同一文件。
- */
-export function createInterpolationEngine(deps) {
-  return createInterpolationManager(deps)
-}
 
 function matrixSolve(X, n, eps = 1e-12) {
   const m = n
@@ -1079,7 +1072,6 @@ function buildKrigingField({
       zs
     )
     if (!validation.valid) {
-      console.warn('[Kriging] 精确点保持验证发现误差:', validation)
     }
   }
 
@@ -1124,30 +1116,10 @@ function findNearestSamples(
     if (neighborPolicy !== 'sector' || used <= 2 || sectorCount <= 1) {
       return candidates.slice(0, used)
     }
-    const sectors = new Array(sectorCount)
-    for (let s = 0; s < sectorCount; s++) sectors[s] = []
-    for (let i = 0; i < candidates.length; i++) {
-      const c = candidates[i]
+    return selectNeighborsBySector(candidates, used, sectorCount, c => {
       const p = localPoints[c.index]
-      const a = Math.atan2(targetY - p.y, targetX - p.x)
-      const t = (a + Math.PI) / (2 * Math.PI)
-      const si = Math.max(0, Math.min(sectorCount - 1, Math.floor(t * sectorCount)))
-      sectors[si].push(c)
-    }
-    const picked = []
-    for (let s = 0; s < sectors.length && picked.length < used; s++) {
-      if (sectors[s].length > 0) picked.push(sectors[s].shift())
-    }
-    if (picked.length < used) {
-      const rest = []
-      for (let s = 0; s < sectors.length; s++) {
-        for (let i = 0; i < sectors[s].length; i++) rest.push(sectors[s][i])
-      }
-      rest.sort((a, b) => a.distance2 - b.distance2)
-      for (let i = 0; i < rest.length && picked.length < used; i++) picked.push(rest[i])
-    }
-    picked.sort((a, b) => a.distance2 - b.distance2)
-    return picked
+      return Math.atan2(targetY - p.y, targetX - p.x)
+    })
   }
 
   // 各向异性路径：用各向异性距离重新排序候选点
@@ -1169,40 +1141,17 @@ function findNearestSamples(
     return refined.slice(0, usedCount)
   }
 
-  const sectors = new Array(sectorCount)
-  for (let s = 0; s < sectorCount; s++) sectors[s] = []
   const aAngle = anisotropyParams.angle || 0
   const cosA = Math.cos(aAngle)
   const sinA = Math.sin(aAngle)
-  for (let i = 0; i < refined.length; i++) {
-    const candidate = refined[i]
-    const point = localPoints[candidate.index]
+  return selectNeighborsBySector(refined, usedCount, sectorCount, c => {
+    const point = localPoints[c.index]
     const ddx = targetX - point.x
     const ddy = targetY - point.y
     const rx = ddx * cosA + ddy * sinA
     const ry = -ddx * sinA + ddy * cosA
-    const a = Math.atan2(ry, rx)
-    const t = (a + Math.PI) / (2 * Math.PI)
-    const sectorIndex = Math.max(0, Math.min(sectorCount - 1, Math.floor(t * sectorCount)))
-    sectors[sectorIndex].push(candidate)
-  }
-
-  const picked = []
-  for (let i = 0; i < sectors.length && picked.length < usedCount; i++) {
-    if (sectors[i].length > 0) picked.push(sectors[i].shift())
-  }
-  if (picked.length < usedCount) {
-    const remaining = []
-    for (let i = 0; i < sectors.length; i++) {
-      for (let j = 0; j < sectors[i].length; j++) remaining.push(sectors[i][j])
-    }
-    remaining.sort((a, b) => a.distance2 - b.distance2)
-    for (let i = 0; i < remaining.length && picked.length < usedCount; i++) {
-      picked.push(remaining[i])
-    }
-  }
-  picked.sort((a, b) => a.distance2 - b.distance2)
-  return picked
+    return Math.atan2(ry, rx)
+  })
 }
 
 function buildIdwField({
@@ -1322,7 +1271,6 @@ function buildIdwField({
       zs
     )
     if (!validation.valid) {
-      console.warn('[IDW] 精确点保持验证发现误差:', validation)
     }
   }
 

@@ -72,28 +72,34 @@ export function resolveSampledPathInterpolation(progress, totalSamples) {
 }
 
 export function isValidRealtimeTruckData(data) {
-  const position = data?.position
-  return Boolean(
-    data &&
-    typeof data.truckId === 'string' &&
-    position &&
+  if (!data) return false
+  const hasTruckId = typeof data.truckId === 'string' || typeof data.truck_id === 'string'
+  const position = data.position
+  const hasPosition = position &&
     typeof position === 'object' &&
     (Array.isArray(position.cartesian) ||
       (typeof position.longitude === 'number' && typeof position.latitude === 'number'))
-  )
+  const hasPhase = typeof data.phase === 'number' && data.phase >= 0 && data.phase <= 1
+  return Boolean(hasTruckId && (hasPosition || hasPhase))
 }
 
 export function normalizeRealtimeTruckData(data, now = Date.now()) {
+  const vehicleInfo = data.vehicleInfo || data.vehicle_info || {}
+  const driverInfo = data.driverInfo || data.driver_info || {}
   return {
     ...data,
     receivedAt: now,
     timestamp: data.timestamp || now,
+    truckName: data.truckName || data.name || data.truckId || '',
     speed: data.speed || 0,
     heading: data.heading || 0,
     status: data.status || '未知',
     payload: data.payload || 0,
+    capacity: data.capacity || vehicleInfo.capacity || 0,
     driver: data.driver || '未知驾驶员',
-    mineralType: data.mineralType || { name: '未知', code: 'UNK' }
+    driverInfo,
+    vehicleInfo,
+    mineralType: data.mineralType || data.mineral_type || { name: '未知', code: 'UNK' }
   }
 }
 

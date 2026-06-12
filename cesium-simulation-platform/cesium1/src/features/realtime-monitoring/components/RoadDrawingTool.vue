@@ -32,12 +32,14 @@
         :class="
           isDrawing
             ? 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30'
-            : 'bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30'
+            : editingPathIndex >= 0
+              ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30'
+              : 'bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30'
         "
         :disabled="!viewer"
         @click="toggleDrawing"
       >
-        {{ isDrawing ? '✓ 完成' : '✎ 绘制' }}
+        {{ isDrawing ? (editingPathIndex >= 0 ? '✓ 更新' : '✓ 完成') : (editingPathIndex >= 0 ? '✎ 编辑' : '✎ 绘制') }}
       </button>
 
       <button
@@ -116,10 +118,10 @@
         <span class="text-blue-400">💡</span>
         {{
           isDrawing
-            ? '点击模型表面添加路径点，双击完成绘制'
+            ? (editingPathIndex >= 0 ? '编辑模式：添加/修改路径点，双击完成更新' : '点击模型表面添加路径点，双击完成绘制')
             : pathPoints.length === 0
-              ? '点击"绘制"按钮，然后在模型上点击创建道路'
-              : '路径已创建，可以应用到矿卡或继续编辑'
+              ? '点击"绘制"创建新道路，或从下方列表选择已有路径进行编辑'
+              : (editingPathIndex >= 0 ? '点击"编辑"修改路径点，或点击"应用"同步到矿卡' : '路径已创建，可以应用到矿卡或继续编辑')
         }}
       </p>
     </div>
@@ -129,7 +131,17 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import * as Cesium from 'cesium'
-import { saveDefaultRoute, saveAllPaths, loadAllPaths } from '../services/routeStorage.js'
+import {
+  saveDefaultRoute,
+  saveAllPaths,
+  loadAllPaths,
+  loadAllRoutesFromDb,
+  saveDefaultRouteToDb,
+  saveRouteToDb,
+  setRouteAsDefaultInDb,
+  deleteRouteFromDb,
+  updateRouteInDb
+} from '../services/routeStorage.js'
 
 const props = defineProps({ viewer: { type: Object, required: true } })
 const emit = defineEmits(['path-updated', 'path-applied', 'default-route-set'])
@@ -138,6 +150,7 @@ const isDrawing = ref(false)
 const pathPoints = ref([])
 const savedPaths = ref([])
 const selectedPathIndex = ref(-1)
+const editingPathIndex = ref(-1)
 const drawingState = computed(() => (isDrawing.value ? 'drawing' : 'idle'))
 const hasDefaultRoute = computed(() => savedPaths.value.some(p => p.isDefault))
 
@@ -159,7 +172,7 @@ const PREVIEW_PATH_SAMPLES_PER_SEGMENT = 10
 const ROUTE_DISPLAY_LIFT_METERS = 0.03
 
 const statusText = computed(() =>
-  isDrawing.value ? '绘制中...' : pathPoints.value.length === 0 ? '就绪' : '已完成'
+  isDrawing.value ? (editingPathIndex.value >= 0 ? '编辑中...' : '绘制中...') : pathPoints.value.length === 0 ? '就绪' : (editingPathIndex.value >= 0 ? '已加载' : '已完成')
 )
 
 const cartesianToPoint = cartesian => {
@@ -187,10 +200,21 @@ function createSegmentSignature(start, end) {
   return [pointToStr(start), '->', pointToStr(end)].join('|')
 }
 
-onMounted(() => {
-  const stored = loadAllPaths()
-  if (stored.length > 0) {
-    savedPaths.value = stored
+onMounted(async () => {
+  // 优先从数据库加载路线列表
+  const dbRoutes = await loadAllRoutesFromDb().catch(() => [])
+  if (dbRoutes.length > 0) {
+    savedPaths.value = dbRoutes.map(r => ({
+      _dbId: r.id,
+      name: r.name,
+      points: r.points,
+      createdAt: r.createdAt || new Date().toLocaleString(),
+      isDefault: r.isDefault
+    }))
+  } else {
+    // 降级到 localStorage
+    const stored = loadAllPaths()
+    if (stored.length > 0) savedPaths.value = stored
   }
   if (props.viewer) initHandler()
 })
@@ -247,7 +271,10 @@ function toggleDrawing() {
 }
 function startDrawing() {
   isDrawing.value = true
-  pathPoints.value = []
+  // 编辑模式保留已有路径点，新建模式清空
+  if (editingPathIndex.value < 0) {
+    pathPoints.value = []
+  }
   clearVisualization()
 }
 
@@ -264,13 +291,39 @@ function finishDrawing() {
   pointEntities.forEach(e => props.viewer.entities.remove(e))
   pointEntities = []
   if (pathPoints.value.length >= 2) {
+    // 编辑已有路线
+    if (editingPathIndex.value >= 0) {
+      const existing = savedPaths.value[editingPathIndex.value]
+      if (existing) {
+        existing.points = [...pathPoints.value]
+        existing.createdAt = new Date().toLocaleString()
+        // 更新数据库
+        if (existing._dbId) {
+          updateRouteInDb(existing._dbId, existing.name, existing.points, existing.isDefault).catch(() => {})
+        } else {
+          saveRouteToDb(existing.name, existing.points, existing.isDefault).then(res => {
+            if (res?.id) existing._dbId = res.id
+          }).catch(() => {})
+        }
+        saveAllPaths(savedPaths.value)
+        emit('path-updated', { name: existing.name, points: pathPoints.value })
+      }
+      editingPathIndex.value = -1
+      return
+    }
+
+    // 新建路线
     const name = `路径 ${savedPaths.value.length + 1}`
-    savedPaths.value.push({
+    const newPath = {
       name,
       points: [...pathPoints.value],
       createdAt: new Date().toLocaleString(),
       isDefault: false
-    })
+    }
+    saveRouteToDb(name, newPath.points, false).then(res => {
+      if (res?.id) newPath._dbId = res.id
+    }).catch(() => {})
+    savedPaths.value.push(newPath)
     selectedPathIndex.value = savedPaths.value.length - 1
     saveAllPaths(savedPaths.value)
     emit('path-updated', { name, points: pathPoints.value })
@@ -679,24 +732,35 @@ function clearPath() {
   pathPoints.value = []
   clearVisualization()
   selectedPathIndex.value = -1
+  editingPathIndex.value = -1
 }
 
 function selectPath(index) {
   selectedPathIndex.value = index
+  editingPathIndex.value = index
   const path = savedPaths.value[index]
   if (path) {
     pathPoints.value = [...path.points]
+    isDrawing.value = false
     visualizePath()
     emit('path-updated', path)
   }
 }
 
 function deletePath(index) {
+  const path = savedPaths.value[index]
+  if (path?._dbId) {
+    deleteRouteFromDb(path._dbId).catch(() => {})
+  }
   savedPaths.value.splice(index, 1)
   if (selectedPathIndex.value === index) {
     selectedPathIndex.value = -1
+    editingPathIndex.value = -1
     clearPath()
-  } else if (selectedPathIndex.value > index) selectedPathIndex.value--
+  } else if (selectedPathIndex.value > index) {
+    selectedPathIndex.value--
+    if (editingPathIndex.value > index) editingPathIndex.value--
+  }
   saveAllPaths(savedPaths.value)
 }
 
@@ -707,33 +771,36 @@ function setCurrentAsDefault() {
     p.isDefault = false
   })
 
+  const defaultPoints = pathPoints.value.length >= 2
+    ? [...pathPoints.value]
+    : []
+
   if (pathPoints.value.length >= 2) {
     const existingIndex = savedPaths.value.findIndex(p => p.name === '默认矿卡路线')
     if (existingIndex >= 0) {
-      savedPaths.value[existingIndex].points = [...pathPoints.value]
+      savedPaths.value[existingIndex].points = defaultPoints
       savedPaths.value[existingIndex].createdAt = new Date().toLocaleString()
       savedPaths.value[existingIndex].isDefault = true
     } else {
       savedPaths.value.unshift({
         name: '默认矿卡路线',
-        points: [...pathPoints.value],
+        points: defaultPoints,
         createdAt: new Date().toLocaleString(),
         isDefault: true
       })
     }
   }
 
+  // 保存到数据库
+  saveDefaultRouteToDb('默认矿卡路线', defaultPoints.length >= 2 ? defaultPoints : savedPaths.value.find(p => p.isDefault)?.points || []).catch(() => {})
   saveDefaultRoute({
     name: '默认矿卡路线',
-    points:
-      pathPoints.value.length >= 2
-        ? pathPoints.value
-        : savedPaths.value.find(p => p.isDefault)?.points || []
+    points: defaultPoints.length >= 2 ? defaultPoints : savedPaths.value.find(p => p.isDefault)?.points || []
   })
   saveAllPaths(savedPaths.value)
   emit('default-route-set', {
     name: '默认矿卡路线',
-    points: pathPoints.value.length >= 2 ? [...pathPoints.value] : []
+    points: defaultPoints
   })
 }
 
@@ -748,7 +815,13 @@ function setSavedPathAsDefault(index) {
 
   pathPoints.value = [...path.points]
   selectedPathIndex.value = index
+  editingPathIndex.value = index
 
+  // 保存到数据库
+  if (path._dbId) {
+    setRouteAsDefaultInDb(path._dbId).catch(() => {})
+  }
+  saveDefaultRouteToDb(path.name, path.points).catch(() => {})
   saveDefaultRoute({ name: path.name, points: path.points })
   saveAllPaths(savedPaths.value)
   visualizePath()

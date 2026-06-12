@@ -1,30 +1,15 @@
 <template>
-  <div
-    class="bg-white/5 rounded-lg p-4 border border-white/5 hover:border-blue-500/30 transition-all duration-300"
-  >
+  <div class="bg-white/5 rounded-lg p-4 border border-white/5 hover:border-blue-500/30 transition-all duration-300">
     <div class="flex items-center justify-between mb-2">
       <span
-        class="text-sm font-semibold text-blue-100 flex items-center gap-2 before:content-[''] before:w-1 before:h-3 before:bg-blue-500 before:rounded-sm"
-        >🎞️ 时间轴回放</span
-      >
+        class="text-sm font-semibold text-blue-100 flex items-center gap-2 before:content-[''] before:w-1 before:h-3 before:bg-blue-500 before:rounded-sm">🎞️
+        时间轴回放</span>
       <div class="flex items-center gap-2">
-        <button
-          v-if="isOffLive && dataSourceMode !== 'simulated'"
+        <button v-if="isOffLive"
           class="px-2 py-0.5 rounded bg-blue-500/20 border border-blue-500/30 text-blue-300 text-[10px] hover:bg-blue-500/30 transition-all flex items-center gap-1"
-          title="返回实时"
-          @click="goLive"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="3"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
+          title="返回实时" @click="goLive">
+          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="1 4 1 10 7 10" />
             <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
           </svg>
@@ -36,128 +21,58 @@
 
     <div class="flex items-center gap-2 mb-3">
       <span class="text-[10px] text-gray-500 min-w-[50px] text-center">{{ startTimeStr }}</span>
-      <input
-        type="range"
-        class="flex-1 h-2 bg-black/30 rounded-lg outline-none cursor-pointer accent-blue-500"
-        :min="startTime"
-        :max="endTime"
-        :value="currentTime"
-        @input="handleSliderChange"
-      />
+      <input type="range" class="flex-1 h-2 bg-black/30 rounded-lg outline-none cursor-pointer accent-blue-500"
+        :min="startTime" :max="endTime" :value="currentTime" @input="handleSliderChange" />
       <span class="text-[10px] text-gray-500 min-w-[50px] text-center">{{ endTimeStr }}</span>
     </div>
 
     <div class="flex items-center gap-2 flex-wrap mb-3">
       <button
         class="w-9 h-9 bg-white/5 border-white/10 text-white text-sm hover:bg-white/10 rounded border transition-all flex items-center justify-center"
-        title="跳到开始"
-        @click="skipToStart"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
+        title="跳到开始" @click="skipToStart">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="1 4 1 20" />
           <polygon points="7 12 23 4 23 20 7 12" />
         </svg>
       </button>
       <button
         class="w-9 h-9 bg-white/5 border-white/10 text-white text-sm hover:bg-white/10 rounded border transition-all flex items-center justify-center"
-        title="后退10秒"
-        @click="stepBackward"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
+        title="后退10秒" @click="stepBackward">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polygon points="19 20 9 12 19 4 19 20" />
           <line x1="5" y1="19" x2="5" y2="5" />
         </svg>
       </button>
-      <button
-        class="w-12 h-11 rounded transition-all flex items-center justify-center"
-        :class="
-          isPlaying
-            ? 'bg-orange-500/20 border border-orange-500/30 text-white hover:bg-orange-500/30'
-            : 'bg-green-500/20 border border-green-500/30 text-white hover:bg-green-500/30'
-        "
-        :title="isPlaying ? '暂停' : '播放'"
-        @click="togglePlay"
-      >
-        <svg
-          v-if="!isPlaying"
-          xmlns="http://www.w3.org/2000/svg"
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          stroke="none"
-        >
+      <button class="w-12 h-11 rounded transition-all flex items-center justify-center" :class="isPlaying
+        ? 'bg-orange-500/20 border border-orange-500/30 text-white hover:bg-orange-500/30'
+        : 'bg-green-500/20 border border-green-500/30 text-white hover:bg-green-500/30'
+        " :title="isPlaying ? '暂停' : '播放'" @click="togglePlay">
+        <svg v-if="!isPlaying" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+          fill="currentColor" stroke="none">
           <polygon points="5 3 19 12 5 21 5 3" />
         </svg>
-        <svg
-          v-else
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          stroke="none"
-        >
+        <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"
+          stroke="none">
           <rect x="4" y="4" width="6" height="16" rx="1" />
           <rect x="14" y="4" width="6" height="16" rx="1" />
         </svg>
       </button>
       <button
         class="w-9 h-9 bg-white/5 border-white/10 text-white text-sm hover:bg-white/10 rounded border transition-all flex items-center justify-center"
-        title="前进10秒"
-        @click="stepForward"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
+        title="前进10秒" @click="stepForward">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polygon points="5 4 15 12 5 20 5 4" />
           <line x1="19" y1="5" x2="19" y2="19" />
         </svg>
       </button>
       <button
         class="w-9 h-9 bg-white/5 border-white/10 text-white text-sm hover:bg-white/10 rounded border transition-all flex items-center justify-center"
-        title="跳到结束"
-        @click="skipToEnd"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
+        title="跳到结束" @click="skipToEnd">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polygon points="17 12 1 4 1 20 17 12" />
           <polyline points="23 4 23 20" />
         </svg>
@@ -165,11 +80,9 @@
 
       <div class="flex items-center gap-1.5 ml-auto">
         <label class="text-[10px] text-gray-500">速度:</label>
-        <select
-          v-model="playSpeed"
+        <select v-model="playSpeed"
           class="px-2 py-1 rounded bg-white/5 border border-white/10 text-white text-[11px] cursor-pointer"
-          @change="handleSpeedChange"
-        >
+          @change="handleSpeedChange">
           <option v-for="s in [0.5, 1, 2, 5, 10]" :key="s" :value="s">{{ s }}x</option>
         </select>
       </div>
@@ -203,7 +116,7 @@ const props = defineProps({
   startTime: { type: Number, required: true },
   endTime: { type: Number, required: true },
   initialTime: { type: Number, default: null },
-  dataSourceMode: { type: String, default: 'simulated' }
+  dataSourceMode: { type: String, default: 'external' }
 })
 
 const emit = defineEmits(['timeChange', 'playStateChange', 'speedChange'])
@@ -333,7 +246,6 @@ defineExpose({
 })
 
 const isOffLive = computed(() => {
-  if (props.dataSourceMode === 'simulated') return false
   return Math.abs(currentTime.value - props.endTime) > 1500
 })
 
@@ -345,11 +257,7 @@ watch(
   () => props.initialTime,
   t => {
     if (t == null) return
-    if (props.dataSourceMode !== 'simulated') {
-      currentTime.value = clamp(t)
-      return
-    }
-    if (!isPlaying.value || Math.abs(t - currentTime.value) > 5000) currentTime.value = clamp(t)
+    currentTime.value = clamp(t)
   }
 )
 

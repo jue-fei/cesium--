@@ -870,10 +870,7 @@
               />
             </div>
           </div>
-          <div
-            v-show="heatmapEnableContour"
-            class="flex items-center gap-3"
-          >
+          <div v-show="heatmapEnableContour" class="flex items-center gap-3">
             <div class="text-sm text-text-muted w-[92px] shrink-0">等值线密度</div>
             <el-slider
               class="flex-1 min-w-0"
@@ -887,10 +884,7 @@
               {{ heatmapContourLevels }}
             </div>
           </div>
-          <div
-            v-show="heatmapEnableContour"
-            class="flex items-center gap-3"
-          >
+          <div v-show="heatmapEnableContour" class="flex items-center gap-3">
             <div class="text-sm text-text-muted w-[92px] shrink-0">等值线宽度</div>
             <el-slider
               class="flex-1 min-w-0"
@@ -909,12 +903,10 @@
             class="rounded-md border border-border-primary/60 px-3 py-2"
           >
             <div class="text-sm text-text-muted mb-2">等值线数值对照</div>
-            <div class="grid grid-cols-3 gap-x-2 gap-y-1 text-[11px] font-mono text-text-primary max-h-[160px] overflow-y-auto">
-              <div
-                v-for="row in contourValueRows"
-                :key="row.index"
-                class="flex items-center gap-1"
-              >
+            <div
+              class="grid grid-cols-3 gap-x-2 gap-y-1 text-[11px] font-mono text-text-primary max-h-[160px] overflow-y-auto"
+            >
+              <div v-for="row in contourValueRows" :key="row.index" class="flex items-center gap-1">
                 <span class="text-text-muted shrink-0">L{{ row.index }}</span>
                 <span class="truncate">{{ row.text }}</span>
               </div>

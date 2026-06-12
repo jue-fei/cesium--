@@ -12,45 +12,16 @@ import {
   buildDirectionVector
 } from '../computation/index.js'
 import { stressFromStrainTensor } from '../shared/stressActionShared.js'
-
-export function toNumberOrDefault(value, defaultValue) {
-  const n = Number(value)
-  return Number.isFinite(n) ? n : defaultValue
-}
-
-export function toFiniteNumber(value, defaultValue = 0) {
-  const n = Number(value)
-  return Number.isFinite(n) ? n : defaultValue
-}
-
-export function clamp(value, min, max) {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return min
-  return Math.max(min, Math.min(max, n))
-}
-
-export function clampInt(value, min, max) {
-  const n = Math.round(Number(value) || 0)
-  return Math.max(min, Math.min(max, n))
-}
-
-export function clamp01(value) {
-  return clamp(value, 0, 1)
-}
-
-export function ensureArray(value) {
-  return Array.isArray(value) ? value : []
-}
-
-export function parseSizeArray(size, defaults = [200, 200, 100]) {
-  return Array.isArray(size) && size.length >= 3
-    ? [
-        toNumberOrDefault(size[0], defaults[0]),
-        toNumberOrDefault(size[1], defaults[1]),
-        toNumberOrDefault(size[2], defaults[2])
-      ]
-    : defaults
-}
+import {
+  toNumberOrDefault,
+  toFiniteNumber,
+  clamp,
+  clampInt,
+  clamp01,
+  ensureArray,
+  parseSizeArray,
+  fract
+} from '../shared/stressMathUtils.js'
 
 export function createAnisotropyParams(scaleX, scaleY, scaleZ, angle) {
   return {
@@ -72,37 +43,6 @@ export function resolveAnisotropyParams(options) {
   if (!input || typeof input !== 'object') return null
 
   return createAnisotropyParams(input.scaleX, input.scaleY, input.scaleZ, input.angle)
-}
-
-export function resolveIdwRuntimeParams(
-  options,
-  pointCount,
-  {
-    defaultPower = 1.6,
-    defaultEpsilon = 1e-4,
-    minNeighborCount = 1,
-    maxNeighborCount = pointCount
-  } = {}
-) {
-  const requested =
-    options?.neighborCount !== undefined
-      ? Number(options.neighborCount)
-      : Number(options?.neighbors)
-
-  const safeMaxNeighbors = Math.max(minNeighborCount, Number(maxNeighborCount) || minNeighborCount)
-  const fallbackNeighborCount = Math.min(
-    Math.max(minNeighborCount, Number(pointCount) || 0),
-    safeMaxNeighbors
-  )
-  const neighborCount = Number.isFinite(requested)
-    ? Math.max(minNeighborCount, Math.min(safeMaxNeighbors, Math.floor(requested)))
-    : fallbackNeighborCount
-
-  return {
-    power: Math.max(0.1, toFiniteNumber(options?.power, defaultPower)),
-    neighborCount,
-    epsilon: Math.max(1e-8, toFiniteNumber(options?.epsilon, defaultEpsilon))
-  }
 }
 
 export function resolveDefaultGrid(size, targetResolution = 48, maxGrid = null) {
@@ -157,23 +97,6 @@ export function extractTensor6Arrays(tensor6) {
 export function getTensor6FrameCount(tensor6) {
   const { xx, yy, zz, xy, yz, zx } = extractTensor6Arrays(tensor6)
   return Math.min(xx.length, yy.length, zz.length, xy.length, yz.length, zx.length)
-}
-
-export function fract(x) {
-  const n = Number(x)
-  if (!Number.isFinite(n)) return 0
-  return n - Math.floor(n)
-}
-
-export function rep(value, n) {
-  const a = new Array(n)
-  for (let i = 0; i < n; i++) a[i] = value
-  return a
-}
-
-export function normalizeTo01(value, min, max) {
-  if (max === min) return 0
-  return clamp01((value - min) / (max - min))
 }
 
 // ============ Sampling functions (merged from sampling.js) ============

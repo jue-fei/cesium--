@@ -14,7 +14,6 @@ export function warn(scope, message, error) {
         : error !== undefined
           ? String(error)
           : ''
-    console.warn(`[${scopeText}] ${msgText}`, errInfo || '')
   }
 }
 
@@ -25,6 +24,5 @@ export function debugError(scope, message, error) {
   if (import.meta.env.DEV) {
     const scopeText = String(scope || 'core')
     const msgText = String(message || '')
-    console.error(`[${scopeText}] ${msgText}`, error)
   }
 }

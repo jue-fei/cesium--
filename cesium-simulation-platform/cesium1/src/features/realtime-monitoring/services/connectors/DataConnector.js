@@ -58,13 +58,11 @@ export class DataConnector {
     this._clearReconnectTimer()
     if (this._reconnectAttempts >= this._maxReconnects) {
       this.setStatus('disconnected')
-      console.warn(`[${this.connectorType}] 达到最大重连次数，停止重连`)
       return
     }
     this._reconnectAttempts++
     const delay = Math.min(this._reconnectDelay * Math.pow(1.5, this._reconnectAttempts - 1), 30000)
     this.setStatus('reconnecting')
-    console.log(`[${this.connectorType}] 第 ${this._reconnectAttempts} 次重连，等待 ${delay}ms...`)
     this._reconnectTimer = setTimeout(() => {
       this.connect()
     }, delay)

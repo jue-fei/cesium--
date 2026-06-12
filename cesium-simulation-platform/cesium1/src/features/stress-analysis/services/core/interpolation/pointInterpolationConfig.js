@@ -5,10 +5,8 @@
  * anisotropy / worker 策略分散在多个函数中难以维护。
  */
 
-import {
-  clampInt as baseClampInt,
-  resolveAnisotropyParams as baseResolveAnisotropyParams
-} from './config.js'
+import { resolveAnisotropyParams as baseResolveAnisotropyParams } from './config.js'
+import { clampInt as baseClampInt } from '../shared/stressMathUtils.js'
 
 export const POINT_INTERPOLATION_CONSTANTS = {
   maxKrigingPoints: 180,
@@ -53,6 +51,20 @@ export const POINT_INTERPOLATION_CONSTANTS = {
 
 function clampInt(v, min, max) {
   return baseClampInt(v, min, max)
+}
+
+function resolveNeighborPolicyAndSectorCount(options) {
+  const policy =
+    String(options?.neighborPolicy || POINT_INTERPOLATION_CONSTANTS.defaultNeighborPolicy) ===
+    'nearest'
+      ? 'nearest'
+      : 'sector'
+  const sectorCount = clampInt(
+    options?.sectorCount || POINT_INTERPOLATION_CONSTANTS.defaultSectorCount,
+    1,
+    16
+  )
+  return { neighborPolicy: policy, sectorCount }
 }
 
 export function resolveInterpolationMethod(options) {
@@ -156,19 +168,13 @@ export function resolveIdwRuntimeParams(options, pointCount) {
           )
         )
 
+  const { neighborPolicy, sectorCount } = resolveNeighborPolicyAndSectorCount(options)
+
   return {
     power: Math.max(0.1, Number(options?.power) || POINT_INTERPOLATION_CONSTANTS.defaultPower),
     neighborCount,
-    neighborPolicy:
-      String(options?.neighborPolicy || POINT_INTERPOLATION_CONSTANTS.defaultNeighborPolicy) ===
-      'nearest'
-        ? 'nearest'
-        : 'sector',
-    sectorCount: clampInt(
-      options?.sectorCount || POINT_INTERPOLATION_CONSTANTS.defaultSectorCount,
-      1,
-      16
-    ),
+    neighborPolicy,
+    sectorCount,
     radius: Number.isFinite(Number(options?.radius))
       ? Number(options.radius)
       : Number.POSITIVE_INFINITY,
@@ -217,16 +223,7 @@ export function resolveOptimizationConfig(options) {
       16
     ),
     maxFitnessSamples: Number(options?.optimizationMaxFitnessSamples) || base.maxFitnessSamples,
-    neighborPolicy:
-      String(options?.neighborPolicy || POINT_INTERPOLATION_CONSTANTS.defaultNeighborPolicy) ===
-      'nearest'
-        ? 'nearest'
-        : 'sector',
-    sectorCount: clampInt(
-      options?.sectorCount || POINT_INTERPOLATION_CONSTANTS.defaultSectorCount,
-      1,
-      16
-    ),
+    ...resolveNeighborPolicyAndSectorCount(options),
     objectiveWeights: {
       rmse: Number(options?.optimizationRmseWeight) || base.objectiveWeights.rmse,
       bias: Number(options?.optimizationBiasWeight) || base.objectiveWeights.bias,

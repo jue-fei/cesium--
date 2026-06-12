@@ -3,8 +3,7 @@ import { HttpPollConnector } from './connectors/HttpPollConnector.js'
 
 const CONNECTOR_REGISTRY = {
   websocket: WebSocketConnector,
-  http_poll: HttpPollConnector,
-  simulated: null
+  http_poll: HttpPollConnector
 }
 
 const STATUS_LABELS = {
@@ -32,7 +31,7 @@ export class ConnectionManager {
     this._dataHandler = options.dataHandler || null
     this._statusHandler = options.statusHandler || null
     this._connector = null
-    this._connectorType = 'simulated'
+    this._connectorType = null
     this._config = {}
     this._unsubscribe = []
   }
@@ -41,16 +40,12 @@ export class ConnectionManager {
     return this._connectorType
   }
 
-  get isSimulated() {
-    return this._connectorType === 'simulated'
-  }
-
   get isConnected() {
     return this._connector?.status === 'connected'
   }
 
   get status() {
-    return this._connector?.status || (this._connectorType === 'simulated' ? 'connected' : 'idle')
+    return this._connector?.status || 'idle'
   }
 
   get statusLabel() {
@@ -63,7 +58,6 @@ export class ConnectionManager {
 
   static get supportedTypes() {
     return [
-      { value: 'simulated', label: '模拟数据' },
       { value: 'websocket', label: 'WebSocket 实时推送' },
       { value: 'http_poll', label: 'HTTP 轮询获取' }
     ]
@@ -76,14 +70,8 @@ export class ConnectionManager {
     this._connectorType = connectorType
     this._config = config
 
-    if (connectorType === 'simulated') {
-      this._statusHandler?.('connected')
-      return
-    }
-
     const ConnectorClass = CONNECTOR_REGISTRY[connectorType]
     if (!ConnectorClass) {
-      console.error(`[ConnectionManager] 未知的连接器类型: ${connectorType}`)
       return
     }
 

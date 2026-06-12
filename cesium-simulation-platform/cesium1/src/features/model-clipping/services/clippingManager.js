@@ -80,7 +80,6 @@ class ClippingManager {
    */
   enableClipping() {
     if (!this.isViewerAlive() || !this.isTilesetAlive()) {
-      console.warn('No tileset available for clipping')
       return this.createResult(false, '无可用模型进行切割')
     }
 
@@ -432,7 +431,6 @@ class ClippingManager {
       }
       this.tileset.clippingPlanes = undefined
     } catch (e) {
-      console.warn('Failed to clear clipping planes:', e)
     }
   }
 
@@ -1308,7 +1306,6 @@ class ClippingManager {
       this.viewer.entities.remove(entity)
       return true
     } catch (e) {
-      console.warn(errorMessage, e)
       return false
     }
   }
@@ -1335,7 +1332,6 @@ class ClippingManager {
       try {
         this.clippingPolygonCollection.removeAll()
       } catch (e) {
-        console.warn('Failed to remove clipping polygons', e)
       }
     }
     this.clearTilesetClippingPolygons()
@@ -1347,7 +1343,6 @@ class ClippingManager {
     try {
       this.tileset.clippingPolygons = undefined
     } catch (e) {
-      console.warn('Failed to clear tileset clipping polygons', e)
     }
   }
 
@@ -1390,12 +1385,10 @@ class ClippingManager {
       try {
         this.clearAllPlanes()
       } catch (e) {
-        console.warn('Failed to clear planes on destroy', e)
       }
       try {
         this.clearAllPolygons()
       } catch (e) {
-        console.warn('Failed to clear polygons on destroy', e)
       }
     } else {
       this.resetCoreState()

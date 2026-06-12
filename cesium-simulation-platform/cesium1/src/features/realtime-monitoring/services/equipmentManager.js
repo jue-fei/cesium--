@@ -52,14 +52,6 @@ export class EquipmentManager {
     const color = this.getStatusColor(status)
     let entity = this.truckEntities.get(id)
 
-    if (!entity) {
-      console.log(`[EquipmentManager] 创建矿卡 ${id}:`, {
-        x: Math.round(position.cartesian[0]),
-        y: Math.round(position.cartesian[1]),
-        z: Math.round(position.cartesian[2])
-      })
-    }
-
     let cartesianPosition
     try {
       // 优先使用 Cartesian 世界坐标（由 RealtimeDataEngine 提供）
@@ -147,7 +139,7 @@ export class EquipmentManager {
 
   updateLabel(id, data) {
     let labelEntity = this.labelEntities.get(id)
-    const labelText = `${data.name}\n${data.driver}\n${data.mineralType?.name || ''}: ${Math.round(data.payload || 0)}t`
+    const labelText = `${data.truckName || data.name}\n${data.driver}\n${data.mineralType?.name || ''}: ${Math.round(data.payload || 0)}t`
     if (!labelEntity) {
       labelEntity = this.viewer.entities.add({
         id: `truck_label_${id}`,

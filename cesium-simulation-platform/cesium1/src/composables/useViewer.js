@@ -1,10 +1,7 @@
 import { storeToRefs } from 'pinia'
 import * as Cesium from 'cesium'
 import { useViewerStore } from '@/stores/viewerStore.js'
-import {
-  getDisplayQualityProfile,
-  getTerrainQualityProfile
-} from '@/features/lod-optimization/services/viewerQualityProfiles.js'
+import { getDisplayQualityProfile, getTerrainQualityProfile } from '@/features/shared/index.js'
 
 export default function useViewer() {
   const store = useViewerStore()

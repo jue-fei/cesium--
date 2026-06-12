@@ -77,7 +77,6 @@ function ensureInterpolationWorker() {
     if (payload.ok) {
       job.resolve(payload.result || null)
     } else {
-      console.error('Worker interpolation failed:', payload.error)
       if (typeof job.fallbackOrNull === 'function') {
         job.resolve(job.fallbackOrNull())
       } else {
@@ -86,7 +85,6 @@ function ensureInterpolationWorker() {
     }
   }
   interpolationWorker.onerror = err => {
-    console.error('Worker execution error:', err)
     resolveAndClearPendingInterpolationJobsByFallback()
     resetInterpolationWorker()
   }

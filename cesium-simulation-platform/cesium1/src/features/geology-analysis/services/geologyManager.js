@@ -38,7 +38,6 @@ export class GeologyManager {
    */
   processBoreholes(boreholeData) {
     if (!Array.isArray(boreholeData)) {
-      console.warn('Invalid borehole data provided, expected an array')
       return []
     }
 
@@ -46,7 +45,6 @@ export class GeologyManager {
       .map(borehole => {
         // 数据验证
         if (!borehole.id || !borehole.x || !borehole.y) {
-          console.warn('Invalid borehole data, skipping:', borehole)
           return null
         }
 
@@ -73,7 +71,6 @@ export class GeologyManager {
    */
   createSectionData(sectionPoints, stratigraphyData) {
     if (!Array.isArray(sectionPoints) || sectionPoints.length === 0) {
-      console.warn('Invalid section points provided')
       return null
     }
 

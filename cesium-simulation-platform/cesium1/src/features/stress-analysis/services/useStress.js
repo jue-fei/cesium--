@@ -87,8 +87,14 @@ let knownPointStressDataSource = null
 let knownPointStressDataSourceAttached = false
 
 // #region debug-point A:known-point-debug-reporter
-const reportKnownPointStressDebug = (hypothesisId, location, msg, data = {}) =>
-  fetch('http://127.0.0.1:7777/event', {
+const KNOWN_POINT_STRESS_DEBUG_ENDPOINT = 'http://127.0.0.1:7777/event'
+
+const isKnownPointStressDebugEnabled = () =>
+  import.meta.env.DEV && globalThis.__STRESS_POINT_DEBUG__ === true
+
+const reportKnownPointStressDebug = (hypothesisId, location, msg, data = {}) => {
+  if (!isKnownPointStressDebugEnabled()) return Promise.resolve()
+  return fetch(KNOWN_POINT_STRESS_DEBUG_ENDPOINT, {
     method: 'POST',
     body: JSON.stringify({
       sessionId: 'known-point-stress-crash',
@@ -100,6 +106,7 @@ const reportKnownPointStressDebug = (hypothesisId, location, msg, data = {}) =>
       ts: Date.now()
     })
   }).catch(() => {})
+}
 // #endregion
 
 const KNOWN_POINT_SCALE_BY_DISTANCE = new Cesium.NearFarScalar(120, 1.25, 8000, 0.55)

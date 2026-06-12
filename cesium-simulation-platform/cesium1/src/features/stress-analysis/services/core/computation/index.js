@@ -9,6 +9,7 @@ import {
   isSafetyMetric,
   resolveMetricFixedRange
 } from '../safety/index.js'
+import { eigenvaluesSymmetric3 } from '../shared/eigenvalues.js'
 
 export const STRESS_METRIC_LABELS = Object.freeze({
   von_mises: '等效应力（von Mises）',
@@ -386,53 +387,4 @@ export function buildDirectionVector({ azimuthDeg, dipDeg }) {
   return [nx / len, ny / len, nz / len]
 }
 
-export function eigenvaluesSymmetric3(m) {
-  const eps = 1e-12
-  const a00 = m.m00
-  const a11 = m.m11
-  const a22 = m.m22
-  const a01 = m.m01
-  const a02 = m.m02
-  const a12 = m.m12
-
-  const p1 = a01 * a01 + a02 * a02 + a12 * a12
-  if (p1 <= eps) {
-    const vals = [a00, a11, a22].sort((x, y) => y - x)
-    return vals
-  }
-
-  const q = (a00 + a11 + a22) / 3
-  const b00 = a00 - q
-  const b11 = a11 - q
-  const b22 = a22 - q
-
-  const p2 = b00 * b00 + b11 * b11 + b22 * b22 + 2 * p1
-  const p = Math.sqrt(p2 / 6)
-  if (!(p > eps)) {
-    const vals = [a00, a11, a22].sort((x, y) => y - x)
-    return vals
-  }
-
-  const invP = 1 / p
-  const c00 = b00 * invP
-  const c11 = b11 * invP
-  const c22 = b22 * invP
-  const c01 = a01 * invP
-  const c02 = a02 * invP
-  const c12 = a12 * invP
-
-  const detC =
-    c00 * (c11 * c22 - c12 * c12) - c01 * (c01 * c22 - c12 * c02) + c02 * (c01 * c12 - c11 * c02)
-  const r = Math.max(-1, Math.min(1, detC / 2))
-
-  let phi = 0
-  if (r <= -1) phi = Math.PI / 3
-  else if (r >= 1) phi = 0
-  else phi = Math.acos(r) / 3
-
-  const eig1 = q + 2 * p * Math.cos(phi)
-  const eig3 = q + 2 * p * Math.cos(phi + (2 * Math.PI) / 3)
-  const eig2 = 3 * q - eig1 - eig3
-
-  return [eig1, eig2, eig3].sort((x, y) => y - x)
-}
+export { eigenvaluesSymmetric3 } from '../shared/eigenvalues.js'

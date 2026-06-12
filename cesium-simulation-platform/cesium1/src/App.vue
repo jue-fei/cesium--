@@ -3,6 +3,7 @@
 
   <RightSidebar />
 
+  <!-- 工具面板 -->
   <transition
     enter-active-class="transition ease-out duration-300"
     enter-from-class="opacity-0 translate-x-4"
@@ -43,7 +44,7 @@ import { createAppBootstrap } from './app/createAppBootstrap.js'
 import RightSidebar from './components/RightSidebar.vue'
 import BasePanel from './components/BasePanel.vue'
 import GlobalMessage from './components/GlobalMessage.vue'
-import { TOOL_REGISTRY } from '@/features/toolRegistry.js'
+import { TOOL_REGISTRY } from '@/features/shared/index.js'
 
 import useViewer from './composables/useViewer.js'
 import useModel from './features/model-control/services/useModel.js'
@@ -69,6 +70,7 @@ const { showMessage: notify } = useMessage()
 const { initMonitoringManager, destroyMonitoringManager } = useMonitoring()
 const { initBlastingManager } = useBlasting()
 const { activeTool, closeTool } = useUI()
+
 const lifecycle = useLifecycle()
 const fps = model.fps
 const adaptiveLoadState = model.adaptiveLoadState
@@ -104,3 +106,6 @@ onUnmounted(() => {
   bootstrap.stop()
 })
 </script>
+
+<style>
+</style>

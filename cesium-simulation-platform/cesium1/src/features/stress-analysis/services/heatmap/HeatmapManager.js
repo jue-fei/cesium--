@@ -1,9 +1,6 @@
 import * as Cesium from 'cesium'
 import { warn } from '@/utils/errorHandler.js'
-import {
-  buildColorLUTSpecFromRamp,
-  cloneColorRamp
-} from '../core/render/index.js'
+import { buildColorLUTSpecFromRamp, cloneColorRamp } from '../core/render/index.js'
 import { STRESS_TURBO_RAMP_32 } from '../core/render/stressColormap.js'
 
 /**
@@ -25,7 +22,9 @@ function isStressDebugEnabled() {
   try {
     const debugWindow = getStressDebugWindow()
     if (!debugWindow) return false
-    return debugWindow.__STRESS_DEBUG__ !== undefined ? Boolean(debugWindow.__STRESS_DEBUG__) : false
+    return debugWindow.__STRESS_DEBUG__ !== undefined
+      ? Boolean(debugWindow.__STRESS_DEBUG__)
+      : false
   } catch (e) {
     return false
   }
@@ -44,7 +43,6 @@ export function stressDebugLog(scope, title, payload) {
     // eslint-disable-next-line no-console
     console.groupCollapsed(`[Stress:${scopeText}] ${titleText}`)
     // eslint-disable-next-line no-console
-    console.log(payload)
     // eslint-disable-next-line no-console
     console.groupEnd()
   } catch (e) {
@@ -782,8 +780,7 @@ export class HeatmapManager {
 
   normalizeStressConfig(config) {
     const colorRamp = Array.isArray(config.colorRamp) ? config.colorRamp : []
-    const fullRamp =
-      colorRamp.length >= 4 ? colorRamp : cloneColorRamp(STRESS_TURBO_RAMP_32)
+    const fullRamp = colorRamp.length >= 4 ? colorRamp : cloneColorRamp(STRESS_TURBO_RAMP_32)
 
     // 始终使用 CIELAB 色彩空间从完整色带构建 LUT，消除 4 段降级路径
     const lutSpec = config.colorLUT
@@ -1494,7 +1491,7 @@ export class HeatmapManager {
     if (m2 < 1e-12) return 0
     const variance = m2 / n
     const std = Math.sqrt(variance)
-    return (m3 / n) / (std * std * std)
+    return m3 / n / (std * std * std)
   }
 
   computeRobustRange(values, mapper = null, quantileOpts = null) {

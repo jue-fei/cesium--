@@ -1,8 +1,8 @@
-import js from '@eslint/js'
-import pluginVue from 'eslint-plugin-vue'
-import prettier from 'eslint-plugin-prettier/recommended'
+const js = require('@eslint/js')
+const pluginVue = require('eslint-plugin-vue')
+const prettier = require('eslint-plugin-prettier/recommended')
 
-export default [
+module.exports = [
   js.configs.recommended,
   ...pluginVue.configs['flat/recommended'],
   prettier,

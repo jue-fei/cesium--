@@ -203,8 +203,8 @@ function rgb2xyz(r, g, b) {
   const bl = srgbToLinear(b)
   return [
     (0.4124564 * rl + 0.3575761 * gl + 0.1804375 * bl) * 100,
-    (0.2126729 * rl + 0.7151522 * gl + 0.0721750 * bl) * 100,
-    (0.0193339 * rl + 0.1191920 * gl + 0.9503041 * bl) * 100
+    (0.2126729 * rl + 0.7151522 * gl + 0.072175 * bl) * 100,
+    (0.0193339 * rl + 0.119192 * gl + 0.9503041 * bl) * 100
   ]
 }
 
@@ -215,11 +215,7 @@ function xyz2lab(x, y, z) {
   const k = 6 / 29
   const k3 = k * k * k
   const f = v => (v > k3 ? Math.cbrt(v) : v / (3 * k * k) + 4 / 29)
-  return [
-    116 * f(fy) - 16,
-    500 * (f(fx) - f(fy)),
-    200 * (f(fy) - f(fz))
-  ]
+  return [116 * f(fy) - 16, 500 * (f(fx) - f(fy)), 200 * (f(fy) - f(fz))]
 }
 
 function lab2xyz(L, a, b) {
@@ -229,11 +225,7 @@ function lab2xyz(L, a, b) {
   const k = 6 / 29
   const k3 = k * k * k
   const g = v => (v > k ? v * v * v : 3 * k * k * (v - 4 / 29))
-  return [
-    g(fx) * D65_X * 100,
-    g(fy) * D65_Y * 100,
-    g(fz) * D65_Z * 100
-  ]
+  return [g(fx) * D65_X * 100, g(fy) * D65_Y * 100, g(fz) * D65_Z * 100]
 }
 
 function xyz2rgb(x, y, z) {
@@ -242,7 +234,7 @@ function xyz2rgb(x, y, z) {
   const zl = z / 100
   return [
     linearToSrgb(3.2404542 * xl - 1.5371385 * yl - 0.4985314 * zl),
-    linearToSrgb(-0.9692660 * xl + 1.8760108 * yl + 0.0415560 * zl),
+    linearToSrgb(-0.969266 * xl + 1.8760108 * yl + 0.041556 * zl),
     linearToSrgb(0.0556434 * xl - 0.2040259 * yl + 1.0572252 * zl)
   ]
 }
@@ -258,12 +250,7 @@ function lerpCIELAB(rgbaA, rgbaB, t) {
   const bb = labA[2] + (labB[2] - labA[2]) * t
   const xyz = lab2xyz(L, aa, bb)
   const rgb = xyz2rgb(xyz[0], xyz[1], xyz[2])
-  return [
-    rgb[0],
-    rgb[1],
-    rgb[2],
-    Math.round(rgbaA[3] + (rgbaB[3] - rgbaA[3]) * t)
-  ]
+  return [rgb[0], rgb[1], rgb[2], Math.round(rgbaA[3] + (rgbaB[3] - rgbaA[3]) * t)]
 }
 
 function ensureRampStops(ramp) {
@@ -316,9 +303,7 @@ export function buildColorLUTSpecFromRamp(ramp, sizeOrOptions = 256) {
         ? sizeOrOptions
         : 256
   const colorSpace =
-    typeof sizeOrOptions === 'object' && sizeOrOptions.colorSpace === 'cielab'
-      ? 'cielab'
-      : 'rgb'
+    typeof sizeOrOptions === 'object' && sizeOrOptions.colorSpace === 'cielab' ? 'cielab' : 'rgb'
   const stops = ensureRampStops(ramp)
   const table = []
   let stopIdx = 0
@@ -400,17 +385,10 @@ export function cloneColorRamp(ramp) {
   const source =
     Array.isArray(ramp) && ramp.length >= 4
       ? ramp
-      : [...(Array.isArray(ramp) ? ramp : []), ...fallbackRamp].slice(
-          0,
-          fallbackRamp.length
-        )
+      : [...(Array.isArray(ramp) ? ramp : []), ...fallbackRamp].slice(0, fallbackRamp.length)
   return source.map((r, idx) => ({
-    value: clamp01(
-      Number(r?.value ?? fallbackRamp[Math.min(idx, fallbackRamp.length - 1)].value)
-    ),
-    color: String(
-      r?.color || fallbackRamp[Math.min(idx, fallbackRamp.length - 1)].color
-    ),
+    value: clamp01(Number(r?.value ?? fallbackRamp[Math.min(idx, fallbackRamp.length - 1)].value)),
+    color: String(r?.color || fallbackRamp[Math.min(idx, fallbackRamp.length - 1)].color),
     label:
       r?.label !== undefined
         ? String(r.label)

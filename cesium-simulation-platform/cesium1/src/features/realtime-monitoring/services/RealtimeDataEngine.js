@@ -39,15 +39,13 @@ const FEATURE_POOL_MIN_POINTS = 12
 const FEATURE_POOL_ANGLE_STEPS = 16
 const FEATURE_POOL_TOP_BAND = 6
 
-const SIMULATOR_RECREATE_DEBOUNCE_MS = 200
+const TILESET_RECREATE_DEBOUNCE_MS = 200
 
 export class RealtimeDataEngine {
   constructor() {
     this.trucks = new Map()
     this.listeners = []
-    this.mode = 'simulated'
-    this.dataSource = 'static_simulated'
-    this.simulator = null
+    this.dataSource = 'external_realtime'
     this.externalDataHandler = null
     this.isPlaying = false
     this.currentTimestamp = Date.now()
@@ -331,7 +329,6 @@ export class RealtimeDataEngine {
       Object.assign(MINING_SITE_2, end)
     }
 
-    if (this.simulator) this.simulator.initializeTruckStates()
     return true
   }
 
@@ -387,11 +384,8 @@ export class RealtimeDataEngine {
 
   samplePathOnGround(samplesPerSegment = 50) {
     if (!this.customPathPoints || this.customPathPoints.length < 2) {
-      console.warn('[RealtimeDataEngine] 路径点不足，无法采样')
       return
     }
-
-    console.log('[RealtimeDataEngine] 开始路径采样，绑定模型局部坐标...')
 
     const sampledPath = []
 
@@ -425,8 +419,6 @@ export class RealtimeDataEngine {
 
     // 存储采样路径
     this.sampledGroundPath = sampledPath
-
-    console.log('[RealtimeDataEngine] 路径采样完成，采样点数:', sampledPath.length)
   }
 
   getCurrentCustomPathPoints() {
@@ -524,7 +516,6 @@ export class RealtimeDataEngine {
 
       return pickedPosition + VEHICLE_SURFACE_OFFSET
     } catch (error) {
-      console.warn('[RealtimeDataEngine] 获取地面高度失败:', error)
       return this.getHeightFromPathPoints(longitude, latitude) + VEHICLE_SURFACE_OFFSET
     }
   }
@@ -620,7 +611,6 @@ export class RealtimeDataEngine {
         }
       }
     } catch (error) {
-      console.warn('[RealtimeDataEngine] 异步地形采样失败:', error)
     }
 
     // 回退到同步方法
@@ -630,28 +620,11 @@ export class RealtimeDataEngine {
   init(options = {}) {
     this.initMiningSites()
 
-    this.mode = options.mode || 'simulated'
     this.tileset = options.tileset || null
     this.viewer = options.viewer || null
 
     if (this.tileset && !this.originalModelMatrix) {
       this.originalModelMatrix = Cesium.Matrix4.clone(this.tileset.modelMatrix)
-    }
-  }
-
-  async startSimulator() {
-    if (this.simulator) this.simulator.stop()
-    this.simulator = new TruckDataSimulator(this)
-    await this.simulator.loadConfig()
-    this.simulator.initializeTruckStates()
-    this.simulator.start()
-    return this.simulator
-  }
-
-  async initWithSimulator(options = {}) {
-    this.init(options)
-    if (this.mode === 'simulated') {
-      await this.startSimulator()
     }
   }
 
@@ -747,17 +720,10 @@ export class RealtimeDataEngine {
         }
       }
 
-      if (this.simulator) {
-        this.simulator.stop()
-        this.simulator = null
-        this.trucks.clear()
-        this.startSimulator()
-      }
-
       this._lastTilesetModelMatrix = tileset.modelMatrix
         ? Cesium.Matrix4.clone(tileset.modelMatrix)
         : null
-    }, SIMULATOR_RECREATE_DEBOUNCE_MS)
+    }, TILESET_RECREATE_DEBOUNCE_MS)
   }
 
   setViewer(viewer) {
@@ -772,23 +738,25 @@ export class RealtimeDataEngine {
     return this.tileset ? this.tileset.modelMatrix : Cesium.Matrix4.IDENTITY
   }
 
-  refreshSimulationFrame() {
-    if (!this.tileset || !this.simulator) return
-    this.initMiningSites()
-    this.simulator.initializeTruckStates()
-  }
-
-  stopSimulator() {
-    this.simulator?.stop()
-    this.simulator = null
-  }
-
   validateData(data) {
     return isValidRealtimeTruckData(data)
   }
 
   processData(data) {
-    return normalizeRealtimeTruckData(data)
+    const normalized = {
+      ...data,
+      truckId: data.truckId || data.truck_id,
+      vehicleInfo: data.vehicleInfo || data.vehicle_info,
+      mineralType: data.mineralType || data.mineral_type,
+      driverInfo: data.driverInfo || data.driver_info
+    }
+    if (typeof normalized.phase === 'number' && !normalized.position) {
+      const pathPosition = this.getPositionOnPath(normalized.phase)
+      if (pathPosition) {
+        normalized.position = pathPosition
+      }
+    }
+    return normalizeRealtimeTruckData(normalized)
   }
 
   addToHistory(truckId, data) {
@@ -852,37 +820,22 @@ export class RealtimeDataEngine {
    * @param {Function} [dataHandler] - 可选的数据预处理函数 (rawData) => processedData
    */
   switchToRealtime(dataHandler) {
-    this.stopSimulator()
     this.trucks.clear()
     this.dataSource = 'external_realtime'
     if (typeof dataHandler === 'function') {
       this.externalDataHandler = dataHandler
     }
-    console.log('[RealtimeDataEngine] 已切换到外部实时数据源模式')
-  }
-
-  /**
-   * 切换回静态模拟数据源模式
-   */
-  async switchToSimulated() {
-    this.stopSimulator()
-    this.trucks.clear()
-    this.externalDataHandler = null
-    this.dataSource = 'static_simulated'
-    await this.startSimulator()
-    console.log('[RealtimeDataEngine] 已切换回静态模拟数据源模式')
   }
 
   /**
    * 接收外部数据（实时API推送入口）
-   * 无论是模拟器还是外部API，统一通过此方法推送数据
    */
   receiveExternalData(data) {
     if (this.externalDataHandler) {
       data = this.externalDataHandler(data)
     }
-    if (!this.validateData(data)) {
-      console.warn('[RealtimeDataEngine] 无效数据:', data)
+    const valid = this.validateData(data)
+    if (!valid) {
       return
     }
     const processedData = this.processData(data)
@@ -892,447 +845,10 @@ export class RealtimeDataEngine {
   }
 
   destroy() {
-    this.stopSimulator()
     this.clear()
     this.tileset = null
     this.viewer = null
     this.originalModelMatrix = null
-  }
-}
-
-export class TruckDataSimulator {
-  constructor(engine) {
-    this.engine = engine
-    this.intervalId = null
-    this.truckConfigs = []
-    this.truckStates = new Map()
-    this.updateInterval = 1000
-    this.cycleTime = 360000
-    this.speedProfile = {
-      loading: { min: 4, max: 6 },
-      loadedTransport: { min: 23, max: 30 },
-      unloading: { min: 4, max: 6 },
-      emptyReturn: { min: 30, max: 38 }
-    }
-    this.phaseRatio = {
-      loading: 0.15,
-      loadedTransport: 0.35,
-      unloading: 0.15,
-      emptyReturn: 0.35
-    }
-    this.vehicleStatusConfig = {
-      engineTemp: { min: 80, max: 100 },
-      tirePressure: [8.0, 8.1, 8.2, 8.0],
-      fuelLevel: { min: 60, max: 90 }
-    }
-    this.locationMap = {
-      装载中: '采场1装载区',
-      重载运输: '采场1→采场2运输线',
-      卸载中: '采场2卸载区',
-      空载返程: '采场2→采场1返程线'
-    }
-  }
-
-  async loadConfig() {
-    try {
-      const [trucksData, simData] = await Promise.all([
-        fetch('/trucks-config.json').then(r => (r.ok ? r.json() : null)),
-        fetch('/simulation-config.json').then(r => (r.ok ? r.json() : null))
-      ])
-
-      if (trucksData?.trucks?.length) {
-        this.truckConfigs = trucksData.trucks
-        console.log(`[TruckSimulator] 从静态配置加载了 ${this.truckConfigs.length} 辆矿卡`)
-      } else {
-        this.loadDefaultTruckConfigs()
-      }
-
-      if (simData) {
-        if (simData.simulation) {
-          this.updateInterval = simData.simulation.updateIntervalMs || 1000
-          this.cycleTime = simData.simulation.cycleTimeMs || 360000
-        }
-        if (simData.speedProfile) {
-          Object.assign(this.speedProfile, simData.speedProfile)
-        }
-        if (simData.phaseRatio) {
-          Object.assign(this.phaseRatio, simData.phaseRatio)
-        }
-        if (simData.vehicleStatus) {
-          Object.assign(this.vehicleStatusConfig, simData.vehicleStatus)
-        }
-        if (simData.locationMap) {
-          this.locationMap = { ...this.locationMap, ...simData.locationMap }
-        }
-        console.log(
-          `[TruckSimulator] 从静态配置加载模拟参数: 周期=${(this.cycleTime / 60000).toFixed(1)}分钟, 更新间隔=${this.updateInterval}ms`
-        )
-      }
-    } catch (error) {
-      console.warn('[TruckSimulator] 加载配置失败，使用默认值:', error.message)
-      this.loadDefaultTruckConfigs()
-    }
-  }
-
-  loadDefaultTruckConfigs() {
-    this.truckConfigs = [
-      {
-        truckId: 'T001',
-        name: '1号矿卡',
-        driver: '张鹏',
-        driverInfo: { age: 35, experience: '8年', license: 'A2' },
-        vehicleInfo: { brand: '徐工XDE240', capacity: 72, maxSpeed: 40 },
-        mineralType: {
-          code: 'CU',
-          name: '铜矿石',
-          grade: '1.2%',
-          destination: '冶炼厂A区',
-          color: '#B87333'
-        },
-        phase: 0.0
-      },
-      {
-        truckId: 'T002',
-        name: '2号矿卡',
-        driver: '刘威',
-        driverInfo: { age: 42, experience: '12年', license: 'A2' },
-        vehicleInfo: { brand: '徐工XDE240', capacity: 72, maxSpeed: 40 },
-        mineralType: {
-          code: 'FE',
-          name: '铁矿石',
-          grade: '45%',
-          destination: '选矿厂B区',
-          color: '#8B4513'
-        },
-        phase: 0.33
-      },
-      {
-        truckId: 'T003',
-        name: '3号矿卡',
-        driver: '王超',
-        driverInfo: { age: 28, experience: '5年', license: 'A2' },
-        vehicleInfo: { brand: '徐工XDE240', capacity: 72, maxSpeed: 40 },
-        mineralType: {
-          code: 'AU',
-          name: '金矿石',
-          grade: '3.5g/t',
-          destination: '精炼厂C区',
-          color: '#FFD700'
-        },
-        phase: 0.66
-      }
-    ]
-    console.log('[TruckSimulator] 使用内置默认矿卡配置')
-  }
-
-  initializeTruckStates() {
-    if (!MINING_SITE_1 || !MINING_SITE_2 || !this.truckConfigs.length) return
-    this.truckStates.clear()
-    this.truckConfigs.forEach(config => {
-      this.truckStates.set(config.truckId, {
-        ...config,
-        phase: config.phase || 0,
-        status: '装载中',
-        payload: 0,
-        progress: 0,
-        worldPosition: {
-          longitude: MINING_SITE_1.longitude,
-          latitude: MINING_SITE_1.latitude,
-          height: MINING_SITE_1.height
-        }
-      })
-    })
-  }
-
-  getConfig() {
-    return {
-      truckConfigs: this.truckConfigs,
-      updateInterval: this.updateInterval,
-      cycleTime: this.cycleTime,
-      speedProfile: this.speedProfile,
-      phaseRatio: this.phaseRatio,
-      vehicleStatusConfig: this.vehicleStatusConfig
-    }
-  }
-
-  updateConfig(newConfig) {
-    if (!newConfig) return
-    if (newConfig.updateIntervalMs) this.updateInterval = newConfig.updateIntervalMs
-    if (newConfig.cycleTimeMs) this.cycleTime = newConfig.cycleTimeMs
-    if (newConfig.speedProfile) Object.assign(this.speedProfile, newConfig.speedProfile)
-    if (newConfig.phaseRatio) Object.assign(this.phaseRatio, newConfig.phaseRatio)
-    if (newConfig.vehicleStatus) Object.assign(this.vehicleStatusConfig, newConfig.vehicleStatus)
-    console.log('[TruckSimulator] 运行时配置已更新')
-  }
-
-  setTruckConfigs(truckConfigs) {
-    if (!Array.isArray(truckConfigs) || !truckConfigs.length) return false
-    this.truckConfigs = truckConfigs
-    this.initializeTruckStates()
-    console.log(`[TruckSimulator] 矿卡配置已更新: ${truckConfigs.length} 辆`)
-    return true
-  }
-
-  getInitialSurfacePosition(index) {
-    const site = MINING_SITE_1
-    const r = site.initialPlacementRadius || 6
-    const angle =
-      ((index % Math.max(this.truckConfigs.length, 1)) / Math.max(this.truckConfigs.length, 1)) *
-      Math.PI *
-      2
-    return this.engine.resolveSiteOffsetWorldPosition(
-      site,
-      Math.cos(angle) * r,
-      Math.sin(angle) * r
-    )
-  }
-
-  getRoadAngleBetweenSites(site1, site2) {
-    const dLon = site2.longitude - site1.longitude
-    const dLat = site2.latitude - site1.latitude
-    return Math.atan2(dLat, dLon)
-  }
-
-  getRoadEdgeCartesian(site, angle, radius) {
-    return this.engine.resolveSiteOffsetCartesian(
-      site,
-      Math.cos(angle) * radius,
-      Math.sin(angle) * radius
-    )
-  }
-
-  start() {
-    if (this.intervalId) return
-    if (!this.truckConfigs.length) {
-      console.warn('[TruckSimulator] 无矿卡配置，无法启动模拟')
-      return
-    }
-    this.intervalId = setInterval(() => {
-      this.updateTrucks()
-    }, this.updateInterval)
-    console.log(
-      `[TruckSimulator] 模拟器已启动 (间隔=${this.updateInterval}ms, 周期=${(this.cycleTime / 60000).toFixed(1)}分钟)`
-    )
-  }
-
-  stop() {
-    clearInterval(this.intervalId)
-    this.intervalId = null
-  }
-
-  restart() {
-    this.stop()
-    this.start()
-  }
-
-  updateTrucks() {
-    const now = Date.now()
-    this.truckStates.forEach(state => {
-      this.updateTruckState(state, now)
-      this.engine.receiveExternalData(this.generateDataPacket(state, now))
-    })
-  }
-
-  updateTruckState(state, now) {
-    const cycleTime = this.cycleTime
-    const elapsed = (now + state.phase * cycleTime) % cycleTime
-    const progress = elapsed / cycleTime
-    const hasCustomPath = this.engine.customPathPoints?.length >= 2
-    hasCustomPath
-      ? this.updateTruckStateOnCustomPath(state, progress)
-      : this.updateTruckStateDefault(state, progress)
-  }
-
-  updateTruckStateOnCustomPath(state, progress) {
-    const { loading, loadedTransport, unloading, emptyReturn } = this.phaseRatio
-    const ls = loading,
-      le = loading + loadedTransport
-    const us = le,
-      ue = le + unloading
-    const speed = this.speedProfile
-
-    if (progress < ls) {
-      state.status = '装载中'
-      state.worldPosition = this.getPositionNearStart(progress / ls)
-      state.speed = speed.loading.min + Math.random() * (speed.loading.max - speed.loading.min)
-      state.payload = (progress / ls) * state.vehicleInfo.capacity
-      state.heading = this.getHeadingOnPath(0.01)
-    } else if (progress < le) {
-      state.status = '重载运输'
-      const tp = (progress - ls) / loadedTransport
-      state.worldPosition = this.engine.getPositionOnPath(tp)
-      state.speed =
-        speed.loadedTransport.min +
-        Math.random() * (speed.loadedTransport.max - speed.loadedTransport.min)
-      state.payload = state.vehicleInfo.capacity
-      state.heading = this.getHeadingOnPath(tp)
-    } else if (progress < ue) {
-      state.status = '卸载中'
-      const up = (progress - us) / unloading
-      state.worldPosition = this.getPositionNearEnd(up)
-      state.speed =
-        speed.unloading.min + Math.random() * (speed.unloading.max - speed.unloading.min)
-      state.payload = state.vehicleInfo.capacity * (1 - up)
-      state.heading = this.getHeadingOnPath(0.99)
-    } else {
-      state.status = '空载返程'
-      const rp = 1 - (progress - ue) / emptyReturn
-      state.worldPosition = this.engine.getPositionOnPath(rp)
-      state.speed =
-        speed.emptyReturn.min + Math.random() * (speed.emptyReturn.max - speed.emptyReturn.min)
-      state.payload = 0
-      state.heading = (this.getHeadingOnPath(rp) + 180) % 360
-    }
-  }
-
-  getHeadingOnPath(progress) {
-    const delta = 0.01
-    const pos1 = this.engine.getPositionOnPath(progress - delta)
-    const pos2 = this.engine.getPositionOnPath(progress + delta)
-    if (!pos1 || !pos2) return 0
-    let angle =
-      (Math.atan2(pos2.longitude - pos1.longitude, pos2.latitude - pos1.latitude) * 180) / Math.PI
-    if (angle < 0) angle += 360
-    return angle
-  }
-
-  getPositionNearStart(p) {
-    const cp = Math.max(0, Math.min(1, p))
-    return this.engine.getPositionOnPath(cp * ENDPOINT_PATH_WINDOW) || MINING_SITE_1
-  }
-
-  getPositionNearEnd(p) {
-    const cp = Math.max(0, Math.min(1, p))
-    return (
-      this.engine.getPositionOnPath(1 - ENDPOINT_PATH_WINDOW + cp * ENDPOINT_PATH_WINDOW) ||
-      MINING_SITE_2
-    )
-  }
-
-  updateTruckStateDefault(state, progress) {
-    const { loading, loadedTransport, unloading, emptyReturn } = this.phaseRatio
-    const ls = loading,
-      le = loading + loadedTransport
-    const us = le,
-      ue = le + unloading
-    const speed = this.speedProfile
-
-    if (progress < ls) {
-      state.status = '装载中'
-      const lp = progress / ls
-      const angle = lp * 270 * (Math.PI / 180)
-      state.worldPosition = this.getWorldPositionOnSite(MINING_SITE_1, angle)
-      state.speed = speed.loading.min + Math.random() * (speed.loading.max - speed.loading.min)
-      state.payload = lp * state.vehicleInfo.capacity
-      state.heading = (lp * 270 + 90) % 360
-    } else if (progress < le) {
-      state.status = '重载运输'
-      const tp = (progress - ls) / loadedTransport
-      state.worldPosition = this.getWorldPositionOnRoad(MINING_SITE_1, MINING_SITE_2, tp)
-      state.speed =
-        speed.loadedTransport.min +
-        Math.random() * (speed.loadedTransport.max - speed.loadedTransport.min)
-      state.payload = state.vehicleInfo.capacity
-      state.heading = this.calculateWorldHeading(MINING_SITE_1, MINING_SITE_2)
-    } else if (progress < ue) {
-      state.status = '卸载中'
-      const up = (progress - us) / unloading
-      const angle = up * 270 * (Math.PI / 180)
-      state.worldPosition = this.getWorldPositionOnSite(MINING_SITE_2, angle)
-      state.speed =
-        speed.unloading.min + Math.random() * (speed.unloading.max - speed.unloading.min)
-      state.payload = state.vehicleInfo.capacity * (1 - up)
-      state.heading = (up * 270 + 90) % 360
-    } else {
-      state.status = '空载返程'
-      const rp = (progress - ue) / emptyReturn
-      state.worldPosition = this.getWorldPositionOnRoad(MINING_SITE_2, MINING_SITE_1, rp)
-      state.speed =
-        speed.emptyReturn.min + Math.random() * (speed.emptyReturn.max - speed.emptyReturn.min)
-      state.payload = 0
-      state.heading = this.calculateWorldHeading(MINING_SITE_2, MINING_SITE_1)
-    }
-  }
-
-  getWorldPositionOnSite(site, angle) {
-    const r = site?.radius || SITE_RADIUS
-    return this.engine.resolveSiteOffsetWorldPosition(
-      site,
-      Math.cos(angle) * r,
-      Math.sin(angle) * r
-    )
-  }
-
-  getWorldPositionOnRoad(startSite, endSite, progress) {
-    const sr = startSite?.radius || SITE_RADIUS,
-      er = endSite?.radius || SITE_RADIUS
-    const sra = this.getRoadAngleBetweenSites(startSite, endSite)
-    const era = this.getRoadAngleBetweenSites(endSite, startSite)
-
-    if (progress < 0.2) {
-      const ap = progress / 0.2
-      const angle = sra - Math.PI / 2 + ap * (Math.PI / 2)
-      return this.getWorldPositionOnSite(startSite, angle)
-    } else if (progress < 0.8) {
-      const rp = (progress - 0.2) / 0.6
-      const sc = this.getRoadEdgeCartesian(startSite, sra, sr)
-      const ec = this.getRoadEdgeCartesian(endSite, era, er)
-      const ic = Cesium.Cartesian3.lerp(sc, ec, rp, new Cesium.Cartesian3())
-      const wp = this.engine.cartesianToWorldPosition(ic, startSite?.height || 0)
-      return { ...wp, height: this.engine.sampleGroundHeight(wp.longitude, wp.latitude, wp.height) }
-    }
-    const ap = (progress - 0.8) / 0.2
-    const angle = era + Math.PI - Math.PI / 2 + ap * (Math.PI / 2)
-    return this.getWorldPositionOnSite(endSite, angle)
-  }
-
-  calculateWorldHeading(from, to) {
-    const dLon = to.longitude - from.longitude,
-      dLat = to.latitude - from.latitude
-    let angle = Math.atan2(dLat, dLon) * (180 / Math.PI)
-    if (angle < 0) angle += 360
-    return Math.round(angle)
-  }
-
-  generateDataPacket(state, timestamp) {
-    const vs = this.vehicleStatusConfig
-    const cartesian = Cesium.Cartesian3.fromDegrees(
-      state.worldPosition.longitude,
-      state.worldPosition.latitude,
-      state.worldPosition.height
-    )
-
-    return {
-      truckId: state.truckId,
-      name: state.name,
-      truckName: state.name,
-      driver: state.driver,
-      driverInfo: state.driverInfo,
-      vehicleInfo: state.vehicleInfo,
-      capacity: state.vehicleInfo.capacity,
-      mineralType: state.mineralType,
-      position: {
-        cartesian: [cartesian.x, cartesian.y, cartesian.z],
-        longitude: state.worldPosition.longitude,
-        latitude: state.worldPosition.latitude,
-        height: state.worldPosition.height
-      },
-      timestamp,
-      speed: Math.round(state.speed * 10) / 10,
-      heading: state.heading,
-      status: state.status,
-      location: this.locationMap[state.status] || '未知位置',
-      payload: Math.round(state.payload),
-      payloadPercent: Math.round((state.payload / state.vehicleInfo.capacity) * 100),
-      engineTemp: Math.round(
-        vs.engineTemp.min + Math.random() * (vs.engineTemp.max - vs.engineTemp.min)
-      ),
-      tirePressure: [...(vs.tirePressure || [8.0, 8.1, 8.2, 8.0])],
-      fuelLevel: Math.round(
-        vs.fuelLevel.min + Math.random() * (vs.fuelLevel.max - vs.fuelLevel.min)
-      ),
-      cycleCount: Math.floor(timestamp / this.cycleTime) + 1
-    }
   }
 }
 

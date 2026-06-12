@@ -6,8 +6,17 @@ import { MODEL_DEFAULTS, HIGHLIGHT_CONFIG, ID_PREFIX } from '../../../config/con
  * @property {string} id - 唯一标识
  * @property {string} name - 显示名称
  * @property {boolean} visible - 可见状态
- * @property {number} opacity - 不透明度（0-100）
+ * @property {number} opacity - 透明度（0-100）
  */
+
+// 安全获取透明度值，避免 0 被 || 误判为 falsy
+function safeOpacity(val) {
+  return val != null ? Number(val) : MODEL_DEFAULTS.OPACITY
+}
+
+function toAlpha(val) {
+  return 1 - safeOpacity(val) / MODEL_DEFAULTS.OPACITY
+}
 
 /**
  * 要素与模型管理器 - 封装所有模型和要素相关的逻辑
@@ -28,6 +37,15 @@ export class FeatureManager {
     this.featureMap = new Map()
     this.tileLoadListener = null
     this.listenerTileset = null
+    /**
+     * @type {Map<string, {opacity: number, visible: boolean}>}
+     * 持久化样式状态，当新的 tile 加载时自动应用
+     */
+    this.styleState = new Map()
+    /**
+     * 当前全局透明度，用于新加载瓦片时恢复正确的透明度组合
+     */
+    this.currentGlobalOpacity = MODEL_DEFAULTS.OPACITY
   }
 
   detachTileLoadListener() {
@@ -54,6 +72,33 @@ export class FeatureManager {
    */
   resetState() {
     this.featureMap.clear()
+    this.styleState.clear()
+    this.currentGlobalOpacity = MODEL_DEFAULTS.OPACITY
+  }
+
+  /**
+   * 为 feature 应用已记录的样式状态
+   * @param {Cesium.Cesium3DTileFeature} feature
+   * @param {string} featureId
+   */
+  _applyStyleState(feature, featureId) {
+    const state = this.styleState.get(featureId)
+    if (!state || !feature) return
+
+    try {
+      const currentColor = feature.color || Cesium.Color.WHITE
+      // 恢复时同时考虑模型透明度和全局透明度（两者都使用“透明度”语义）
+      const opacityValue = state.visible
+        ? toAlpha(state.opacity) * toAlpha(this.currentGlobalOpacity)
+        : 0
+      feature.color = new Cesium.Color(
+        currentColor.red,
+        currentColor.green,
+        currentColor.blue,
+        opacityValue
+      )
+    } catch (e) {
+    }
   }
 
   /**
@@ -71,8 +116,11 @@ export class FeatureManager {
         for (let i = 0; i < tile.content.featuresLength; ++i) {
           const feature = tile.content.getFeature(i)
           const featureId = this.getFeatureId(feature)
-          if (!this.featureMap.has(featureId)) {
-            this.featureMap.set(featureId, feature)
+          const isNew = !this.featureMap.has(featureId)
+          this.featureMap.set(featureId, feature)
+          // 为新加载的 feature 自动应用已记录的样式
+          if (isNew || this.styleState.has(featureId)) {
+            this._applyStyleState(feature, featureId)
           }
         }
       }
@@ -95,6 +143,7 @@ export class FeatureManager {
   destroy() {
     this.detachTileLoadListener()
     this.featureMap.clear()
+    this.styleState.clear()
     this.tileset = null
   }
 
@@ -122,7 +171,6 @@ export class FeatureManager {
       // @ts-ignore
       return feature._id || `${ID_PREFIX}${Date.now()}_${Math.floor(Math.random() * 1000)}`
     } catch (error) {
-      console.warn('获取要素ID失败:', error)
       return `${ID_PREFIX}${Date.now()}_${Math.floor(Math.random() * 1000)}`
     }
   }
@@ -132,17 +180,25 @@ export class FeatureManager {
    * @param {ModelItem} model
    * @returns {{success: boolean, message: string}}
    */
-  toggleModelVisibility(model) {
+  toggleModelVisibility(model, globalOpacity = MODEL_DEFAULTS.OPACITY) {
     if (!this.tileset) return { success: false, message: 'Tileset not initialized' }
 
     try {
+      this.currentGlobalOpacity = safeOpacity(globalOpacity)
       const featureId = model.featureId || model.id
+      // 持久化可见性状态
+      this.styleState.set(featureId, {
+        opacity: safeOpacity(model.opacity),
+        visible: !!model.visible
+      })
+
       const feature = this.featureMap.get(featureId)
-      if (feature && feature.color !== undefined) {
-        // 使用透明度模拟可见性
+      if (feature) {
         const currentColor = feature.color || Cesium.Color.WHITE
-        // 当可见时，使用当前透明度设置；当不可见时，设置为0（完全透明）
-        const opacityValue = model.visible ? 1 - model.opacity / MODEL_DEFAULTS.OPACITY : 0
+        // 可见时：模型不透明度系数 × 全局不透明度系数；不可见时：完全透明
+        const opacityValue = model.visible
+          ? toAlpha(model.opacity) * toAlpha(globalOpacity)
+          : 0
         feature.color = new Cesium.Color(
           currentColor.red,
           currentColor.green,
@@ -151,7 +207,7 @@ export class FeatureManager {
         )
         return { success: true, message: `${model.visible ? '显示' : '隐藏'}了模型: ${model.name}` }
       } else {
-        return { success: false, message: `无法操作模型: ${model.name} (ID不匹配)` }
+        return { success: true, message: `${model.visible ? '显示' : '隐藏'}了模型: ${model.name} (待加载后生效)` }
       }
     } catch (error) {
       return { success: false, message: '切换显示状态失败' }
@@ -170,9 +226,7 @@ export class FeatureManager {
       const feature = this.featureMap.get(featureId)
       // 增加更严格的类型检查，防止渲染错误
       if (feature && feature.color && typeof feature.color.clone === 'function') {
-        // 确保opacity是有效的数字
-        const opacity = typeof model.opacity === 'number' ? model.opacity : 0
-        const opacityValue = 1 - opacity / MODEL_DEFAULTS.OPACITY
+        const opacityValue = toAlpha(model.opacity)
 
         // 保存原始颜色的深拷贝
         const originalColor = feature.color.clone()
@@ -205,18 +259,26 @@ export class FeatureManager {
   /**
    * 更新模型透明度
    * @param {ModelItem} model
-   * @param {number} globalOpacity - 0 到 100
+   * @param {number} globalOpacity - 0 到 100，0 表示不透明，100 表示完全透明
    * @returns {{success: boolean, message: string}}
    */
-  updateModelOpacity(model, globalOpacity = 0) {
+  updateModelOpacity(model, globalOpacity = MODEL_DEFAULTS.OPACITY) {
+    this.currentGlobalOpacity = safeOpacity(globalOpacity)
     const featureId = model.featureId || model.id
+
+    // 持久化透明度状态
+    this.styleState.set(featureId, {
+      opacity: safeOpacity(model.opacity),
+      visible: !!model.visible
+    })
+
     const feature = this.featureMap.get(featureId)
-    if (feature && feature.color !== undefined) {
-      // 计算透明度，注意：1表示完全不透明，0表示完全透明
-      const modelOpacityValue = model.opacity / MODEL_DEFAULTS.OPACITY
-      const globalOpacityValue = globalOpacity / MODEL_DEFAULTS.OPACITY
-      // 最终透明度 = 模型透明度 * 全局透明度（当两者都为100时，最终透明度为1）
-      const finalOpacity = (1 - modelOpacityValue) * (1 - globalOpacityValue)
+    if (feature) {
+      // model.opacity / globalOpacity 范围 0~100，0=完全不透明，100=完全透明
+      const modelAlpha = toAlpha(model.opacity)
+      const globalAlpha = toAlpha(globalOpacity)
+      // 最终 alpha = 模型不透明度系数 * 全局不透明度系数；若模型不可见则强制为0
+      const finalOpacity = !!model.visible ? modelAlpha * globalAlpha : 0
       const currentColor = feature.color || Cesium.Color.WHITE
       feature.color = new Cesium.Color(
         currentColor.red,
@@ -226,18 +288,19 @@ export class FeatureManager {
       )
       return { success: true, message: `更新了模型透明度: ${model.name}` }
     }
-    return { success: false, message: `无法更新模型透明度: ${model.name} (ID不匹配)` }
+    return { success: true, message: `更新了模型透明度: ${model.name} (待加载后生效)` }
   }
 
-  updateModelColor(model, hexColor = '#ffffff', globalOpacity = 0) {
+  updateModelColor(model, hexColor = '#ffffff', globalOpacity = MODEL_DEFAULTS.OPACITY) {
     const featureId = model.featureId || model.id
     const feature = this.featureMap.get(featureId)
     if (!feature) return { success: false, message: `未找到模型: ${model.name}` }
     try {
       const col = Cesium.Color.fromCssColorString(hexColor || '#ffffff')
-      const modelOpacityValue = model.opacity / MODEL_DEFAULTS.OPACITY
-      const globalOpacityValue = globalOpacity / MODEL_DEFAULTS.OPACITY
-      const finalOpacity = (1 - modelOpacityValue) * (1 - globalOpacityValue)
+      const modelAlpha = toAlpha(model.opacity)
+      const globalAlpha = toAlpha(globalOpacity)
+      // 若模型不可见则强制透明，避免意外显示
+      const finalOpacity = !!model.visible ? modelAlpha * globalAlpha : 0
       feature.color = new Cesium.Color(col.red, col.green, col.blue, finalOpacity)
       return { success: true, message: `更新了模型配色: ${model.name}` }
     } catch (e) {
@@ -256,13 +319,11 @@ export class FeatureManager {
       let successCount = 0
       let failCount = 0
       modelList.forEach(model => {
-        if (model.visible) {
-          const result = this.updateModelOpacity(model, globalOpacity)
-          if (result.success) {
-            successCount++
-          } else {
-            failCount++
-          }
+        const result = this.updateModelOpacity(model, globalOpacity)
+        if (result.success) {
+          successCount++
+        } else {
+          failCount++
         }
       })
       return {
@@ -284,11 +345,11 @@ export class FeatureManager {
    * 显示所有模型
    * @param {ModelItem[]} modelList
    */
-  showAllModels(modelList) {
+  showAllModels(modelList, globalOpacity = MODEL_DEFAULTS.OPACITY) {
     modelList.forEach(m => {
       if (!m.visible) {
         m.visible = true
-        this.toggleModelVisibility(m)
+        this.toggleModelVisibility(m, globalOpacity)
       }
     })
   }

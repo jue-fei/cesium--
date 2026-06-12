@@ -245,11 +245,18 @@
             </el-select>
           </div>
           <div class="flex items-center gap-3">
-            <el-tooltip
-              effect="dark"
-              content="开启后使用粒子群优化自动搜索 IDW 最优幂指数与邻域数，精度更高但耗时大幅增加。如遇卡顿请关闭"
-              placement="right"
-            >
+            <el-tooltip effect="dark" placement="right">
+              <template #content>
+                <div class="text-xs leading-relaxed max-w-[220px]">
+                  <div class="font-semibold mb-1">慢·精准模式</div>
+                  <div>24粒子 × 60迭代 × 3轮重启，优化充分，耗时约 3~8 秒</div>
+                  <div class="font-semibold mt-2 mb-1">快·流畅模式</div>
+                  <div>8粒子 × 20迭代 × 1轮，快速收敛，耗时约 0.5~1 秒</div>
+                  <div class="mt-2 text-dim">
+                    两种模式都使用 PSO 自动搜索最优参数，仅搜索深度不同
+                  </div>
+                </div>
+              </template>
               <div class="text-sm text-dim w-[72px] shrink-0 cursor-help">PSO优化</div>
             </el-tooltip>
             <el-switch
@@ -378,6 +385,126 @@
             <div class="flex justify-between">
               <span class="text-dim">异常点数</span>
               <span class="stat-item">{{ results.dataset?.anomalyCount }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="results?.dataset?.trainPoints?.length" class="panel-section">
+        <div class="panel-section-header" @click="showRawData = !showRawData">
+          <div class="panel-section-title">随机生成数据详情</div>
+          <div class="text-xs text-dim">
+            {{ showRawData ? '收起 ▲' : '展开 ▼' }}（共
+            {{ (results.dataset?.trainCount || 0) + (results.dataset?.testCount || 0) }} 个数据点）
+          </div>
+        </div>
+
+        <div v-if="showRawData" class="raw-data-container">
+          <div class="raw-data-tabs">
+            <button
+              class="raw-tab"
+              :class="{ 'raw-tab-active': rawDataTab === 'train' }"
+              @click="rawDataTab = 'train'"
+            >
+              训练集（{{ results.dataset?.trainCount }} 点）
+            </button>
+            <button
+              class="raw-tab"
+              :class="{ 'raw-tab-active': rawDataTab === 'test' }"
+              @click="rawDataTab = 'test'"
+            >
+              测试集（{{ results.dataset?.testCount }} 点）
+            </button>
+          </div>
+
+          <div class="raw-data-toolbar">
+            <span class="text-xs text-dim">
+              异常点标记
+              <span style="color: var(--danger-color)">● 异常点</span>
+              <span style="color: var(--success-color)">● 正常点</span>
+            </span>
+            <span class="text-xs text-dim">
+              {{ rawDataTab === 'train' ? '含噪声观测值' : '真实场真值（无噪声）' }}
+            </span>
+          </div>
+
+          <div class="raw-data-table-wrap">
+            <table class="raw-data-table">
+              <thead>
+                <tr>
+                  <th class="raw-th">#</th>
+                  <th class="raw-th">X (m)</th>
+                  <th class="raw-th">Y (m)</th>
+                  <th class="raw-th">Z (m)</th>
+                  <th class="raw-th">
+                    {{ rawDataTab === 'train' ? '观测值 (MPa)' : '真值 (MPa)' }}
+                  </th>
+                  <th v-if="rawDataTab === 'train'" class="raw-th">真值 (MPa)</th>
+                  <th v-if="rawDataTab === 'train'" class="raw-th">噪声偏差</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(row, idx) in visibleRawData"
+                  :key="idx"
+                  class="raw-tr"
+                  :class="{ 'raw-tr-anomaly': row.isAnomaly }"
+                >
+                  <td class="raw-td">
+                    <span
+                      class="anomaly-dot"
+                      :class="row.isAnomaly ? 'dot-anomaly' : 'dot-normal'"
+                    ></span>
+                    {{ row.index + 1 }}
+                  </td>
+                  <td class="raw-td">{{ row.x.toFixed(2) }}</td>
+                  <td class="raw-td">{{ row.y.toFixed(2) }}</td>
+                  <td class="raw-td">{{ row.z.toFixed(2) }}</td>
+                  <td class="raw-td" :class="{ 'value-anomaly': row.isAnomaly }">
+                    {{ row.displayValue.toFixed(4) }}
+                  </td>
+                  <td v-if="rawDataTab === 'train'" class="raw-td">
+                    {{ row.trueValue.toFixed(4) }}
+                  </td>
+                  <td v-if="rawDataTab === 'train'" class="raw-td">
+                    {{ row.noiseDelta }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div
+            v-if="
+              (rawDataTab === 'train' ? results.dataset?.trainCount : results.dataset?.testCount) >
+              rawDataPageSize
+            "
+            class="raw-data-pagination"
+          >
+            <el-button
+              size="small"
+              :disabled="rawDataPage <= 0"
+              @click="rawDataPage = Math.max(0, rawDataPage - 1)"
+            >
+              上一页
+            </el-button>
+            <span class="text-xs text-dim mx-2">
+              第 {{ rawDataPage + 1 }} / {{ rawDataTotalPages }} 页
+            </span>
+            <el-button
+              size="small"
+              :disabled="rawDataPage >= rawDataTotalPages - 1"
+              @click="rawDataPage = Math.min(rawDataTotalPages - 1, rawDataPage + 1)"
+            >
+              下一页
+            </el-button>
+          </div>
+
+          <div class="raw-data-stats">
+            <div class="text-xs text-dim">
+              {{ rawDataTab === 'train' ? '训练集统计：' : '测试集统计：' }}
+              最小值 {{ rawDataStats.minVal }} MPa | 最大值 {{ rawDataStats.maxVal }} MPa | 均值
+              {{ rawDataStats.meanVal }} MPa | 标准差 {{ rawDataStats.stdVal }} MPa
             </div>
           </div>
         </div>
@@ -575,7 +702,7 @@
         </div>
       </div>
 
-      <div v-if="results?.idwDefault?.metrics" class="panel-section">
+      <div v-if="results?.idw?.optimalParams && results?.idwDefault?.metrics" class="panel-section">
         <div class="panel-section-title">PSO优化效果分析</div>
         <div class="p-2 rounded result-card">
           <div class="text-xs leading-relaxed stat-item">
@@ -610,7 +737,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import useExperimentPanel from '../services/panel/useExperimentPanelController.js'
 
 const {
@@ -664,6 +791,89 @@ const bestMethodKey = computed(() => {
     }
   }
   return best.key || ''
+})
+
+// ============ 随机生成数据展示 ============
+const showRawData = ref(false)
+const rawDataTab = ref('train')
+const rawDataPage = ref(0)
+const rawDataPageSize = 25
+
+const rawDataTotalPages = computed(() => {
+  const count =
+    rawDataTab.value === 'train'
+      ? results.value?.dataset?.trainCount || 0
+      : results.value?.dataset?.testCount || 0
+  return Math.max(1, Math.ceil(count / rawDataPageSize))
+})
+
+const rawDataStats = computed(() => {
+  const ds = results.value?.dataset
+  if (!ds) return { minVal: '-', maxVal: '-', meanVal: '-', stdVal: '-' }
+
+  const values = rawDataTab.value === 'train' ? ds.trainTrueValues || [] : ds.testTrueValues || []
+
+  if (!values.length) return { minVal: '-', maxVal: '-', meanVal: '-', stdVal: '-' }
+
+  let min = Infinity,
+    max = -Infinity,
+    sum = 0
+  for (const v of values) {
+    const n = Number(v)
+    if (Number.isFinite(n)) {
+      if (n < min) min = n
+      if (n > max) max = n
+      sum += n
+    }
+  }
+  const mean = sum / values.length
+  let sumSq = 0
+  for (const v of values) {
+    const n = Number(v)
+    if (Number.isFinite(n)) sumSq += (n - mean) ** 2
+  }
+  const std = Math.sqrt(sumSq / values.length)
+
+  return {
+    minVal: min.toFixed(4),
+    maxVal: max.toFixed(4),
+    meanVal: mean.toFixed(4),
+    stdVal: std.toFixed(4)
+  }
+})
+
+const visibleRawData = computed(() => {
+  const ds = results.value?.dataset
+  if (!ds) return []
+
+  const isTrain = rawDataTab.value === 'train'
+  const points = isTrain ? ds.trainPoints || [] : ds.testPoints || []
+  const displayValues = isTrain ? ds.trainValues || [] : ds.testTrueValues || []
+  const trueValues = isTrain ? ds.trainTrueValues || [] : []
+  const anomalyFlags = isTrain ? ds.trainAnomaly || [] : ds.testAnomaly || []
+
+  const start = rawDataPage.value * rawDataPageSize
+  const end = Math.min(start + rawDataPageSize, points.length)
+
+  const rows = []
+  for (let i = start; i < end; i++) {
+    const p = points[i]
+    const displayVal = Number(displayValues[i])
+    const trueVal = Number(trueValues[i])
+    const noiseDelta = Number.isFinite(trueVal) ? (displayVal - trueVal).toFixed(4) : '-'
+
+    rows.push({
+      index: i,
+      x: Number(p?.x) || 0,
+      y: Number(p?.y) || 0,
+      z: Number(p?.z) || 0,
+      displayValue: displayVal,
+      trueValue: trueVal,
+      noiseDelta,
+      isAnomaly: !!anomalyFlags[i]
+    })
+  }
+  return rows
 })
 </script>
 
@@ -1150,5 +1360,161 @@ th {
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--text-secondary);
+}
+
+/* 随机生成数据详情 */
+.raw-data-container {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border-primary);
+}
+
+.raw-data-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0.5rem;
+}
+
+.raw-tab {
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.raw-tab:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.raw-tab:last-child {
+  border-radius: 0 6px 6px 0;
+  border-left: none;
+}
+
+.raw-tab-active {
+  color: #fff;
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.raw-data-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+
+.raw-data-table-wrap {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+}
+
+.raw-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.68rem;
+}
+
+.raw-th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.35rem 0.45rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-bottom: 2px solid var(--border-primary);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.raw-th:first-child {
+  text-align: center;
+}
+
+.raw-tr {
+  transition: background 0.12s;
+}
+
+.raw-tr:hover {
+  background: var(--hover-bg);
+}
+
+.raw-tr:nth-child(even) {
+  background: rgba(var(--primary-rgb), 0.03);
+}
+
+.raw-tr:hover {
+  background: rgba(var(--primary-rgb), 0.08);
+}
+
+.raw-tr-anomaly {
+  background: rgba(245, 108, 108, 0.06) !important;
+}
+
+.raw-tr-anomaly:nth-child(even) {
+  background: rgba(245, 108, 108, 0.09) !important;
+}
+
+.raw-tr-anomaly:hover {
+  background: rgba(245, 108, 108, 0.14) !important;
+}
+
+.raw-td {
+  padding: 0.25rem 0.45rem;
+  color: var(--text-primary);
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(var(--primary-rgb), 0.08);
+}
+
+.raw-td:first-child {
+  text-align: center;
+}
+
+.anomaly-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 3px;
+  vertical-align: middle;
+}
+
+.dot-normal {
+  background: var(--success-color);
+}
+
+.dot-anomaly {
+  background: var(--danger-color, #f56c6c);
+}
+
+.value-anomaly {
+  color: var(--danger-color, #f56c6c);
+  font-weight: 600;
+}
+
+.raw-data-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.raw-data-stats {
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
 }
 </style>

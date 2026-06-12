@@ -2,6 +2,16 @@ import { computed, ref, watch } from 'vue'
 import useModel from '@/features/model-control/services/useModel.js'
 import useMessage from '@/composables/useMessage.js'
 import { PRESETS } from '@/config/constants/modelConfig.js'
+import { LOD_STAGE_DEFINITIONS, cesiumColorToHex } from '../lodRuntime.js'
+
+// ---- 从单一数据源派生阶段常量（模块级，非响应式）----
+export const STAGE_KEYS = LOD_STAGE_DEFINITIONS.map(d => d.key)
+export const STAGE_LABELS = Object.fromEntries(
+  LOD_STAGE_DEFINITIONS.map(d => [d.key, d.label.replace(/^S\d\s/, '')])
+)
+export const STAGE_COLORS = Object.fromEntries(
+  LOD_STAGE_DEFINITIONS.map(d => [d.key, cesiumColorToHex(d.color)])
+)
 
 export function useLodPanelController() {
   const {
@@ -11,7 +21,10 @@ export function useLodPanelController() {
     tilesetRef,
     fps,
     DEFAULT_LOD_CONFIG,
-    lodRuntime
+    lodRuntime,
+    adaptiveLoadState,
+    lodVisualizationState,
+    applyLodVisualizationMode
   } = useModel()
   const { showMessage } = useMessage()
 
@@ -19,6 +32,9 @@ export function useLodPanelController() {
   const modelLoaded = computed(() => !!tilesetRef.value)
   const presetKey = ref('balanced')
   const openGroupIds = ref([])
+  const peakTrianglesSelected = ref(0)
+  const peakSelectedTiles = ref(0)
+  const peakCommands = ref(0)
   let collapseInitialized = false
 
   const memoryMb = computed(() => {
@@ -45,6 +61,13 @@ export function useLodPanelController() {
     const preset = PRESETS[presetKey.value]
     return preset?.displayName || presetKey.value
   })
+
+  const dependencyLabelMap = {
+    dynamicScreenSpaceError: '动态误差',
+    foveatedScreenSpaceError: '中心优先加载',
+    skipLevelOfDetail: '跳级 LOD',
+    cullRequestsWhileMoving: '移动时裁剪请求'
+  }
 
   const applyPreset = async key => {
     presetKey.value = key
@@ -149,6 +172,7 @@ export function useLodPanelController() {
         {
           key: 'dynamicScreenSpaceErrorDensity',
           label: '密度',
+          dependsOn: 'dynamicScreenSpaceError',
           min: 0,
           max: 0.01,
           step: 0.00001,
@@ -158,6 +182,7 @@ export function useLodPanelController() {
         {
           key: 'dynamicScreenSpaceErrorFactor',
           label: '强度',
+          dependsOn: 'dynamicScreenSpaceError',
           min: 0,
           max: 64,
           step: 1,
@@ -167,6 +192,7 @@ export function useLodPanelController() {
         {
           key: 'dynamicScreenSpaceErrorHeightFalloff',
           label: '高度衰减',
+          dependsOn: 'dynamicScreenSpaceError',
           min: 0,
           max: 1,
           step: 0.01,
@@ -190,6 +216,7 @@ export function useLodPanelController() {
         {
           key: 'foveatedConeSize',
           label: '中心锥大小',
+          dependsOn: 'foveatedScreenSpaceError',
           min: 0,
           max: 1,
           step: 0.01,
@@ -199,6 +226,7 @@ export function useLodPanelController() {
         {
           key: 'foveatedMinimumScreenSpaceErrorRelaxation',
           label: '边缘放松起点',
+          dependsOn: 'foveatedScreenSpaceError',
           min: 0,
           max: 64,
           step: 1,
@@ -208,6 +236,7 @@ export function useLodPanelController() {
         {
           key: 'foveatedTimeDelay',
           label: '停下后延迟',
+          dependsOn: 'foveatedScreenSpaceError',
           min: 0,
           max: 2,
           step: 0.01,
@@ -231,6 +260,7 @@ export function useLodPanelController() {
         {
           key: 'baseScreenSpaceError',
           label: '跳级起点 (SSE)',
+          dependsOn: 'skipLevelOfDetail',
           min: 0,
           max: 4096,
           step: 32,
@@ -240,6 +270,7 @@ export function useLodPanelController() {
         {
           key: 'skipScreenSpaceErrorFactor',
           label: '跳级因子',
+          dependsOn: 'skipLevelOfDetail',
           min: 1,
           max: 64,
           step: 1,
@@ -249,6 +280,7 @@ export function useLodPanelController() {
         {
           key: 'skipLevels',
           label: '最小跳级层数',
+          dependsOn: 'skipLevelOfDetail',
           min: 0,
           max: 10,
           step: 1,
@@ -258,12 +290,14 @@ export function useLodPanelController() {
         {
           key: 'immediatelyLoadDesiredLevelOfDetail',
           label: '仅加载目标细节',
+          dependsOn: 'skipLevelOfDetail',
           type: 'checkbox',
           hint: '按目标阈值直达，补齐更慢'
         },
         {
           key: 'loadSiblings',
           label: '加载相邻瓦片',
+          dependsOn: 'skipLevelOfDetail',
           type: 'checkbox',
           hint: '减裂缝，增请求'
         }
@@ -290,6 +324,7 @@ export function useLodPanelController() {
         {
           key: 'cullRequestsWhileMovingMultiplier',
           label: '移动裁剪强度',
+          dependsOn: 'cullRequestsWhileMoving',
           min: 0,
           max: 120,
           step: 1,
@@ -315,8 +350,49 @@ export function useLodPanelController() {
           hint: '优先细节，短时压力↑'
         }
       ]
+    },
+    {
+      id: 'visual',
+      title: 'LOD可视化',
+      subtitle: '直观看层级变化',
+      defaultOpen: true,
+      fields: [
+        {
+          key: 'debugShowGeometricError',
+          label: '显示几何误差',
+          type: 'checkbox',
+          hint: '在瓦片上显示 geometric error，可直观看出当前层级误差'
+        },
+        {
+          key: 'debugShowRenderingStatistics',
+          label: '显示渲染统计',
+          type: 'checkbox',
+          hint: '在瓦片上直接显示命令数、点数、三角面和要素数'
+        },
+        {
+          key: 'debugShowMemoryUsage',
+          label: '显示瓦片内存',
+          type: 'checkbox',
+          hint: '在瓦片上显示几何和纹理内存占用'
+        }
+      ]
     }
   ])
+
+  const visualizationModeOptions = [
+    { key: 'off', label: '关闭覆盖', hint: '保持原始纹理，仅显示正常模型' },
+    { key: 'stage_color', label: '十级分层', hint: '按瓦片几何误差显示 S0-S9 十级 LOD 阶段' },
+    { key: 'stage_wireframe', label: '分层+线框', hint: '分层着色基础上叠加线框' },
+    { key: 'random_tiles', label: '随机瓦片', hint: '突出瓦片切块边界和切换区域' },
+    { key: 'random_wireframe', label: '随机+线框', hint: '同时观察切块与网格结构' }
+  ]
+
+  const stageLegend = STAGE_KEYS.map((key, index) => ({
+    key,
+    label: `S${index}`,
+    title: STAGE_LABELS[key],
+    color: STAGE_COLORS[key]
+  }))
 
   const flattenFields = groupsValue =>
     groupsValue.reduce((acc, g) => acc.concat(g.fields || []), [])
@@ -363,6 +439,201 @@ export function useLodPanelController() {
       if (a[k] !== b[k]) return true
     }
     return false
+  })
+
+  const isFieldDisabled = field => Boolean(field?.dependsOn && !local.value[field.dependsOn])
+
+  const getFieldHint = field => {
+    const baseHint = field?.hint || ''
+    if (!field?.dependsOn || !isFieldDisabled(field)) return baseHint
+    const dependencyLabel = dependencyLabelMap[field.dependsOn] || field.dependsOn
+    return `${baseHint}；需先开启${dependencyLabel}`
+  }
+
+  const requestStageLabel = computed(() => {
+    if (lodRuntime.value?.allTilesLoaded) return '完成'
+    if (lodRuntime.value?.initialTilesLoaded) return '首屏'
+    if ((lodRuntime.value?.pendingRequests || 0) > 0 || (lodRuntime.value?.tilesProcessing || 0) > 0) {
+      return '进行中'
+    }
+    return modelLoaded.value ? '待加载' : '未加载'
+  })
+
+  const detailTierLabel = computed(() => {
+    const sse = Number(local.value?.maximumScreenSpaceError ?? lodConfig.value?.maximumScreenSpaceError ?? 16)
+    if (sse <= 10) return '高细节'
+    if (sse <= 24) return '平衡'
+    return '性能优先'
+  })
+
+  const adaptiveStatusLabel = computed(() => {
+    if (!modelLoaded.value) return '待机'
+    if (!adaptiveLoadState.enabled) return '关闭'
+    if (adaptiveLoadState.level > 0) return adaptiveLoadState.appliedStepLabel || `等级 ${adaptiveLoadState.level}`
+    return '基线'
+  })
+
+  const adaptivePressureLabel = computed(() => {
+    const pressure = adaptiveLoadState.pressure
+    if (pressure === 'high') return '高'
+    if (pressure === 'medium') return '中'
+    return '低'
+  })
+
+  const currentVisualizationMode = computed(() => lodVisualizationState.mode || 'off')
+
+  const setVisualizationMode = mode => {
+    applyLodVisualizationMode(mode)
+  }
+
+  const formatMetricValue = value => {
+    const n = Number(value) || 0
+    if (n >= 1000000) return `${(n / 1000000).toFixed(2)}M`
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}K`
+    return String(Math.round(n))
+  }
+
+  const tilesReadyRatioLabel = computed(() => {
+    const ready = Number(lodRuntime.value?.contentReadyTiles) || 0
+    const total = Number(lodRuntime.value?.totalTiles) || 0
+    if (total <= 0) return '0%'
+    return `${Math.round((ready / total) * 100)}%`
+  })
+
+  const lodVisualSummary = computed(() => {
+    const flags = []
+    const mode = currentVisualizationMode.value
+    if (mode === 'stage_color') flags.push('十级分层覆盖')
+    if (mode === 'stage_wireframe') flags.push('十级分层 + 线框')
+    if (mode === 'random_tiles') flags.push('随机瓦片')
+    if (mode === 'random_wireframe') flags.push('随机瓦片 + 线框')
+    if (lodRuntime.value?.debugShowGeometricError) flags.push('几何误差')
+    if (lodRuntime.value?.debugShowRenderingStatistics) flags.push('渲染统计')
+    if (lodRuntime.value?.debugShowMemoryUsage) flags.push('内存标签')
+    return flags.length > 0 ? flags.join(' / ') : '未开启'
+  })
+
+  const classifyComplexityTier = (current, peak) => {
+    if (!current || !peak) return { key: 'idle', label: '空闲', ratio: 0 }
+    const ratio = peak <= 0 ? 0 : current / peak
+    if (ratio >= 0.9) return { key: 'v5', label: '极高', ratio }
+    if (ratio >= 0.72) return { key: 'v4', label: '高', ratio }
+    if (ratio >= 0.5) return { key: 'v3', label: '中高', ratio }
+    if (ratio >= 0.3) return { key: 'v2', label: '中', ratio }
+    if (ratio >= 0.12) return { key: 'v1', label: '较低', ratio }
+    return { key: 'v0', label: '极低', ratio }
+  }
+
+  const trianglesTier = computed(() =>
+    classifyComplexityTier(lodRuntime.value?.trianglesSelected, peakTrianglesSelected.value)
+  )
+
+  const visibleTilesTier = computed(() =>
+    classifyComplexityTier(lodRuntime.value?.selectedTiles, peakSelectedTiles.value)
+  )
+
+  const commandsTier = computed(() =>
+    classifyComplexityTier(lodRuntime.value?.commands, peakCommands.value)
+  )
+
+  const stageDistribution = computed(() => {
+    const counts = lodRuntime.value?.stageCounts || {}
+    const total = STAGE_KEYS.reduce((sum, key) => sum + (Number(counts[key]) || 0), 0)
+    return STAGE_KEYS.map(key => {
+      const count = Number(counts[key]) || 0
+      const percent = total > 0 ? Math.round((count / total) * 100) : 0
+      return {
+        key,
+        label: STAGE_LABELS[key],
+        count,
+        percent,
+        color: STAGE_COLORS[key]
+      }
+    })
+  })
+
+  const lodComplexityIndex = computed(() => {
+    const tri = trianglesTier.value.ratio * 45
+    const tiles = visibleTilesTier.value.ratio * 25
+    const cmds = commandsTier.value.ratio * 15
+    const stage = (Number(lodRuntime.value?.lodStageScore) || 0) * 0.15
+    return Math.round(Math.min(100, tri + tiles + cmds + stage))
+  })
+
+  const lodComplexityLabel = computed(() => {
+    const score = lodComplexityIndex.value
+    if (score >= 85) return '满细节'
+    if (score >= 68) return '高细节'
+    if (score >= 50) return '标准'
+    if (score >= 32) return '简化'
+    if (score >= 15) return '强简化'
+    return '极简'
+  })
+
+  const lodMetricCards = computed(() => [
+    {
+      key: 'trianglesSelected',
+      label: '当前三角面',
+      value: formatMetricValue(lodRuntime.value?.trianglesSelected),
+      hint: `峰值占比 ${Math.round(trianglesTier.value.ratio * 100)}% / ${trianglesTier.value.label}`
+    },
+    {
+      key: 'selectedTiles',
+      label: '可见瓦片',
+      value: formatMetricValue(lodRuntime.value?.selectedTiles),
+      hint: `峰值占比 ${Math.round(visibleTilesTier.value.ratio * 100)}% / ${visibleTilesTier.value.label}`
+    },
+    {
+      key: 'contentReadyTiles',
+      label: '已加载瓦片',
+      value: `${formatMetricValue(lodRuntime.value?.contentReadyTiles)} / ${formatMetricValue(lodRuntime.value?.totalTiles)}`,
+      hint: `内容就绪瓦片占比 ${tilesReadyRatioLabel.value}`
+    },
+    {
+      key: 'commands',
+      label: '渲染命令',
+      value: formatMetricValue(lodRuntime.value?.commands),
+      hint: `峰值占比 ${Math.round(commandsTier.value.ratio * 100)}% / ${commandsTier.value.label}`
+    },
+    {
+      key: 'featuresSelected',
+      label: '当前要素',
+      value: formatMetricValue(lodRuntime.value?.featuresSelected),
+      hint: '当前可见特征数量'
+    },
+    {
+      key: 'pointsSelected',
+      label: '当前点数',
+      value: formatMetricValue(lodRuntime.value?.pointsSelected),
+      hint: '点云或点要素模型时尤其有参考意义'
+    }
+  ])
+
+  // ---- 新增：瓦片详情与分析数据 ----
+  const tileDetailList = computed(() => {
+    return lodRuntime.value?.tileDetailList || []
+  })
+
+  const geometricErrorDistribution = computed(() => {
+    return lodRuntime.value?.geometricErrorDistribution || []
+  })
+
+  const screenSpaceErrorRange = computed(() => {
+    return lodRuntime.value?.screenSpaceErrorRange || { min: 0, max: 0, avg: 0 }
+  })
+
+  const perStageStats = computed(() => {
+    return lodRuntime.value?.perStageStats || {}
+  })
+
+  const stageTransitionInfo = computed(() => {
+    return lodRuntime.value?.stageTransitionInfo || []
+  })
+
+  const maxBucketCount = computed(() => {
+    const dist = geometricErrorDistribution.value
+    if (!dist.length) return 0
+    return Math.max(...dist.map(b => b.count))
   })
 
   const formatField = field => {
@@ -435,6 +706,41 @@ export function useLodPanelController() {
   )
 
   watch(
+    () => lodRuntime.value?.trianglesSelected,
+    value => {
+      peakTrianglesSelected.value = Math.max(peakTrianglesSelected.value, Number(value) || 0)
+    },
+    { immediate: true }
+  )
+
+  watch(
+    () => lodRuntime.value?.selectedTiles,
+    value => {
+      peakSelectedTiles.value = Math.max(peakSelectedTiles.value, Number(value) || 0)
+    },
+    { immediate: true }
+  )
+
+  watch(
+    () => lodRuntime.value?.commands,
+    value => {
+      peakCommands.value = Math.max(peakCommands.value, Number(value) || 0)
+    },
+    { immediate: true }
+  )
+
+  watch(
+    modelLoaded,
+    loaded => {
+      if (loaded) return
+      peakTrianglesSelected.value = 0
+      peakSelectedTiles.value = 0
+      peakCommands.value = 0
+    },
+    { immediate: true }
+  )
+
+  watch(
     groups,
     v => {
       if (collapseInitialized) return
@@ -452,13 +758,43 @@ export function useLodPanelController() {
     presetKey,
     presetOptions,
     currentPresetLabel,
+    detailTierLabel,
+    requestStageLabel,
+    adaptiveStatusLabel,
+    adaptivePressureLabel,
+    tilesReadyRatioLabel,
+    lodVisualSummary,
+    lodComplexityIndex,
+    lodComplexityLabel,
+    trianglesTier,
+    visibleTilesTier,
+    commandsTier,
+    stageDistribution,
+    stageLegend,
+    visualizationModeOptions,
+    currentVisualizationMode,
+    lodMetricCards,
     openGroupIds,
     groups,
     local,
     lodRuntime,
+    adaptiveLoadState,
+    lodVisualizationState,
+    // 新增导出
+    tileDetailList,
+    geometricErrorDistribution,
+    screenSpaceErrorRange,
+    perStageStats,
+    stageTransitionInfo,
+    maxBucketCount,
+    // 方法
     applyPreset,
     formatField,
+    formatMetricValue,
     getFieldNumber,
+    getFieldHint,
+    isFieldDisabled,
+    setVisualizationMode,
     setFieldNumber,
     setFieldBoolean,
     apply,

@@ -3,7 +3,8 @@ import { storeToRefs } from 'pinia'
 import { useGeologyStore } from '../../../stores/geologyStore.js'
 import { GeologyManager } from './geologyManager.js'
 import { GeologyVisualizer } from './geologyVisualizer.js'
-import { DUMMY_GEOLOGY_STATS, DUMMY_OREBODIES } from '../types/geologyDemoData.js'
+
+import { apiConfig, onConfigLoaded } from '../../../services/api/initApiConfig.js'
 import useViewer from '@/composables/useViewer.js'
 import useMessage from '@/composables/useMessage.js'
 
@@ -95,7 +96,6 @@ export default function useGeologyAnalysis() {
     if (!viewer) return
 
     if (!viewer.scene || !viewer.scene.primitives) {
-      console.warn('GeologyVisualizer: Viewer 场景未就绪')
       return
     }
 
@@ -112,35 +112,20 @@ export default function useGeologyAnalysis() {
       }
     }
 
-    // 数据为空时写入默认数据
-    /*
+
+    // 从 API 加载钻孔数据
     if (store.boreholes.length === 0) {
-      const dummyBoreholes = [
-        {
-          id: 'ZK001',
-          name: 'ZK-001',
-          x: 110.1,
-          y: 30.1,
-          z: 100,
-          depth: 245.5,
-          stratigraphy: [
-            { depth: 0, lithology: 'Topsoil', thickness: 5 },
-            { depth: 5, lithology: 'Sandstone', thickness: 100 },
-            { depth: 105, lithology: 'Granite', thickness: 140.5 }
-          ]
-        },
-        { id: 'ZK002', name: 'ZK-002', x: 110.2, y: 30.2, z: 105, depth: 312.8, stratigraphy: [] }
-      ]
-      store.setBoreholes(geologyManagerService.processBoreholes(dummyBoreholes))
+      loadBoreholesFromApi()
     }
-    */
+
+    // 从 API 加载地质统计数据
+    if (!store.stats.averageThickness && !store.stats.estimatedReserves) {
+      loadGeologyStatsFromApi()
+    }
 
     if (store.orebodies.length === 0) {
-      store.setOrebodies(DUMMY_OREBODIES)
-    }
-
-    if (store.stats.estimatedReserves === 0) {
-      store.updateStats(DUMMY_GEOLOGY_STATS)
+      // 从 API 加载矿体数据
+      loadOrebodiesFromApi()
     }
   }
 
@@ -196,6 +181,100 @@ export default function useGeologyAnalysis() {
       }
     }
     return sectionData
+  }
+
+  /**
+   * 计算矿体储量
+   */
+  /**
+ * 从 API 加载矿体数据并写入 store
+ */
+  async function loadOrebodiesFromApi() {
+    try {
+      // 如果 API 配置还未加载，等待回调
+      if (!apiConfig.loaded) {
+        await new Promise(resolve => onConfigLoaded(resolve))
+      }
+      if (apiConfig.orebodies && apiConfig.orebodies.length > 0) {
+        const mapped = apiConfig.orebodies.map(r => ({
+          id: r.orebody_id,
+          name: r.name,
+          grade: Number(r.grade),
+          reserves: Number(r.reserves),
+          thickness: Number(r.thickness),
+          oreType: r.ore_type,
+          density: Number(r.density),
+          volume: Number(r.volume),
+          metalContent: Number(r.metal_content),
+          miningMethod: r.mining_method,
+          depthTop: Number(r.depth_top),
+          depthBottom: Number(r.depth_bottom),
+          dipAngle: Number(r.dip_angle),
+          strike: Number(r.strike),
+          status: r.status,
+          geologicalZone: r.geological_zone,
+          confidenceLevel: r.confidence_level,
+          boundingBox: r.bounding_box,
+          description: r.description
+        }))
+        store.setOrebodies(mapped)
+        return true
+      }
+    } catch (e) {
+    }
+    return false
+  }
+
+  /**
+   * 从 API 加载钻孔数据并写入 store
+   */
+  async function loadBoreholesFromApi() {
+    try {
+      if (!apiConfig.loaded) {
+        await new Promise(resolve => onConfigLoaded(resolve))
+      }
+      if (apiConfig.boreholes && apiConfig.boreholes.length > 0) {
+        const processed = geologyManagerService.processBoreholes(
+          apiConfig.boreholes.map(r => ({
+            id: r.borehole_id || r.id,
+            name: r.name,
+            x: Number(r.x),
+            y: Number(r.y),
+            z: Number(r.z),
+            depth: Number(r.depth),
+            stratigraphy: r.stratigraphy || [],
+            description: r.description
+          }))
+        )
+        store.setBoreholes(processed)
+        return true
+      }
+    } catch (e) {
+    }
+    return false
+  }
+
+  /**
+   * 从 API 加载地质统计并写入 store
+   */
+  async function loadGeologyStatsFromApi() {
+    try {
+      if (!apiConfig.loaded) {
+        await new Promise(resolve => onConfigLoaded(resolve))
+      }
+      if (apiConfig.geologyStats) {
+        const s = apiConfig.geologyStats
+        store.updateStats({
+          averageThickness: s.average_thickness ?? s.averageThickness ?? 0,
+          mineralizationIntensity: s.mineralization_intensity ?? s.mineralizationIntensity ?? 0,
+          estimatedReserves: s.estimated_reserves ?? s.estimatedReserves ?? 0,
+          averageGrade: s.average_grade ?? s.averageGrade ?? 0
+        })
+        return true
+      }
+    } catch (e) {
+    }
+    return false
   }
 
   /**

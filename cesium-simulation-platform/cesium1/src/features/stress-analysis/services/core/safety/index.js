@@ -16,6 +16,7 @@
  */
 
 import { clamp, clamp01, ensureArray } from '../shared/stressActionShared.js'
+import { eigenvaluesSymmetric3 } from '../shared/eigenvalues.js'
 
 // ============================================================================
 // 一、基础工具函数
@@ -47,43 +48,7 @@ function computeVonMises(s) {
   return Math.sqrt(Math.max(0, 3 * computeJ2Invariant(s)))
 }
 
-// 对称3×3矩阵特征值求解 (Jacobi方法, 精确稳健)
-function eigenvaluesSymmetric3(s) {
-  const eps = 1e-12
-  const a00 = Number(s?.sxx) || 0
-  const a11 = Number(s?.syy) || 0
-  const a22 = Number(s?.szz) || 0
-  const a01 = Number(s?.sxy) || 0
-  const a12 = Number(s?.syz) || 0
-  const a02 = Number(s?.szx) || 0
-
-  const p1 = a01 * a01 + a02 * a02 + a12 * a12
-  if (p1 <= eps) return [a00, a11, a22].sort((x, y) => y - x)
-
-  const q = (a00 + a11 + a22) / 3
-  const b00 = a00 - q
-  const b11 = a11 - q
-  const b22 = a22 - q
-  const p2 = b00 * b00 + b11 * b11 + b22 * b22 + 2 * p1
-  const p = Math.sqrt(p2 / 6)
-  if (!(p > eps)) return [a00, a11, a22].sort((x, y) => y - x)
-
-  const invP = 1 / p
-  const c00 = b00 * invP
-  const c11 = b11 * invP
-  const c22 = b22 * invP
-  const c01 = a01 * invP
-  const c02 = a02 * invP
-  const c12 = a12 * invP
-  const detC =
-    c00 * (c11 * c22 - c12 * c12) - c01 * (c01 * c22 - c12 * c02) + c02 * (c01 * c12 - c11 * c02)
-  const r = Math.max(-1, Math.min(1, detC / 2))
-  const phi = r <= -1 ? Math.PI / 3 : r >= 1 ? 0 : Math.acos(r) / 3
-  const eig1 = q + 2 * p * Math.cos(phi)
-  const eig3 = q + 2 * p * Math.cos(phi + (2 * Math.PI) / 3)
-  const eig2 = 3 * q - eig1 - eig3
-  return [eig1, eig2, eig3].sort((x, y) => y - x)
-}
+export { eigenvaluesSymmetric3 } from '../shared/eigenvalues.js'
 
 // ============================================================================
 // 二、岩体材料参数 — 按 GB/T 50218-2014 附录B 及 YS/T 5046-2025
@@ -725,119 +690,7 @@ export function computeSafetyScoreFromStress(stressTensor, safetyContext = null,
 }
 
 // ============================================================================
-// 八、综合多维度安全评估 (新增)
-// ============================================================================
-
-/**
- * 综合安全评估结果
- * 融合应力准则、岩体分级、岩爆倾向性三维度
- */
-export function computeComprehensiveAssessment(stressTensor, options = {}) {
-  const {
-    safetyContext = null,
-    localPos = null,
-    sigmaC = 50,
-    cohesion,
-    frictionAngle,
-    tensileStrength
-  } = options
-  const ref = resolveSafetyReference(safetyContext)
-
-  const hbParams = computeHoekBrownParams(
-    sigmaC,
-    safetyContext?.GSI || 55,
-    safetyContext?.mi || 12,
-    safetyContext?.disturbanceFactor || 0
-  )
-
-  const principal = eigenvaluesSymmetric3(stressTensor)
-  const sigma1 = Number(principal[0]) || 0
-  const sigma3 = Number(principal[2]) || 0
-
-  // 维度1: 应力准则评价
-  const hbUtil = hoekBrownUtilization(sigma1, sigma3, hbParams)
-  const mcResult = mohrCoulombAssessment(stressTensor, { cohesion, frictionAngle, tensileStrength })
-  const safetyScore = computeSafetyScoreFromStress(stressTensor, safetyContext, localPos)
-
-  // 维度2: 岩体分级 (基于推断参数)
-  const rc = sigmaC
-  const kv = safetyContext?.Kv || 0.55
-  const bq = computeBQ(rc, kv)
-  const bqModified = computeBQModified(
-    bq,
-    safetyContext?.k1 || 0,
-    safetyContext?.k2 || 0,
-    safetyContext?.k3 || 0
-  )
-  const bqClass = classifyBQ(bqModified)
-
-  // 维度3: 岩爆倾向性
-  const rockburst = assessRockburstRisk(stressTensor, sigmaC)
-
-  // 破坏阶段判定
-  const vonMises = computeVonMises(stressTensor)
-  const u = vonMises / Math.max(ref, 1e-6)
-  let damageStage
-  if (u <= 0.35)
-    damageStage = {
-      stage: 'elastic',
-      label: '弹性阶段',
-      description: '应力-应变为线性关系，卸载后完全恢复'
-    }
-  else if (u <= 0.65)
-    damageStage = {
-      stage: 'damage',
-      label: '损伤阶段',
-      description: '微裂隙萌生扩展，刚度开始衰减'
-    }
-  else if (u <= 0.9)
-    damageStage = {
-      stage: 'yield',
-      label: '屈服阶段',
-      description: '裂隙贯通，塑性变形显著，体积膨胀'
-    }
-  else if (u <= 1.0)
-    damageStage = {
-      stage: 'failure',
-      label: '破坏阶段',
-      description: '裂隙网络贯通，承载力接近峰值'
-    }
-  else
-    damageStage = {
-      stage: 'unstable',
-      label: '失稳阶段',
-      description: '超过峰值强度，应变软化，需立即处理'
-    }
-
-  return {
-    safetyScore,
-    riskLevel: resolveRiskLevel(safetyScore),
-    damageStage,
-    stressCriteria: {
-      vonMises: roundTo(vonMises, 2),
-      utilization: roundTo(u, 3),
-      referenceStrength: ref,
-      hoekBrown: { utilization: roundTo(hbUtil, 3), params: hbParams },
-      mohrCoulomb: mcResult
-    },
-    rockMassClass: bqClass
-      ? {
-          ...bqClass,
-          BQ: bqModified,
-          BQRaw: bq,
-          hardness: classifyRockHardness(rc),
-          integrity: classifyRockIntegrity(kv)
-        }
-      : null,
-    rockburst,
-    note: bqClass
-      ? `BQ ${bqModified} — ${bqClass.label} ${bqClass.stability}岩体，应力利用率 ${(u * 100).toFixed(1)}%`
-      : `应力利用率 ${(u * 100).toFixed(1)}%，${damageStage.label}`
-  }
-}
-
-// ============================================================================
-// 九、安全评分可视化映射
+// 八、安全评分可视化映射
 // ============================================================================
 
 export function isSafetyMetric(metric) {

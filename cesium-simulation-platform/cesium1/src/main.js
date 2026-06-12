@@ -2,7 +2,6 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import useMessage from './composables/useMessage.js'
-import { initApiConfig } from './services/api/initApiConfig.js'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import './assets/styles/variables.css'
 
@@ -17,14 +16,12 @@ const { showMessage } = useMessage()
 
 app.config.errorHandler = (err, _instance, info) => {
   if (import.meta.env.DEV) {
-    console.error('Vue Error:', err, '\nInfo:', info)
   }
   showMessage(`系统错误: ${err.message || '未知错误'}`, 'error')
 }
 
 window.onerror = (message, source, lineno, colno, error) => {
   if (import.meta.env.DEV) {
-    console.error('Global Error:', { message, source, lineno, colno, error })
   }
   showMessage(`全局错误: ${message}`, 'error')
   return true
@@ -32,12 +29,8 @@ window.onerror = (message, source, lineno, colno, error) => {
 
 window.onunhandledrejection = event => {
   if (import.meta.env.DEV) {
-    console.error('Unhandled Promise:', event.reason)
   }
   showMessage(`异步错误: ${event.reason?.message || event.reason || '未知'}`, 'error')
 }
-
-// 初始化数据库配置（非阻塞，失败自动降级到本地默认值）
-initApiConfig()
 
 app.mount('#app')

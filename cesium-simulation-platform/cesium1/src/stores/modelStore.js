@@ -5,6 +5,7 @@ import {
   DEFAULT_POSITION,
   DEFAULT_TRANSFORM
 } from '@/config/constants/modelConfig.js'
+import { createLodRuntimeState } from '@/features/lod-optimization/services/lodRuntime.js'
 
 export const useModelStore = defineStore('model', () => {
   const modelConfigFiles = ref([])
@@ -24,13 +25,7 @@ export const useModelStore = defineStore('model', () => {
 
   const tileset = shallowRef(null)
   const lodConfig = ref({ ...DEFAULT_LOD_CONFIG })
-  const lodRuntime = ref({
-    pendingRequests: 0,
-    tilesProcessing: 0,
-    initialTilesLoaded: false,
-    allTilesLoaded: false,
-    lastUpdatedMs: 0
-  })
+  const lodRuntime = ref(createLodRuntimeState())
 
   return {
     modelConfigFiles,

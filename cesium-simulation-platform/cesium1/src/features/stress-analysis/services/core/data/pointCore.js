@@ -14,8 +14,6 @@ import {
 import {
   extractTensor6Arrays,
   getTensor6FrameCount,
-  fract,
-  ensureArray,
   isFiniteStressTensor,
   buildStressDetails,
   scaleFiniteSeries,
@@ -28,6 +26,7 @@ import {
   sampleTensor6AtContext,
   toStressTensor
 } from '../interpolation/config.js'
+import { ensureArray, fract } from '../shared/stressMathUtils.js'
 import { createInterpolationManager } from '../interpolation/interpolationCore.js'
 import { parsePointCenter } from '../interpolation/utilsWorker.js'
 import { normalizeRenderConfig } from './foundation.js'

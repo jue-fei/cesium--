@@ -97,7 +97,6 @@ export function createExperimentWorkerClient(options = {}) {
   }
 
   function handleWorkerError(err) {
-    console.error('[ExperimentWorkerClient] Worker 异常:', err)
     if (currentRunId) {
       handleRunError(new Error('Worker意外终止'))
     }
@@ -111,7 +110,6 @@ export function createExperimentWorkerClient(options = {}) {
 
     if (retryCount < MAX_RETRIES) {
       retryCount++
-      console.warn(`[ExperimentWorkerClient] 重试第 ${retryCount} 次...`)
       destroyWorker()
       const w = createWorker()
       if (w) {
@@ -131,7 +129,6 @@ export function createExperimentWorkerClient(options = {}) {
   function startTimeoutTimer() {
     clearTimeoutTimer()
     timeoutTimer = setTimeout(() => {
-      console.warn('[ExperimentWorkerClient] 实验超时')
       cancel()
       const timeoutErr = new Error('TIMEOUT')
       callbacks.onTimeout()

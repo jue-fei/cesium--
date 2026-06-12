@@ -42,16 +42,30 @@ export function computeMaxError(predictions, groundTruth) {
   return maxErr
 }
 
-export function computeMAPE(predictions, groundTruth, epsilon = 1e-6) {
+export function computeMAPE(predictions, groundTruth) {
   const n = Math.min(predictions.length, groundTruth.length)
   if (n === 0) return Number.NaN
+
+  // 先计算真值均值的绝对值，作为尺度参考
+  let sumAbsTruth = 0
+  let validCount = 0
+  for (let i = 0; i < n; i++) {
+    const pred = Number(predictions[i])
+    const truth = Number(groundTruth[i])
+    if (!Number.isFinite(pred) || !Number.isFinite(truth)) continue
+    sumAbsTruth += Math.abs(truth)
+    validCount++
+  }
+  const meanAbsTruth = validCount > 0 ? sumAbsTruth / validCount : 0
+  const floor = Math.max(meanAbsTruth * 0.01, 1e-4)
+
   let sum = 0
   let count = 0
   for (let i = 0; i < n; i++) {
     const pred = Number(predictions[i])
     const truth = Number(groundTruth[i])
     if (!Number.isFinite(pred) || !Number.isFinite(truth)) continue
-    const denom = Math.max(epsilon, Math.abs(truth))
+    const denom = Math.max(floor, Math.abs(truth))
     sum += Math.abs((pred - truth) / denom) * 100
     count++
   }

@@ -1,3 +1,5 @@
+import { loadApiConfig } from '@/services/api/initApiConfig.js'
+
 export function createAppBootstrap({
   viewer,
   model,
@@ -12,6 +14,9 @@ export function createAppBootstrap({
 
   async function start(containerId = 'cesiumContainer') {
     if (isStarted) return viewer.getViewer?.() || null
+
+    // 从数据库加载所有配置（模型/设置/监测/应力等）
+    await loadApiConfig()
 
     const viewerInstance = await viewer.initViewer(containerId)
     if (!viewerInstance) return null

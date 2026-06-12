@@ -20,7 +20,6 @@ export class HttpPollConnector extends DataConnector {
 
   connect() {
     if (!this._url) {
-      console.error('[HttpPollConnector] 未配置轮询URL')
       return
     }
 
@@ -54,7 +53,8 @@ export class HttpPollConnector extends DataConnector {
         throw new Error(`HTTP ${response.status}`)
       }
 
-      const data = await response.json()
+      const result = await response.json()
+      const data = result.data || result
 
       if (Array.isArray(data)) {
         data.forEach(item => {
@@ -67,7 +67,6 @@ export class HttpPollConnector extends DataConnector {
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
-        console.warn('[HttpPollConnector] 轮询失败:', err.message)
         this.setStatus('error')
         this._scheduleReconnect()
         return

@@ -77,25 +77,32 @@ export function getFeatureNameFromFeature(feature, fallbackName = 'Unknown Model
 
 export function normalizeModelMappingFromConfig(modelMapping) {
   const model = modelMapping && typeof modelMapping === 'object' ? modelMapping : {}
-  const style = model.styleProperties || {}
+  const style = model.styleProperties || model.style_properties || {}
   const normalizedStyle = {
     color: style.color || '#ffffff',
     opacity: typeof style.opacity === 'number' ? style.opacity : 1,
     visible: typeof style.visible === 'boolean' ? style.visible : true,
     highlightColor: style.highlightColor || style.color || '#ffffff'
   }
-  const featureId = model.featureId || model.id
+  const featureId = model.feature_id || model.featureId || model.id
+  // style.opacity 范围 0(透明)~1(不透明)，转换为 UI transparency 0(不透明)~100(完全透明)
+  const uiOpacity = Math.max(
+    0,
+    Math.min(100, Math.round((1 - (typeof style.opacity === 'number' ? style.opacity : 1)) * 100))
+  )
   return {
     ...model,
+    id: model.id || featureId,
     featureId,
     visible: normalizedStyle.visible,
-    opacity: 0,
+    opacity: uiOpacity,
     depth: typeof model.depth === 'number' ? model.depth : null,
     includeInConfig: true,
+    sourceFeature: JSON.parse(JSON.stringify(model)),
     styleProperties: normalizedStyle,
-    geologyProperties: model.geologyProperties || {},
-    miningProperties: model.miningProperties || {},
-    safetyProperties: model.safetyProperties || {}
+    geologyProperties: model.geologyProperties || model.geology_properties || {},
+    miningProperties: model.miningProperties || model.mining_properties || {},
+    safetyProperties: model.safetyProperties || model.safety_properties || {}
   }
 }
 
@@ -136,12 +143,17 @@ export function buildModelMappingsForSave(modelList) {
     .filter(model => model?.includeInConfig === true)
     .map(model => {
       const style = model.styleProperties || {}
+      const transparencyValue = model.opacity != null ? model.opacity : 0
       const opacityValue =
-        typeof style.opacity === 'number' ? style.opacity : 1 - (model.opacity || 0) / 100
+        typeof style.opacity === 'number'
+          ? style.opacity
+          : 1 - Math.max(0, Math.min(100, transparencyValue)) / 100
       const depth = typeof model.depth === 'number' ? model.depth : null
+      const featureBindingId = model.featureId || model.feature_id || model.id
       const result = {
         id: model.id,
-        featureId: model.featureId || model.id,
+        featureId: featureBindingId,
+        feature_id: featureBindingId,
         name: model.name,
         type: model.type,
         category: model.category,

@@ -195,6 +195,8 @@ export default function useExperimentPanel() {
   })
 
   const psoVisual = computed(() => {
+    // 仅当 PSO 实际运行并成功优化时才显示对比
+    if (!results.value?.idw?.optimalParams) return null
     const defaultRmse = Number(results.value?.idwDefault?.metrics?.rmse)
     const optimizedRmse = Number(results.value?.idw?.metrics?.rmse)
     if (!Number.isFinite(defaultRmse) || !Number.isFinite(optimizedRmse) || defaultRmse <= 0)
@@ -340,7 +342,6 @@ export default function useExperimentPanel() {
           workerPercent.value = 100
         },
         onError: err => {
-          console.error('[ExperimentPanel] 实验执行失败:', err)
           status.value = 'error'
           progressMessage.value = `实验失败: ${err.message || '未知错误'}`
           workerPercent.value = 0

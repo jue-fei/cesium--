@@ -16,9 +16,12 @@
  * 注意：这里的 fitness 基于交叉验证的 RMSE + bias + variance 加权，
  * 默认使用空间阻塞验证，尽量让参数选择更贴近真实空间外推。
  */
-import { clamp01, computeAnisotropicDistanceSquared, createAnisotropyParams } from './config.js'
+import { computeAnisotropicDistanceSquared, createAnisotropyParams } from './config.js'
+import { computeBBox, computeBBoxDiagonal } from '../shared/bbox.js'
+import { selectNeighborsBySector } from '../shared/sectorNeighborSelection.js'
+import { clamp01 } from '../shared/stressMathUtils.js'
 
-function createSeededRng(seed) {
+export function createSeededRng(seed) {
   // 确定性线性同余生成器，用于稳定的优化运行
   let s = (Number(seed) || 0) >>> 0
   return function rng() {
@@ -86,26 +89,8 @@ function assignRandomFolds(n, foldCount, rng) {
 }
 
 function resolveSpatialBlockCounts(points, foldCount) {
-  let minX = Number.POSITIVE_INFINITY
-  let minY = Number.POSITIVE_INFINITY
-  let minZ = Number.POSITIVE_INFINITY
-  let maxX = Number.NEGATIVE_INFINITY
-  let maxY = Number.NEGATIVE_INFINITY
-  let maxZ = Number.NEGATIVE_INFINITY
-  for (let i = 0; i < points.length; i++) {
-    const p = points[i]
-    if (p.x < minX) minX = p.x
-    if (p.y < minY) minY = p.y
-    if (p.z < minZ) minZ = p.z
-    if (p.x > maxX) maxX = p.x
-    if (p.y > maxY) maxY = p.y
-    if (p.z > maxZ) maxZ = p.z
-  }
-  const extents = [
-    Math.max(1e-6, maxX - minX),
-    Math.max(1e-6, maxY - minY),
-    Math.max(1e-6, maxZ - minZ)
-  ]
+  const bbox = computeBBox(points)
+  const extents = [bbox.dx, bbox.dy, bbox.dz]
   const counts = [1, 1, 1]
   const product = () => counts[0] * counts[1] * counts[2]
   while (product() < foldCount) {
@@ -121,12 +106,12 @@ function resolveSpatialBlockCounts(points, foldCount) {
     counts[bestAxis] += 1
   }
   return {
-    minX,
-    minY,
-    minZ,
-    maxX,
-    maxY,
-    maxZ,
+    minX: bbox.minX,
+    minY: bbox.minY,
+    minZ: bbox.minZ,
+    maxX: bbox.maxX,
+    maxY: bbox.maxY,
+    maxZ: bbox.maxZ,
     nx: counts[0],
     ny: counts[1],
     nz: counts[2]
@@ -200,26 +185,8 @@ function getAdaptivePowerContext(points, params) {
   if (!params?.adaptivePower || !Array.isArray(points) || points.length < 4) return null
   if (params.__adaptivePowerContext?.points === points) return params.__adaptivePowerContext
 
-  let minX = Number.POSITIVE_INFINITY
-  let minY = Number.POSITIVE_INFINITY
-  let minZ = Number.POSITIVE_INFINITY
-  let maxX = Number.NEGATIVE_INFINITY
-  let maxY = Number.NEGATIVE_INFINITY
-  let maxZ = Number.NEGATIVE_INFINITY
-  for (let i = 0; i < points.length; i++) {
-    const p = points[i]
-    if (p.x < minX) minX = p.x
-    if (p.y < minY) minY = p.y
-    if (p.z < minZ) minZ = p.z
-    if (p.x > maxX) maxX = p.x
-    if (p.y > maxY) maxY = p.y
-    if (p.z > maxZ) maxZ = p.z
-  }
-
-  const dx = Math.max(1e-6, maxX - minX)
-  const dy = Math.max(1e-6, maxY - minY)
-  const dz = Math.max(1e-6, maxZ - minZ)
-  const volume = Math.max(1e-6, dx * dy * dz)
+  const bbox = computeBBox(points)
+  const volume = Math.max(1e-6, bbox.dx * bbox.dy * bbox.dz)
   const density = Math.max(1e-9, points.length / volume)
   const expectedNearestDistance = 0.55396 / Math.cbrt(density)
   const adaptiveNeighborCount = Math.max(
@@ -312,38 +279,24 @@ export function selectIdwNeighbors(targetX, targetY, targetZ, points, neighborCo
     return { list: [], hitIndex: candidates[0].index, hitValueIndex: candidates[0].index, eps2 }
   }
 
-  const sectors = new Array(sectorCount)
-  for (let s = 0; s < sectorCount; s++) sectors[s] = []
-  for (let i = 0; i < candidates.length; i++) {
-    const c = candidates[i]
-    const a = hasAnisotropy
-      ? Math.atan2(
-          -c.dx * Math.sin(anisotropyParams.angle || 0) +
-            c.dy * Math.cos(anisotropyParams.angle || 0),
-          c.dx * Math.cos(anisotropyParams.angle || 0) +
-            c.dy * Math.sin(anisotropyParams.angle || 0)
-        )
-      : Math.atan2(targetY - points[c.index].y, targetX - points[c.index].x)
-    const t = (a + Math.PI) / (2 * Math.PI)
-    const si = Math.max(0, Math.min(sectorCount - 1, Math.floor(t * sectorCount)))
-    sectors[si].push(c)
-  }
+  const aAngle = anisotropyParams?.angle || 0
+  const cosA = Math.cos(aAngle)
+  const sinA = Math.sin(aAngle)
+  const picked = selectNeighborsBySector(
+    candidates,
+    usedCount,
+    sectorCount,
+    c => {
+      if (hasAnisotropy) {
+        const rx = c.dx * cosA + c.dy * sinA
+        const ry = -c.dx * sinA + c.dy * cosA
+        return Math.atan2(ry, rx)
+      }
+      return Math.atan2(targetY - points[c.index].y, targetX - points[c.index].x)
+    },
+    { distanceKey: 'd2' }
+  )
 
-  const picked = []
-  for (let s = 0; s < sectors.length && picked.length < usedCount; s++) {
-    if (sectors[s].length > 0) picked.push(sectors[s].shift())
-  }
-
-  if (picked.length < usedCount) {
-    const rest = []
-    for (let s = 0; s < sectors.length; s++) {
-      for (let i = 0; i < sectors[s].length; i++) rest.push(sectors[s][i])
-    }
-    rest.sort((a, b) => a.d2 - b.d2)
-    for (let i = 0; i < rest.length && picked.length < usedCount; i++) picked.push(rest[i])
-  }
-
-  picked.sort((a, b) => a.d2 - b.d2)
   return { list: picked, hitIndex: null, hitValueIndex: null, eps2 }
 }
 
@@ -483,26 +436,9 @@ function estimateSmoothnessPenalty(points, values, params, rng) {
   const n = points.length
   if (n < 4) return 0
 
-  let minX = Number.POSITIVE_INFINITY
-  let minY = Number.POSITIVE_INFINITY
-  let minZ = Number.POSITIVE_INFINITY
-  let maxX = Number.NEGATIVE_INFINITY
-  let maxY = Number.NEGATIVE_INFINITY
-  let maxZ = Number.NEGATIVE_INFINITY
-  for (let i = 0; i < n; i++) {
-    const p = points[i]
-    if (p.x < minX) minX = p.x
-    if (p.y < minY) minY = p.y
-    if (p.z < minZ) minZ = p.z
-    if (p.x > maxX) maxX = p.x
-    if (p.y > maxY) maxY = p.y
-    if (p.z > maxZ) maxZ = p.z
-  }
-  const dxBox = Math.max(1e-6, maxX - minX)
-  const dyBox = Math.max(1e-6, maxY - minY)
-  const dzBox = Math.max(1e-6, maxZ - minZ)
+  const bbox = computeBBox(points)
   const probeCount = Math.max(16, Math.min(64, Math.floor(Math.sqrt(n) * 6)))
-  const step = 0.02 * Math.sqrt(dxBox * dxBox + dyBox * dyBox + dzBox * dzBox)
+  const step = 0.02 * computeBBoxDiagonal(bbox)
 
   // 按数据尺度归一化，使不同数据集之间可比较
   const mean = values.reduce((s, v) => s + v, 0) / Math.max(1, values.length)
@@ -513,9 +449,9 @@ function estimateSmoothnessPenalty(points, values, params, rng) {
   let sum = 0
   let count = 0
   for (let i = 0; i < probeCount; i++) {
-    const x = minX + rng() * dxBox
-    const y = minY + rng() * dyBox
-    const z = minZ + rng() * dzBox
+    const x = bbox.minX + rng() * bbox.dx
+    const y = bbox.minY + rng() * bbox.dy
+    const z = bbox.minZ + rng() * bbox.dz
     const v0 = idwInterpolateSingle(x, y, z, points, values, params)
     const vx = idwInterpolateSingle(x + step, y, z, points, values, params)
     const vy = idwInterpolateSingle(x, y + step, z, points, values, params)

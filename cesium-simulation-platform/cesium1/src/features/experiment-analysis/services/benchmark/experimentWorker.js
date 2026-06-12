@@ -90,6 +90,90 @@ function generateGradientPeakField({ size, seed, gradVec, peakCount, peakAmp }) 
   }
 }
 
+function generateMineMonitoringPoints(fieldSize, pointCount, anomalyCount, rng) {
+  const positions = []
+  const isAnomaly = []
+
+  const [fx, fy, fz] = fieldSize
+
+  const layerCount = Math.max(3, Math.min(8, Math.round(fz / 25)))
+  const ptsPerLayer = Math.floor(pointCount / layerCount)
+  const remainder = pointCount % layerCount
+
+  for (let layer = 0; layer < layerCount; layer++) {
+    const layerZStart = (layer / layerCount) * fz * 0.85 + fz * 0.05
+    const layerZEnd = ((layer + 1) / layerCount) * fz * 0.85 + fz * 0.05
+    const layerPoints = ptsPerLayer + (layer < remainder ? 1 : 0)
+
+    const tunnelCount = Math.max(1, Math.floor(layerPoints / 12))
+    const tunnelCenters = []
+    for (let t = 0; t < tunnelCount; t++) {
+      tunnelCenters.push({
+        x: 0.15 * fx + rng() * 0.7 * fx,
+        y: 0.15 * fy + rng() * 0.7 * fy,
+        angle: rng() * Math.PI * 2,
+        length: 0.2 * Math.min(fx, fy) + rng() * 0.4 * Math.min(fx, fy)
+      })
+    }
+
+    const ptsPerTunnel = Math.floor(layerPoints / tunnelCount)
+    const tunnelRemainder = layerPoints % tunnelCount
+
+    for (let t = 0; t < tunnelCount; t++) {
+      const tunnel = tunnelCenters[t]
+      const tunnelPts = ptsPerTunnel + (t < tunnelRemainder ? 1 : 0)
+
+      for (let p = 0; p < tunnelPts; p++) {
+        const along = p / Math.max(1, tunnelPts - 1)
+        const tx = tunnel.x + Math.cos(tunnel.angle) * tunnel.length * (along - 0.5)
+        const ty = tunnel.y + Math.sin(tunnel.angle) * tunnel.length * (along - 0.5)
+
+        const lateralOffset = (rng() - 0.5) * 8
+        const ox = tx + Math.cos(tunnel.angle + Math.PI / 2) * lateralOffset
+        const oy = ty + Math.sin(tunnel.angle + Math.PI / 2) * lateralOffset
+
+        const z = layerZStart + rng() * (layerZEnd - layerZStart)
+
+        positions.push({
+          x: Math.max(0, Math.min(fx, ox)),
+          y: Math.max(0, Math.min(fy, oy)),
+          z: Math.max(0, Math.min(fz, z))
+        })
+        isAnomaly.push(false)
+      }
+    }
+  }
+
+  const anomalyZones = []
+  const zoneCount = Math.max(1, Math.floor(anomalyCount / 3))
+  for (let z = 0; z < zoneCount; z++) {
+    anomalyZones.push({
+      cx: 0.2 * fx + rng() * 0.6 * fx,
+      cy: 0.2 * fy + rng() * 0.6 * fy,
+      cz: 0.2 * fz + rng() * 0.6 * fz,
+      rx: 10 + rng() * 30,
+      ry: 10 + rng() * 30,
+      rz: 5 + rng() * 15
+    })
+  }
+
+  for (let i = 0; i < anomalyCount; i++) {
+    const zone = anomalyZones[i % zoneCount]
+    const ax = zone.cx + (rng() - 0.5) * 2 * zone.rx
+    const ay = zone.cy + (rng() - 0.5) * 2 * zone.ry
+    const az = zone.cz + (rng() - 0.5) * 2 * zone.rz
+
+    positions.push({
+      x: Math.max(0, Math.min(fx, ax)),
+      y: Math.max(0, Math.min(fy, ay)),
+      z: Math.max(0, Math.min(fz, az))
+    })
+    isAnomaly.push(true)
+  }
+
+  return { positions, isAnomaly }
+}
+
 function generateTestDataset(config = {}) {
   const fc = config || {}
   const fieldSize =
@@ -123,54 +207,61 @@ function generateTestDataset(config = {}) {
         })
 
   const rng = createSeededRng(seed + 1)
-  const totalPts = pointCount + anomalyCount
-  const positions = new Array(totalPts)
-  const trueValues = new Array(totalPts)
+  const { positions, isAnomaly } = generateMineMonitoringPoints(
+    fieldSize,
+    pointCount,
+    anomalyCount,
+    rng
+  )
 
+  const totalPts = positions.length
+  const trueValues = new Array(totalPts)
   for (let i = 0; i < totalPts; i++) {
-    let x, y, z
-    if (i < pointCount) {
-      x = ((i * 1.618033988749895) % 1) * fieldSize[0]
-      y = ((i * 2.718281828459045) % 1) * fieldSize[1]
-      z = rng() * fieldSize[2]
-    } else {
-      x = rng() * fieldSize[0]
-      y = rng() * fieldSize[1]
-      z = rng() * fieldSize[2]
-    }
-    positions[i] = { x, y, z }
-    trueValues[i] = Math.max(0, fieldFn(x, y, z))
+    trueValues[i] = Math.max(0, fieldFn(positions[i].x, positions[i].y, positions[i].z))
   }
 
   const globalMax = Math.max(...trueValues, 1)
   const noisyValues = trueValues.map((v, i) => {
-    if (i < pointCount) {
+    if (!isAnomaly[i]) {
       const noise = (rng() - 0.5) * 2 * noiseLevel * globalMax
       return Math.max(0, v + noise)
     }
     return Math.max(0, v * anomalyMag * (0.7 + rng() * 0.6))
   })
 
-  const allIdx = Array.from({ length: totalPts }, (_, i) => i)
-  for (let i = allIdx.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1))
-    ;[allIdx[i], allIdx[j]] = [allIdx[j], allIdx[i]]
+  const normalIndices = []
+  const anomalyIndices = []
+  for (let i = 0; i < totalPts; i++) {
+    if (isAnomaly[i]) anomalyIndices.push(i)
+    else normalIndices.push(i)
   }
 
-  const testCount = Math.max(1, Math.floor(totalPts * testRatio))
-  const testSet = new Set(allIdx.slice(0, testCount))
+  for (let i = normalIndices.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[normalIndices[i], normalIndices[j]] = [normalIndices[j], normalIndices[i]]
+  }
+
+  const testCount = Math.max(1, Math.floor(normalIndices.length * testRatio))
+  const testSet = new Set(normalIndices.slice(0, testCount))
 
   const trainPts = [],
     trainVals = [],
+    trainTrueVals = [],
+    trainAnomaly = [],
     testPts = [],
-    testTrueVals = []
+    testTrueVals = [],
+    testAnomaly = []
+
   for (let i = 0; i < totalPts; i++) {
     if (testSet.has(i)) {
       testPts.push(positions[i])
       testTrueVals.push(trueValues[i])
+      testAnomaly.push(isAnomaly[i])
     } else {
       trainPts.push(positions[i])
       trainVals.push(noisyValues[i])
+      trainTrueVals.push(trueValues[i])
+      trainAnomaly.push(isAnomaly[i])
     }
   }
 
@@ -179,8 +270,11 @@ function generateTestDataset(config = {}) {
     fieldFn,
     trainPoints: trainPts,
     trainValues: trainVals,
+    trainTrueValues: trainTrueVals,
+    trainAnomaly,
     testPoints: testPts,
     testTrueValues: testTrueVals,
+    testAnomaly,
     globalMax,
     config: {
       pointCount,
@@ -294,12 +388,25 @@ function computeMaxError(preds, truth) {
   return c > 0 ? maxErr : NaN
 }
 
-function computeMAPE(preds, truth, epsilon = 1e-6) {
+function computeMAPE(preds, truth) {
+  // 计算真值均值的绝对值，作为尺度参考
+  let sumAbsTruth = 0
+  let validCount = 0
+  for (let i = 0; i < Math.min(preds.length, truth.length); i++) {
+    if (Number.isFinite(preds[i]) && Number.isFinite(truth[i])) {
+      sumAbsTruth += Math.abs(truth[i])
+      validCount++
+    }
+  }
+  const meanAbsTruth = validCount > 0 ? sumAbsTruth / validCount : 0
+  // 分母下限 = max(均值的1%, 1e-4)，避免近零真值导致 MAPE 爆炸
+  const floor = Math.max(meanAbsTruth * 0.01, 1e-4)
+
   let sum = 0
   let c = 0
   for (let i = 0; i < Math.min(preds.length, truth.length); i++) {
     if (Number.isFinite(preds[i]) && Number.isFinite(truth[i])) {
-      const denom = Math.max(epsilon, Math.abs(truth[i]))
+      const denom = Math.max(floor, Math.abs(truth[i]))
       sum += Math.abs((preds[i] - truth[i]) / denom) * 100
       c++
     }
@@ -478,92 +585,100 @@ async function runExperiment(config, runId, cancelFg) {
     )
     checkCancel()
 
-    // 阶段2：IDW-PSO 基准测试 (10-30%)
-    reportProgress('idw_benchmark', 'PSO优化IDW参数 (粒子群搜索中)...', 14)
-    checkCancel()
+    // 阶段2：IDW-PSO 参数优化 (10-30%)
+    // 快/慢模式都会运行 PSO，区别仅在于粒子数、迭代数和重启次数
     const idwConfig = config.comparison?.idwConfig || {}
-    const usePSO = idwConfig.optimizeParameters !== false && dataset.trainPoints.length >= 4
+    const useThoroughPSO = idwConfig.optimizeParameters !== false && dataset.trainPoints.length >= 4
 
     let optimalParams = null
     let psoTimeMs = 0
     const defaultIdwParams = createDefaultIdwParams(dataset.trainPoints.length, idwConfig)
     let idwParams = { ...defaultIdwParams }
 
-    if (usePSO) {
-      const psoT0 = performance.now()
-      const baseSeed = Number.isFinite(Number(idwConfig.optimizationSeed))
-        ? Number(idwConfig.optimizationSeed)
-        : dataset.config.seed + 1337
+    // 始终运行 PSO：快模式用轻量参数，慢模式用完整参数
+    const psoMode = useThoroughPSO ? 'thorough' : 'quick'
+    const psoT0 = performance.now()
+    const baseSeed = Number.isFinite(Number(idwConfig.optimizationSeed))
+      ? Number(idwConfig.optimizationSeed)
+      : dataset.config.seed + 1337
 
-      // 多起点 PSO：3 次独立运行取最优，提高稳定性
-      const restartCount = 3
-      let bestPsoResult = null
-      let bestFitness = Infinity
-
-      for (let restart = 0; restart < restartCount; restart++) {
-        checkCancel()
-        const restartSeed = baseSeed + restart * 1733
-        const psoResult = optimizeIDWParameters(
-          dataset.trainPoints,
-          dataset.trainValues,
-          {
-            particleCount: clampInt(
-              idwConfig.optimizationParticles,
-              4,
-              40,
-              PSO_CONFIG.particleCount
-            ),
-            maxIterations: clampInt(
-              idwConfig.optimizationIterations,
-              4,
-              120,
-              PSO_CONFIG.maxIterations
-            ),
-            maxFitnessSamples: clampInt(
-              idwConfig.optimizationMaxFitnessSamples,
-              24,
-              dataset.trainPoints.length,
-              PSO_CONFIG.maxFitnessSamples
-            ),
-            crossValidationFolds: clampInt(
-              config.comparison?.crossValidationFolds,
-              2,
-              10,
-              PSO_CONFIG.crossValidationFolds
-            ),
-            neighborPolicy: defaultIdwParams.neighborPolicy,
-            sectorCount: defaultIdwParams.sectorCount,
-            seed: restartSeed
-          },
-          cancelFg
+    const restartCount = useThoroughPSO ? 3 : 1
+    const psoParticleCount = useThoroughPSO
+      ? clampInt(idwConfig.optimizationParticles, 4, 40, PSO_CONFIG.particleCount)
+      : 8
+    const psoMaxIterations = useThoroughPSO
+      ? clampInt(idwConfig.optimizationIterations, 4, 120, PSO_CONFIG.maxIterations)
+      : 20
+    const psoMaxFitnessSamples = useThoroughPSO
+      ? clampInt(
+          idwConfig.optimizationMaxFitnessSamples,
+          24,
+          dataset.trainPoints.length,
+          PSO_CONFIG.maxFitnessSamples
         )
-        if (psoResult.success && psoResult.fitness < bestFitness) {
-          bestFitness = psoResult.fitness
-          bestPsoResult = psoResult
-        }
-      }
+      : Math.min(60, dataset.trainPoints.length)
 
-      psoTimeMs = performance.now() - psoT0
-
-      if (bestPsoResult?.success) {
-        idwParams = { ...bestPsoResult.optimalParams }
-        optimalParams = {
-          power: idwParams.power,
-          neighborCount: idwParams.neighborCount,
-          anisotropy: idwParams.anisotropyParams,
-          neighborPolicy: idwParams.neighborPolicy,
-          sectorCount: idwParams.sectorCount,
-          fitness: bestPsoResult.fitness,
-          psoTimeMs,
-          restarts: restartCount
-        }
-      } else {
-        idwParams = { ...defaultIdwParams }
-      }
-    }
     reportProgress(
       'idw_benchmark',
-      `IDW-PSO p=${idwParams.power.toFixed(2)}, k=${idwParams.neighborCount}`,
+      `PSO优化IDW参数 (${psoMode === 'thorough' ? '慢·精准' : '快·流畅'}模式, ${psoParticleCount}粒子×${psoMaxIterations}迭代×${restartCount}轮)...`,
+      14
+    )
+
+    let bestPsoResult = null
+    let bestFitness = Infinity
+
+    for (let restart = 0; restart < restartCount; restart++) {
+      checkCancel()
+      const restartSeed = baseSeed + restart * 1733
+      const psoResult = optimizeIDWParameters(
+        dataset.trainPoints,
+        dataset.trainValues,
+        {
+          particleCount: psoParticleCount,
+          maxIterations: psoMaxIterations,
+          maxFitnessSamples: psoMaxFitnessSamples,
+          crossValidationFolds: clampInt(
+            config.comparison?.crossValidationFolds,
+            2,
+            10,
+            PSO_CONFIG.crossValidationFolds
+          ),
+          neighborPolicy: defaultIdwParams.neighborPolicy,
+          sectorCount: defaultIdwParams.sectorCount,
+          seed: restartSeed
+        },
+        cancelFg
+      )
+      if (psoResult.success && psoResult.fitness < bestFitness) {
+        bestFitness = psoResult.fitness
+        bestPsoResult = psoResult
+      }
+    }
+
+    psoTimeMs = performance.now() - psoT0
+
+    if (bestPsoResult?.success) {
+      idwParams = { ...bestPsoResult.optimalParams }
+      optimalParams = {
+        power: idwParams.power,
+        neighborCount: idwParams.neighborCount,
+        anisotropy: idwParams.anisotropyParams,
+        neighborPolicy: idwParams.neighborPolicy,
+        sectorCount: idwParams.sectorCount,
+        fitness: bestPsoResult.fitness,
+        psoTimeMs,
+        restarts: restartCount,
+        mode: psoMode
+      }
+    } else {
+      // PSO 失败时回退到默认参数，但仍记录尝试
+      idwParams = { ...defaultIdwParams }
+      optimalParams = null
+    }
+
+    reportProgress(
+      'idw_benchmark',
+      `IDW-PSO p=${idwParams.power.toFixed(2)}, k=${idwParams.neighborCount} (${psoMode})`,
       22
     )
     checkCancel()
@@ -630,9 +745,22 @@ async function runExperiment(config, runId, cancelFg) {
         }
       } else {
         const krPredT0 = performance.now()
+
+        // 用统计范围作为 clamp，避免 [min, max] 对异常测试点过度约束
+        const trainSum = dataset.trainValues.reduce((a, v) => a + v, 0)
+        const trainMean = trainSum / dataset.trainValues.length
+        const trainVar =
+          dataset.trainValues.reduce((a, v) => a + (v - trainMean) ** 2, 0) /
+          dataset.trainValues.length
+        const trainStd = Math.sqrt(trainVar)
         const trainMin = dataset.trainValues.reduce((a, v) => Math.min(a, v), Infinity)
         const trainMax = dataset.trainValues.reduce((a, v) => Math.max(a, v), -Infinity)
-        const krClamp = [trainMin, trainMax]
+
+        // 均值 ± 4σ，确保覆盖异常点范围，同时不低于训练数据原始边界
+        const clampMin = Math.min(trainMin, trainMean - 4 * trainStd)
+        const clampMax = Math.max(trainMax, trainMean + 4 * trainStd)
+        const krClamp = [Math.max(0, clampMin), clampMax]
+
         const krPreds = dataset.testPoints.map(tp =>
           krigingPredict(tp.x, tp.y, tp.z, krModel, krClamp)
         )
@@ -711,8 +839,10 @@ async function runExperiment(config, runId, cancelFg) {
 
     // 构建比较表
     const comparisonRows = []
+
+    // IDW-PSO（始终存在：快模式=轻量PSO，慢模式=完整PSO）
     comparisonRows.push({
-      method: 'IDW-PSO',
+      method: psoMode === 'thorough' ? 'IDW-PSO（精准优化）' : 'IDW-PSO（快速优化）',
       key: 'idw_optimized',
       metrics: idwMetrics,
       timing: { totalMs: idwTiming + psoTimeMs, psoMs: psoTimeMs, predictionMs: idwTiming },
@@ -724,6 +854,8 @@ async function runExperiment(config, runId, cancelFg) {
         anisotropy: idwParams.anisotropyParams
       }
     })
+
+    // IDW 默认参数作为基线参考
     comparisonRows.push({
       method: 'IDW（默认参数）',
       key: 'idw_default',
@@ -790,7 +922,18 @@ async function runExperiment(config, runId, cancelFg) {
         fieldSize: dataset.fieldSize,
         globalMax: dataset.globalMax,
         noiseLevel: dataset.config.noiseLevel,
-        anomalyCount: dataset.config.anomalyCount
+        anomalyCount: dataset.config.anomalyCount,
+        anomalyMagnitude: dataset.config.anomalyMagnitude,
+        trendType: dataset.config.trendType,
+        seed: dataset.config.seed,
+        testRatio: dataset.config.testRatio,
+        trainPoints: dataset.trainPoints,
+        trainValues: dataset.trainValues,
+        trainTrueValues: dataset.trainTrueValues,
+        trainAnomaly: dataset.trainAnomaly,
+        testPoints: dataset.testPoints,
+        testTrueValues: dataset.testTrueValues,
+        testAnomaly: dataset.testAnomaly
       },
       idw: {
         metrics: idwMetrics,
@@ -800,16 +943,18 @@ async function runExperiment(config, runId, cancelFg) {
           neighborCount: idwParams.neighborCount,
           neighborPolicy: idwParams.neighborPolicy,
           sectorCount: idwParams.sectorCount,
-          optimizeParameters: usePSO,
+          optimizeParameters: useThoroughPSO,
           anisotropy: idwParams.anisotropyParams
         },
         optimalParams,
+        predictions: idwPreds,
         errorDistribution: idwErrDist
       },
       idwDefault: {
         metrics: idwDefMetrics,
         timing: { totalMs: idwDefTiming },
-        params: idwDefaultParams
+        params: idwDefaultParams,
+        predictions: idwDefPreds
       },
       kriging: krResults,
       comparison,

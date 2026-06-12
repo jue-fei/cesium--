@@ -1,5 +1,5 @@
 import * as Cesium from 'cesium'
-import { BOREHOLE_CONFIG, SECTION_CONFIG } from '../../../config/constants/appConfig.js'
+import { getBoreholeVisualConfig, SECTION_CONFIG } from '../../../config/constants/appConfig.js'
 
 /**
  * 地质可视化器 - 使用图元接口渲染地质数据
@@ -52,7 +52,8 @@ export class GeologyVisualizer {
     // 清空已有图元
     this.clearBoreholes()
 
-    const startColor = BOREHOLE_CONFIG.COLOR
+    const boreholeCfg = getBoreholeVisualConfig()
+    const startColor = boreholeCfg.COLOR
 
     boreholes.forEach(borehole => {
       if (!borehole || !borehole.id) return
@@ -67,7 +68,7 @@ export class GeologyVisualizer {
       // 绘制钻孔线
       this.polylineCollection.add({
         positions: [startPoint, endPoint],
-        width: BOREHOLE_CONFIG.WIDTH,
+        width: boreholeCfg.WIDTH,
         material: new Cesium.Material({
           fabric: {
             type: 'Color',
@@ -84,7 +85,7 @@ export class GeologyVisualizer {
       this.pointCollection.add({
         position: startPoint,
         color: startColor,
-        pixelSize: BOREHOLE_CONFIG.MARKER_SIZE,
+        pixelSize: boreholeCfg.MARKER_SIZE,
         outlineColor: Cesium.Color.WHITE,
         outlineWidth: 1,
         id: `borehole-marker-${borehole.id}`

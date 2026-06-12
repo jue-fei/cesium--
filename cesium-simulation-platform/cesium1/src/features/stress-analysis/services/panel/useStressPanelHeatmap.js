@@ -63,10 +63,7 @@ export function useStressPanelHeatmap({
 
   const contourValueRows = computed(() => {
     if (!heatmapEnableContour.value) return []
-    return buildContourValueRows(
-      resolveCurrentGradientRangeState(),
-      heatmapContourLevels.value
-    )
+    return buildContourValueRows(resolveCurrentGradientRangeState(), heatmapContourLevels.value)
   })
 
   const applyHeatmapPanelTuning = () => {

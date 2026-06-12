@@ -1,71 +1,80 @@
 /**
- * API 配置初始化 —— 在应用启动时从数据库加载配置
- * 加载成功则替换原有硬编码值，失败则保持默认值
+ * API 配置加载器
+ * 从数据库加载矿卡信息 + 模型地质信息
  */
-import { fetchAllAppConfig } from './appConfigService'
-import { fetchFullMonitoringConfig } from './monitoringService'
-import { fetchFullSystemConfig } from './systemConfigService'
-import { fetchStressMetrics, fetchHeatmapRamp, fetchWarningRules } from './stressService'
-import { fetchFullGeologyData } from './geologyService'
-import { fetchFullExperimentConfig } from './experimentService'
-import { fetchBlastingConfig } from './blastingService'
-import { fetchModelConfigs } from './modelConfigService'
+const API = '/api'
+const listeners = []
 
-// 全局配置缓存 —— 模块级可变对象，各常量文件可直接读取
 export const apiConfig = {
-  app: null,
-  monitoring: null,
-  system: null,
-  stressMetrics: null,
-  heatmapRamp: null,
-  warningRules: null,
-  geology: null,
-  experiment: null,
-  blasting: null,
   modelConfigs: null,
+  trucks: null,
+  boreholes: null,
+  orebodies: null,
+  mineralTypes: null,
+  miningPits: null,
+  geologyStats: null,
   loaded: false
 }
 
-// 各模块的 API 配置变更回调
-const listeners = []
+async function fetchJSON(url) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`API ${url} 返回 ${res.status}`)
+  const json = await res.json()
+  if (json.code !== 0) throw new Error(json.message || 'API 错误')
+  return json.data
+}
 
-export function onConfigLoaded(fn) {
-  if (apiConfig.loaded) {
-    fn(apiConfig)
-  } else {
-    listeners.push(fn)
+async function fetchJSONSafe(url) {
+  try {
+    return await fetchJSON(url)
+  } catch (e) {
+    return null
   }
 }
 
-function notifyListeners() {
-  listeners.forEach(fn => { try { fn(apiConfig) } catch (_) {} })
-  listeners.length = 0
-}
-
-export async function initApiConfig() {
+export async function loadApiConfig() {
   if (apiConfig.loaded) return apiConfig
 
-  const tasks = [
-    fetchAllAppConfig().then(d => { apiConfig.app = d }).catch(() => {}),
-    fetchFullMonitoringConfig().then(d => { apiConfig.monitoring = d }).catch(() => {}),
-    fetchFullSystemConfig().then(d => { apiConfig.system = d }).catch(() => {}),
-    fetchStressMetrics().then(d => { apiConfig.stressMetrics = d }).catch(() => {}),
-    fetchHeatmapRamp().then(d => { apiConfig.heatmapRamp = d }).catch(() => {}),
-    fetchWarningRules().then(d => { apiConfig.warningRules = d }).catch(() => {}),
-    fetchFullGeologyData().then(d => { apiConfig.geology = d }).catch(() => {}),
-    fetchFullExperimentConfig().then(d => { apiConfig.experiment = d }).catch(() => {}),
-    fetchBlastingConfig().then(d => { apiConfig.blasting = d }).catch(() => {}),
-    fetchModelConfigs().then(d => { apiConfig.modelConfigs = d }).catch(() => {})
-  ]
+  try {
+    // 核心数据：模型 / 矿卡 / 钻孔 / 矿体
+    const [models, trucks, boreholes, orebodies] = await Promise.all([
+      fetchJSON(`${API}/models`),
+      fetchJSON(`${API}/trucks`),
+      fetchJSON(`${API}/boreholes`),
+      fetchJSON(`${API}/orebodies`)
+    ])
 
-  await Promise.allSettled(tasks)
-  apiConfig.loaded = true
-  notifyListeners()
+    apiConfig.modelConfigs = models
+    apiConfig.trucks = trucks
+    apiConfig.boreholes = boreholes
+    apiConfig.orebodies = orebodies
 
-  if (import.meta.env.DEV) {
-    const loadedCount = Object.values(apiConfig).filter(v => v !== null && v !== false).length - 1
-    console.log(`[API Config] 数据库配置加载完成: ${loadedCount}/10 模块成功`)
+    // 矿卡辅助数据 + 地质统计
+    const [mineralTypes, miningPits, geologyStats] = await Promise.all([
+      fetchJSONSafe(`${API}/monitoring/minerals`),
+      fetchJSONSafe(`${API}/monitoring/mining-pits`),
+      fetchJSONSafe(`${API}/geology/stats`)
+    ])
+
+    apiConfig.mineralTypes = mineralTypes
+    apiConfig.miningPits = miningPits
+    apiConfig.geologyStats = geologyStats
+
+    apiConfig.loaded = true
+
+    for (const fn of listeners) fn(apiConfig)
+    listeners.length = 0
+    return apiConfig
+  } catch (e) {
+    console.error('[API] 核心配置加载失败:', e.message)
+    apiConfig.loaded = true
+    for (const fn of listeners) fn(apiConfig)
+    listeners.length = 0
+    return apiConfig
   }
+}
 
-  return apiConfig
+export function onConfigLoaded(fn) {
+  if (apiConfig.loaded) { fn(apiConfig) }
+  else { listeners.push(fn) }
 }

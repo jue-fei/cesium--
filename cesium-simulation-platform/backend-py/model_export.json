@@ -1,0 +1,62 @@
+[
+  {
+    "model_id": "MD001",
+    "name": "demo1 配置",
+    "path": "/3d/demo1/tileset.json",
+    "feature_count": 0,
+    "feature_names": [],
+    "global_keys": [],
+    "scenetree_bytes": 641333
+  },
+  {
+    "model_id": "MD002",
+    "name": "demo2 配置",
+    "path": "/3d/demo2/tileset.json",
+    "feature_count": 6,
+    "feature_names": [
+      "地表模型-2",
+      "地形模型",
+      "采场模型1"
+    ],
+    "global_keys": [
+      "备注",
+      "负责人",
+      "坐标系统"
+    ],
+    "scenetree_bytes": 59105
+  },
+  {
+    "model_id": "MD003",
+    "name": "demo3 配置",
+    "path": "/3d/demo3/tileset.json",
+    "feature_count": 6,
+    "feature_names": [
+      "地表模型-3",
+      "地形模型",
+      "采场模型1"
+    ],
+    "global_keys": [
+      "备注",
+      "负责人",
+      "坐标系统"
+    ],
+    "scenetree_bytes": 19923
+  },
+  {
+    "model_id": "MD004",
+    "name": "demo4 配置",
+    "path": "/3d/demo4/tileset.json",
+    "feature_count": 8,
+    "feature_names": [
+      "地表模型-4",
+      "地形模型",
+      "采场模型1"
+    ],
+    "global_keys": [
+      "备注",
+      "负责人",
+      "坐标系统"
+    ],
+    "scenetree_bytes": 20126
+  }
+]

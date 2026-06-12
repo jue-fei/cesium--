@@ -10,7 +10,8 @@ import {
 } from '../types/monitoringDefaults.js'
 import { initializeDefaultRoute } from './routeStorage.js'
 import { ConnectionManager } from './ConnectionManager.js'
-import useModel from '../../model-control/services/useModel.js'
+import { TruckSimulator } from './TruckSimulator.js'
+import useModel from '@/features/model-control/services/useModel.js'
 
 const HISTORY_LIVE_THRESHOLD_MS = 1500
 const ALERT_HISTORY_LIMIT = 50
@@ -44,17 +45,19 @@ const statistics = ref({
   avgSpeed: 0,
   completedCycles: 0
 })
-const connectionType = ref('simulated')
-const connectionStatus = ref('connected')
+const connectionType = ref('http_poll')
+const connectionStatus = ref('idle')
 
 let dataEngine = null,
   equipmentManager = null,
   connectionManager = null,
+  truckSimulator = null,
   viewerRef = null,
   isInitialized = false
 let unsubscribeDataEngine = null,
   stopTilesetWatch = null,
-  stopTransformWatch = null
+  stopTransformWatch = null,
+  simStartTimer = null
 let modelTransformThrottleTimer = null,
   miningSiteDebugTimer = null
 let activeAlertKeys = new Set()
@@ -94,11 +97,11 @@ function cloneTruckState(truck) {
     tirePressure: Array.isArray(truck.tirePressure) ? [...truck.tirePressure] : truck.tirePressure,
     position: truck.position
       ? {
-          ...truck.position,
-          cartesian: Array.isArray(truck.position.cartesian)
-            ? [...truck.position.cartesian]
-            : undefined
-        }
+        ...truck.position,
+        cartesian: Array.isArray(truck.position.cartesian)
+          ? [...truck.position.cartesian]
+          : undefined
+      }
       : truck.position
   }
 }
@@ -210,8 +213,7 @@ async function initMonitoringManager(viewer) {
     dataEngine.tileset = tileset.value
   }
 
-  await dataEngine.initWithSimulator({
-    mode: 'simulated',
+  dataEngine.init({
     viewer,
     tileset: tileset.value || null,
     originalModelMatrix: getOriginalModelMatrix()
@@ -237,7 +239,6 @@ async function initMonitoringManager(viewer) {
     () => {
       if (!tileset.value || !dataEngine) return
       if (tilesetSwitchCooldown) return
-      dataEngine.refreshSimulationFrame()
       if (activeLayers.value.equipment && isMonitoring.value) {
         clearTimeout(modelTransformThrottleTimer)
         modelTransformThrottleTimer = setTimeout(() => {
@@ -251,36 +252,62 @@ async function initMonitoringManager(viewer) {
 
   unsubscribeDataEngine = dataEngine.subscribe(data => updateTruckFromRealtime(data))
 
+  truckSimulator = new TruckSimulator()
+
+  // 加载模拟配置
+  try {
+    const simConfigRes = await fetch('/simulation-config.json')
+    if (simConfigRes.ok) {
+      const simConfig = await simConfigRes.json()
+      truckSimulator.applySimConfig(simConfig)
+    }
+  } catch (_) { /* 使用默认配置 */ }
+
+  let simStartTimer = null
+  const tryStartSimulator = () => {
+    if (truckSimulator._timer) return // 已启动
+    const trucks = dataEngine.getAllTrucks()
+    if (trucks.length === 0) return
+    truckSimulator.setTrucks(trucks)
+    truckSimulator.start(updates => {
+      updates.forEach(d => {
+        const processed = dataEngine.processData(d)
+        dataEngine.receiveExternalData(processed)
+      })
+    })
+    connectionManager?.disconnect()
+  }
+
   connectionManager = new ConnectionManager({
     dataHandler: data => {
       const processed = Array.isArray(data)
         ? data.map(d => dataEngine.processData(d))
         : [dataEngine.processData(data)]
       processed.forEach(d => dataEngine.receiveExternalData(d))
+      // 防抖：等数据停止流入600ms后启动模拟器
+      clearTimeout(simStartTimer)
+      simStartTimer = setTimeout(() => tryStartSimulator(), 600)
     },
     statusHandler: status => {
       connectionStatus.value = status
     }
   })
 
-  startMonitoring()
-  syncTimelineRange()
-
+  // 先加载路径，确保 API 数据到达前路径已就绪
   try {
     const defaultRoute = await initializeDefaultRoute({ useStaticAsFallback: true })
     if (defaultRoute && defaultRoute.points.length >= 2) {
-      console.log('[useMonitoring] 检测到默认路线，正在应用...')
-      if (dataEngine && dataEngine.simulator) {
-        dataEngine.setCustomPath(defaultRoute.points)
-        dataEngine.simulator.initializeTruckStates()
-      }
+      dataEngine.setCustomPath(defaultRoute.points)
     }
   } catch (error) {
-    console.warn('[useMonitoring] 加载默认路线失败:', error)
   }
 
+  connectionManager.switchTo('http_poll', { url: '/api/trucks', pollInterval: 2000 })
+
+  startMonitoring()
+  syncTimelineRange()
+
   miningSiteDebugTimer = setTimeout(() => {
-    console.log('[useMonitoring] 采场位置:', MINING_SITE_1, MINING_SITE_2)
   }, 2000)
 }
 
@@ -327,14 +354,12 @@ function startMonitoring() {
   if (isMonitoring.value) return
   isMonitoring.value = true
   isTimelinePlaying.value = true
-  if (dataEngine?.mode === 'simulated' && !dataEngine.simulator) dataEngine.startSimulator()
   resumeLiveMode()
 }
 
 function stopMonitoring() {
   if (!isMonitoring.value) return
   isMonitoring.value = false
-  if (dataEngine?.mode === 'simulated') dataEngine.stopSimulator()
 }
 
 function lerp(start, end, t) {
@@ -407,6 +432,10 @@ function updateStatistics(sourceTrucks = truckStates.value) {
 
 function destroyMonitoringManager() {
   stopMonitoring()
+  clearTimeout(simStartTimer)
+  simStartTimer = null
+  truckSimulator?.destroy()
+  truckSimulator = null
   connectionManager?.destroy()
   connectionManager = null
   unsubscribeDataEngine?.()
@@ -492,10 +521,10 @@ function focusTruck(truckId) {
   const dest =
     truck.position.cartesian?.length === 3
       ? new Cesium.Cartesian3(
-          truck.position.cartesian[0],
-          truck.position.cartesian[1],
-          truck.position.cartesian[2] + 150
-        )
+        truck.position.cartesian[0],
+        truck.position.cartesian[1],
+        truck.position.cartesian[2] + 150
+      )
       : Cesium.Cartesian3.fromDegrees(truck.position.longitude, truck.position.latitude, 150)
   viewerRef.camera.flyTo({
     destination: dest,
@@ -531,7 +560,6 @@ function selectDevice(truckId) {
 function setCustomPath(pathPoints) {
   if (!dataEngine || !pathPoints || pathPoints.length < 2) return false
   if (!dataEngine.setCustomPath(pathPoints)) return false
-  dataEngine.simulator?.initializeTruckStates()
   resumeLiveMode()
   return true
 }
@@ -539,17 +567,10 @@ function setCustomPath(pathPoints) {
 function switchDataSource(type, config = {}) {
   if (type === connectionType.value) return
 
-  if (type === 'simulated') {
-    connectionManager?.disconnect()
-    connectionType.value = 'simulated'
-    connectionStatus.value = 'connected'
-    dataEngine.switchToSimulated()
-    resumeLiveMode()
-  } else {
-    connectionType.value = type
-    dataEngine.switchToRealtime(rawData => rawData)
-    connectionManager.switchTo(type, config)
-  }
+  truckSimulator?.stop()
+  connectionType.value = type
+  dataEngine.switchToRealtime(rawData => rawData)
+  connectionManager.switchTo(type, config)
 }
 
 export default function useMonitoring() {

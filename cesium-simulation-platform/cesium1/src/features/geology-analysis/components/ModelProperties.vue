@@ -59,28 +59,36 @@
     <div
       class="text-sm font-semibold text-blue-100 mb-3 flex items-center gap-2 before:content-[''] before:w-1 before:h-3 before:bg-blue-500 before:rounded-sm"
     >
-      属性信息: {{ selectedModel.name }}
+      属性信息: {{ selectedModel.name
+      }}<span v-if="selectedModel._dbLinked" class="ml-1 text-[10px] text-blue-400" title="已关联数据库">◈ DB</span>
     </div>
     <div class="grid grid-cols-2 gap-2 bg-black/20 p-2 rounded-md border border-white/5">
-      <div class="flex flex-col">
-        <span class="text-[10px] text-gray-400 mb-0.5">ID</span>
-        <span class="text-xs text-gray-200 break-all">{{ selectedModel.id || '-' }}</span>
-      </div>
-      <div class="flex flex-col">
-        <span class="text-[10px] text-gray-400 mb-0.5">名称</span>
-        <span class="text-xs text-gray-200 break-all">{{ selectedModel.name || '-' }}</span>
-      </div>
-      <div class="flex flex-col">
-        <span class="text-[10px] text-gray-400 mb-0.5">类型</span>
-        <span class="text-xs text-gray-200 break-all">{{ selectedModel.type || '未知' }}</span>
-      </div>
       <div
-        v-for="(entry, index) in displayProperties"
+        v-for="(entry, index) in basicFeatureEntries"
         :key="entry.key || index"
         class="flex flex-col"
       >
         <span class="text-[10px] text-gray-400 mb-0.5">{{ entry.key || '属性' }}</span>
         <span class="text-xs text-gray-200 break-all">{{ entry.value }}</span>
+      </div>
+    </div>
+    <div v-if="featureSections.length" class="space-y-3 mt-3">
+      <div
+        v-for="section in featureSections"
+        :key="section.key"
+        class="bg-black/20 p-2 rounded-md border border-white/5"
+      >
+        <div class="text-xs font-semibold text-blue-100 mb-2">{{ section.title }}</div>
+        <div class="grid grid-cols-2 gap-2">
+          <div
+            v-for="(entry, entryIndex) in section.entries"
+            :key="`${section.key}-${entry.key || entryIndex}`"
+            class="flex flex-col"
+          >
+            <span class="text-[10px] text-gray-400 mb-0.5">{{ entry.key || '属性' }}</span>
+            <span class="text-xs text-gray-200 break-all whitespace-pre-wrap">{{ entry.value }}</span>
+          </div>
+        </div>
       </div>
     </div>
     <div class="flex flex-wrap gap-2 items-center mt-3">
@@ -197,7 +205,7 @@
 
 <script setup>
 import { ref, watch, computed } from 'vue'
-import useModel from '../../model-control/services/useModel.js'
+import useModel from '@/features/model-control/services/useModel.js'
 
 const {
   modelList,
@@ -248,10 +256,169 @@ const editName = ref('')
 const editDialogVisible = ref(false)
 const propertyEntries = ref([])
 
-const displayProperties = computed(() => {
-  if (!selectedModel.value) return []
-  const props = selectedModel.value.geologyProperties || {}
-  return Object.keys(props).map(key => ({ key, value: props[key] }))
+const SECTION_TITLE_MAP = {
+  style_properties: '样式属性',
+  styleProperties: '样式属性',
+  geology_properties: '地质属性',
+  geologyProperties: '地质属性',
+  mining_properties: '采矿属性',
+  miningProperties: '采矿属性',
+  safety_properties: '安全属性',
+  safetyProperties: '安全属性'
+}
+
+const RESERVED_FEATURE_KEYS = new Set([
+  'id',
+  'feature_id',
+  'featureId',
+  'name',
+  'type',
+  'category',
+  'style_properties',
+  'styleProperties',
+  'geology_properties',
+  'geologyProperties',
+  'mining_properties',
+  'miningProperties',
+  'safety_properties',
+  'safetyProperties'
+])
+
+const isPlainObject = value => Object.prototype.toString.call(value) === '[object Object]'
+
+const getObjectValueByKeys = (target, keys) => {
+  if (!isPlainObject(target)) return undefined
+  for (const key of keys) {
+    if (key in target) return target[key]
+  }
+  return undefined
+}
+
+const toSectionTitle = key => {
+  if (!key) return '属性信息'
+  if (SECTION_TITLE_MAP[key]) return SECTION_TITLE_MAP[key]
+  const readable = String(key)
+    .replace(/_/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim()
+  return readable || '属性信息'
+}
+
+const formatValue = value => {
+  if (value === undefined || value === null || value === '') return '-'
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+const mergeSectionValue = (source, currentValue) => {
+  const rawSection = isPlainObject(source) ? source : {}
+  const currentSection = isPlainObject(currentValue) ? currentValue : {}
+  // source（数据库原始数据）为基础，current（用户编辑）覆盖
+  return { ...rawSection, ...currentSection }
+}
+
+/**
+ * 模型属性快照 - 以数据库 sourceFeature 为主体，
+ * 用户编辑过的字段（model.geologyProperties 等）覆盖数据库原始值
+ */
+const featureSnapshot = computed(() => {
+  const model = selectedModel.value
+  if (!model) return null
+
+  // sourceFeature 是加载时数据库数据的深层拷贝，为渲染主体
+  const sourceFeature = isPlainObject(model.sourceFeature) ? model.sourceFeature : {}
+  const featureId =
+    model.featureId || model.id || sourceFeature.feature_id || sourceFeature.featureId || ''
+
+  // 以数据库原始数据为基底 (...sourceFeature)，用户编辑覆盖特定字段
+  return {
+    ...sourceFeature,
+    id: model.id || sourceFeature.id || featureId || '',
+    feature_id: sourceFeature.feature_id || featureId || '',
+    name: model.name || sourceFeature.name || '',
+    type: model.type || sourceFeature.type || '',
+    category: model.category || sourceFeature.category || '',
+    _dbLinked: model._dbLinked || false,
+    style_properties: mergeSectionValue(
+      getObjectValueByKeys(sourceFeature, ['style_properties', 'styleProperties']),
+      model.styleProperties
+    ),
+    geology_properties: mergeSectionValue(
+      getObjectValueByKeys(sourceFeature, ['geology_properties', 'geologyProperties']),
+      model.geologyProperties
+    ),
+    mining_properties: mergeSectionValue(
+      getObjectValueByKeys(sourceFeature, ['mining_properties', 'miningProperties']),
+      model.miningProperties
+    ),
+    safety_properties: mergeSectionValue(
+      getObjectValueByKeys(sourceFeature, ['safety_properties', 'safetyProperties']),
+      model.safetyProperties
+    )
+  }
+})
+
+const basicFeatureEntries = computed(() => {
+  const snapshot = featureSnapshot.value
+  if (!snapshot) return []
+
+  const dataSource = snapshot._dbLinked ? '数据库' : '3D模型默认'
+  const entries = [
+    { key: 'ID', value: formatValue(snapshot.id) },
+    { key: '名称', value: formatValue(snapshot.name) },
+    { key: '类型', value: formatValue(snapshot.type || '未知') },
+    { key: '数据来源', value: dataSource }
+  ]
+
+  const featureId = snapshot.feature_id || snapshot.featureId
+  if (featureId && featureId !== snapshot.id) {
+    entries.push({ key: 'Feature ID', value: formatValue(featureId) })
+  }
+  if (snapshot.category) {
+    entries.push({ key: '分类', value: formatValue(snapshot.category) })
+  }
+
+  // 渲染数据库中的所有标量字段（非对象、非保留字段）
+  Object.entries(snapshot).forEach(([key, value]) => {
+    if (RESERVED_FEATURE_KEYS.has(key) || isPlainObject(value) || key.startsWith('_')) return
+    entries.push({ key: toSectionTitle(key), value: formatValue(value) })
+  })
+
+  return entries
+})
+
+const featureSections = computed(() => {
+  const snapshot = featureSnapshot.value
+  if (!snapshot) return []
+
+  const sections = []
+  const pushSection = (key, title, value) => {
+    if (!isPlainObject(value)) return
+    const entries = Object.entries(value).map(([entryKey, entryValue]) => ({
+      key: entryKey,
+      value: formatValue(entryValue)
+    }))
+    if (entries.length) {
+      sections.push({ key, title, entries })
+    }
+  }
+
+  pushSection('style_properties', '样式属性', snapshot.style_properties)
+  pushSection('geology_properties', '地质属性', snapshot.geology_properties)
+  pushSection('mining_properties', '采矿属性', snapshot.mining_properties)
+  pushSection('safety_properties', '安全属性', snapshot.safety_properties)
+
+  Object.entries(snapshot).forEach(([key, value]) => {
+    if (RESERVED_FEATURE_KEYS.has(key) || !isPlainObject(value)) return
+    pushSection(key, toSectionTitle(key), value)
+  })
+
+  return sections
 })
 
 const syncLocalFromSelectedModel = () => {
@@ -324,8 +491,8 @@ const saveEdit = async () => {
 }
 
 const copyPropertiesToClipboard = () => {
-  if (selectedModel.value && selectedModel.value.geologyProperties) {
-    const text = JSON.stringify(selectedModel.value.geologyProperties, null, 2)
+  if (featureSnapshot.value) {
+    const text = JSON.stringify(featureSnapshot.value, null, 2)
     navigator.clipboard.writeText(text).then(() => {
       alert('属性已复制到剪贴板')
     })

@@ -1,80 +1,66 @@
-import { reactive, watch } from 'vue'
+import { reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { warn } from '@/utils/errorHandler.js'
 import * as Cesium from 'cesium'
-import { FeatureManager } from './featureManager.js'
 import { applyModelTransform } from './modelTransform.js'
 import {
   appendMissingModelsFromFeatureIds,
   buildDefaultModelListFromFeatureIds,
   buildModelMappingsForSave,
-  createDefaultModelData,
-  getFeatureNameFromFeature,
   normalizeModelMappingFromConfig
 } from './modelListCore.js'
-import { createFpsMonitor } from '../../lod-optimization/services/fpsMonitor.js'
-import {
-  createAdaptiveLoadRuntime,
-  evaluateAdaptiveLoad,
-  getAdaptiveLoadStep
-} from '../../lod-optimization/services/adaptiveLoad.js'
-import {
-  applyLodConfigToTileset,
-  bindTilesetLodRuntimeEvents,
-  createLodRuntimeState,
-  getTilesetMemoryUsageBytes
-} from '../../lod-optimization/services/lodRuntime.js'
+import { bindTilesetLodRuntimeEvents, createLodRuntimeState, applyLodConfigToTileset, getTilesetMemoryUsageBytes } from '../../lod-optimization/services/lodRuntime.js'
 import { createUndergroundViewController, flyToUndergroundView } from './undergroundView.js'
+import { createModelAdaptiveLoadManager } from './modelAdaptiveLoad.js'
+import { createModelInteractionManager } from './modelInteraction.js'
 
 import {
   PRESETS,
   DEFAULT_TRANSFORM,
   DEFAULT_LOD_CONFIG,
   DEFAULT_POSITION,
-  DEFAULT_ADAPTIVE_LOAD_CONFIG,
   DEFAULT_MODEL_CONFIG_PATH
 } from '../../../config/constants/modelConfig.js'
 import {
   discoverModelConfigs,
   ensureResourceAvailable,
-  fetchJsonOrNull,
+  fetchModelFeatures,
   saveModelConfig as saveModelConfigApi
 } from './modelApi.js'
 import { useModelStore } from '../../../stores/modelStore.js'
-import { useMeasurementStore } from '../../../stores/measurementStore.js'
 import useViewer from '@/composables/useViewer.js'
 import useMessage from '@/composables/useMessage.js'
 
-// 内部共享状态（非响应式，或仅用于运行时逻辑）
+// ---- 内部共享状态 ----
 let originalModelMatrix = null
 let originalBoundingSphereCenter = null
 let currentTransform = { ...DEFAULT_TRANSFORM }
-let modelClickHandler = null
 let removeTilesetEventListeners = null
-let adaptiveLoadStopHandle = null
-let adaptiveBaseline = {
-  lodConfig: { ...DEFAULT_LOD_CONFIG },
-  displayQuality: 'high',
-  terrainQuality: 'high'
+
+// ---- 工具函数 ----
+
+function normalizeFeatures(raw) {
+  if (!raw) return null
+  if (typeof raw === 'string') {
+    try { raw = JSON.parse(raw) } catch (_) { return null }
+  }
+  if (Array.isArray(raw)) return raw.length > 0 ? { modelMappings: raw } : null
+  if (raw && typeof raw === 'object') {
+    if (Array.isArray(raw.modelMappings) && raw.modelMappings.length > 0) return raw
+    if (Array.isArray(raw.features) && raw.features.length > 0) return { modelMappings: raw.features }
+  }
+  return null
 }
 
-const featureManager = new FeatureManager()
+function normalizePath(path) {
+  if (!path) return ''
+  return path.replace(/^\//, '').replace(/\/+/g, '/').toLowerCase()
+}
 
-const fpsMonitor = createFpsMonitor(() => {
-  const { getViewer } = useViewer()
-  return getViewer()
-})
-const fps = fpsMonitor.fps
-const adaptiveLoadState = reactive({
-  ...createAdaptiveLoadRuntime(),
-  status: '待机',
-  appliedStepLabel: '基线'
-})
-
-const undergroundViewController = createUndergroundViewController(() => {
-  const { getViewer } = useViewer()
-  return getViewer()
-})
+function createModelSelectionSnapshot(model) {
+  if (!model) return null
+  return { id: model.id || '', featureId: model.featureId || model.feature_id || model.id || '', name: model.name || '' }
+}
 
 function getPreset(presetName) {
   return PRESETS[presetName] || null
@@ -91,183 +77,123 @@ export function useModelState() {
   return storeToRefs(store)
 }
 
+let sharedModelService = null
+
 export default function useModel() {
+  if (sharedModelService) return sharedModelService
+
   const store = useModelStore()
   const {
-    modelConfigFiles,
-    currentConfigFile,
-    modelList,
-    globalOpacity,
-    modelPosition,
-    modelTransform,
-    modelLoadStatus,
-    loading,
-    selectedModel,
-    modelConfigRaw,
-    undergroundViewEnabled,
-    globeFrontFaceAlpha,
-    globeBackFaceAlpha,
-    tileset: tilesetRef,
-    lodConfig,
-    lodRuntime
+    modelConfigFiles, currentConfigFile, modelList, globalOpacity,
+    modelPosition, modelTransform, modelLoadStatus, loading, selectedModel,
+    modelConfigRaw, undergroundViewEnabled, globeFrontFaceAlpha, globeBackFaceAlpha,
+    tileset: tilesetRef, lodConfig, lodRuntime
   } = storeToRefs(store)
 
-  const measurementStore = useMeasurementStore()
-  const { isMeasuring, isAreaMeasuring } = storeToRefs(measurementStore)
-
   const { showOperationMessage } = useMessage()
+  const { getViewer, resetViewToModel, displayQuality, terrainQuality, updateDisplayQuality, updateTerrainQuality } = useViewer()
 
-  const {
-    getViewer,
-    resetViewToModel,
-    displayQuality,
-    terrainQuality,
-    updateDisplayQuality,
-    updateTerrainQuality
-  } = useViewer()
+  // ---- 交互管理器 ----
+  const interaction = createModelInteractionManager()
 
+  // ---- 自适应降载管理器 ----
+  const adaptiveLoad = createModelAdaptiveLoadManager()
+
+  const modelConfigIdMap = ref(new Map())
+  const modelFeaturesCache = ref(new Map())
+
+  const lodVisualizationState = reactive({ mode: 'off' })
+
+  const undergroundViewController = createUndergroundViewController(() => getViewer())
+
+  // ---- LOD 运行时 ----
   const resetLodRuntime = () => {
     lodRuntime.value = createLodRuntimeState()
+    lodVisualizationState.mode = 'off'
   }
 
   const updateLodRuntime = patch => {
-    if (!lodRuntime.value || typeof lodRuntime.value !== 'object') {
-      resetLodRuntime()
-    }
+    if (!lodRuntime.value || typeof lodRuntime.value !== 'object') resetLodRuntime()
     Object.assign(lodRuntime.value, patch, { lastUpdatedMs: Date.now() })
   }
 
-  const getFeatureNameById = featureId => {
-    const feature = featureManager.featureMap.get(featureId)
-    return getFeatureNameFromFeature(feature, 'Unknown Model')
+  const applyLodVisualizationMode = mode => {
+    const normalized = ['off', 'stage_color', 'stage_wireframe', 'random_tiles', 'random_wireframe'].includes(mode) ? mode : 'off'
+    const viewer = getViewer()
+    const tileset = tilesetRef.value
+    if (tileset) {
+      tileset.__lodVisualizationMode = normalized
+      tileset.debugColorizeTiles = normalized === 'random_tiles' || normalized === 'random_wireframe'
+      tileset.debugWireframe = normalized === 'stage_wireframe' || normalized === 'random_wireframe'
+      if (viewer) viewer.scene.requestRender()
+    }
+    lodVisualizationState.mode = normalized
+    if (lodRuntime.value && typeof lodRuntime.value === 'object') lodRuntime.value.visualizationMode = normalized
+  }
+
+  // ---- 模型配置缓存 ----
+  const getFeatureNameById = featureId => interaction.getFeatureNameById(featureId)
+
+  const getConfigCacheByPath = configPath => {
+    if (!configPath) return null
+    const exact = modelFeaturesCache.value.get(configPath)
+    if (exact?.modelMappings?.length) return exact
+    const normalizedTarget = normalizePath(configPath)
+    for (const [path, cached] of modelFeaturesCache.value.entries()) {
+      if (normalizePath(path) === normalizedTarget && cached?.modelMappings?.length) return cached
+    }
+    return null
+  }
+
+  const getModelConfigId = configPath => {
+    if (!configPath) return ''
+    const exact = modelConfigIdMap.value.get(configPath)
+    if (exact) return exact
+    const normalizedTarget = normalizePath(configPath)
+    for (const [path, modelId] of modelConfigIdMap.value.entries()) {
+      if (normalizePath(path) === normalizedTarget) return modelId
+    }
+    return ''
+  }
+
+  const getFeatureDataForConfig = async configPath => {
+    const cached = getConfigCacheByPath(configPath)
+    if (cached) return cached
+    const modelId = getModelConfigId(configPath)
+    if (!modelId) return null
+    try {
+      const fetched = await fetchModelFeatures(modelId)
+      if (fetched?.modelMappings?.length) {
+        modelFeaturesCache.value.set(configPath, fetched)
+        return fetched
+      }
+    } catch (_) { /* ignore */ }
+    return null
+  }
+
+  const syncSelectedModelAfterListUpdate = preferredSelection => {
+    if (!Array.isArray(modelList.value) || modelList.value.length === 0) {
+      selectedModel.value = null
+      return
+    }
+    let nextSelected = null
+    if (preferredSelection) {
+      const { id, featureId, name } = preferredSelection
+      nextSelected =
+        modelList.value.find(model => (model.featureId || model.id) === featureId) ||
+        modelList.value.find(model => model.id === id) ||
+        modelList.value.find(model => model.name === name)
+    }
+    selectedModel.value = nextSelected || modelList.value[0]
   }
 
   function applyConfigToTileset(config) {
     const viewer = getViewer()
-    const requestRender = () => {
-      if (viewer) viewer.scene.requestRender()
-    }
+    const requestRender = () => { if (viewer) viewer.scene.requestRender() }
     return applyLodConfigToTileset(tilesetRef.value, { ...config }, requestRender)
   }
 
-  const resetAdaptiveLoadState = () => {
-    Object.assign(adaptiveLoadState, createAdaptiveLoadRuntime(), {
-      status: '待机',
-      appliedStepLabel: '基线'
-    })
-  }
-
-  const syncAdaptiveBaseline = () => {
-    adaptiveBaseline = {
-      lodConfig: { ...lodConfig.value },
-      displayQuality: displayQuality.value,
-      terrainQuality: terrainQuality.value
-    }
-  }
-
-  const applyAdaptiveLevel = (level, reason = '') => {
-    if (level <= 0) {
-      lodConfig.value = { ...adaptiveBaseline.lodConfig }
-      if (tilesetRef.value) applyConfigToTileset(lodConfig.value)
-      updateDisplayQuality(adaptiveBaseline.displayQuality)
-      updateTerrainQuality(adaptiveBaseline.terrainQuality)
-      Object.assign(adaptiveLoadState, {
-        level: 0,
-        branch: 'standard',
-        status: '已恢复',
-        appliedStepLabel: '基线',
-        lastReason: reason || '恢复到基线配置'
-      })
-      return
-    }
-
-    const step = getAdaptiveLoadStep(DEFAULT_ADAPTIVE_LOAD_CONFIG, level)
-    if (!step) return
-
-    lodConfig.value = {
-      ...adaptiveBaseline.lodConfig,
-      ...(step.lodConfig || {})
-    }
-    if (tilesetRef.value) applyConfigToTileset(lodConfig.value)
-    updateDisplayQuality(step.displayQuality || adaptiveBaseline.displayQuality)
-    updateTerrainQuality(step.terrainQuality || adaptiveBaseline.terrainQuality)
-
-    Object.assign(adaptiveLoadState, {
-      level,
-      branch: step.branch || 'standard',
-      status: '自动降载中',
-      appliedStepLabel: step.label || `等级 ${level}`,
-      lastReason: reason || step.label || `等级 ${level}`
-    })
-  }
-
-  const handleAdaptiveLoadEvaluation = () => {
-    if (!DEFAULT_ADAPTIVE_LOAD_CONFIG?.enabled || !tilesetRef.value) return
-    if (adaptiveLoadState.level === 0) syncAdaptiveBaseline()
-
-    const metrics = {
-      fps: fps.value,
-      ...lodRuntime.value,
-      totalMemoryUsageInBytes: getTilesetMemoryUsageBytes(tilesetRef.value)
-    }
-    const result = evaluateAdaptiveLoad(
-      metrics,
-      adaptiveLoadState,
-      DEFAULT_ADAPTIVE_LOAD_CONFIG,
-      Date.now()
-    )
-
-    Object.assign(adaptiveLoadState, result.nextRuntimePatch)
-
-    if (result.action === 'degrade') {
-      const step = getAdaptiveLoadStep(DEFAULT_ADAPTIVE_LOAD_CONFIG, result.nextLevel)
-      applyAdaptiveLevel(result.nextLevel, step?.label || '自动降载')
-      showOperationMessage(
-        `检测到低帧率，已执行${step?.label || '自动降载'}（FPS ${metrics.fps}）`,
-        'warning'
-      )
-    }
-
-    if (result.action === 'recover') {
-      applyAdaptiveLevel(result.nextLevel, '性能恢复')
-      showOperationMessage(
-        result.nextLevel === 0 ? '帧率恢复，已回到基线配置' : '帧率恢复，已逐级回退降载',
-        'success'
-      )
-    }
-  }
-
-  const startAdaptiveLoadMonitoring = () => {
-    if (adaptiveLoadStopHandle || !DEFAULT_ADAPTIVE_LOAD_CONFIG?.enabled) return
-    adaptiveLoadState.enabled = true
-    syncAdaptiveBaseline()
-    adaptiveLoadStopHandle = watch(fps, () => {
-      handleAdaptiveLoadEvaluation()
-    })
-  }
-
-  const stopAdaptiveLoadMonitoring = () => {
-    if (adaptiveLoadStopHandle) {
-      adaptiveLoadStopHandle()
-      adaptiveLoadStopHandle = null
-    }
-    if (adaptiveLoadState.level > 0) {
-      applyAdaptiveLevel(0, '停止自动降载')
-    }
-    resetAdaptiveLoadState()
-    adaptiveLoadState.enabled = false
-  }
-
-  const startGlobalFpsMonitoring = () => {
-    fpsMonitor.start()
-    startAdaptiveLoadMonitoring()
-  }
-
-  const stopGlobalFpsMonitoring = () => {
-    stopAdaptiveLoadMonitoring()
-    fpsMonitor.stop()
-  }
-
+  // ---- 模型加载核心 ----
   const load3DModel = async (modelPaths, lodConfigParam = {}, presetName = 'balanced') => {
     const viewer = getViewer()
     if (!viewer) return { type: 'error', message: 'Cesium Viewer未初始化' }
@@ -284,7 +210,7 @@ export default function useModel() {
       removeTilesetEventListeners = null
     }
     resetLodRuntime()
-    resetAdaptiveLoadState()
+    adaptiveLoad.resetAdaptiveLoadState()
 
     const possiblePaths = modelPaths || [resolveTilesetPath(DEFAULT_MODEL_CONFIG_PATH)]
 
@@ -301,253 +227,127 @@ export default function useModel() {
         }
 
         lodConfig.value = { ...finalLodConfig }
-        syncAdaptiveBaseline()
+        adaptiveLoad.syncAdaptiveBaseline(lodConfig.value)
 
         const t = await Cesium.Cesium3DTileset.fromUrl(path, { ...lodConfig.value })
         viewer.scene.primitives.add(t)
         await t.readyPromise
 
         tilesetRef.value = t
-        removeTilesetEventListeners = bindTilesetLodRuntimeEvents(t, patch =>
-          updateLodRuntime(patch)
-        )
+        removeTilesetEventListeners = bindTilesetLodRuntimeEvents(viewer, t, patch => updateLodRuntime(patch))
         originalModelMatrix = Cesium.Matrix4.clone(t.modelMatrix)
         originalBoundingSphereCenter = Cesium.Cartesian3.clone(t.boundingSphere.center)
 
-        applyModelTransform(
-          t,
-          originalModelMatrix,
-          DEFAULT_POSITION,
-          DEFAULT_TRANSFORM,
-          originalBoundingSphereCenter
-        )
+        applyModelTransform(t, originalModelMatrix, DEFAULT_POSITION, DEFAULT_TRANSFORM, originalBoundingSphereCenter)
         await resetViewToModel(t)
 
-        const successResult = {
-          type: 'success',
-          message: '矿山模型已成功加载',
-          position: { ...DEFAULT_POSITION },
-          transform: { ...DEFAULT_TRANSFORM },
-          lodConfig: lodConfig.value,
-          lodPreset: presetName
+        return {
+          type: 'success', message: '矿山模型已成功加载',
+          position: { ...DEFAULT_POSITION }, transform: { ...DEFAULT_TRANSFORM },
+          lodConfig: lodConfig.value, lodPreset: presetName
         }
-
-        return successResult
       } catch (error) {
         console.error(`Model load failed (${path}):`, error)
         continue
       }
     }
-
     return { type: 'warning', message: '3D模型加载失败' }
   }
 
-  function initModelEventHandler() {
-    const viewer = getViewer()
-    if (!viewer) return
-
-    if (modelClickHandler) {
-      try {
-        modelClickHandler.destroy()
-      } catch (e) {
-        console.warn('Failed to destroy click handler', e)
-      }
-      modelClickHandler = null
-    }
-
-    modelClickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
-    modelClickHandler.setInputAction(onLeftClick, Cesium.ScreenSpaceEventType.LEFT_CLICK)
-  }
-
-  function onLeftClick(click) {
-    if (!tilesetRef.value) return
-    const viewer = getViewer()
-    if (!viewer) return
-
-    const pickedFeature = viewer.scene.pick(click.position)
-    if (!Cesium.defined(pickedFeature)) return
-
-    if (
-      pickedFeature.primitive === tilesetRef.value &&
-      pickedFeature instanceof Cesium.Cesium3DTileFeature
-    ) {
-      if (isMeasuring.value || isAreaMeasuring.value) {
-        return
-      }
-      handleModelSelection(pickedFeature)
-    }
-  }
-
-  function handleModelSelection(feature) {
-    const featureId = featureManager.getFeatureId(feature)
-    if (!featureId) {
-      showOperationMessage('无法获取模型特征ID', 'error')
-      return
-    }
-
-    const model = modelList.value.find(m => (m.featureId || m.id) === featureId)
-    if (model) {
-      syncModelInfo(model)
-      model.visible = true
-
-      showOperationMessage(`已选中模型: ${model.name}`, 'success')
-    } else {
-      const tempModel = reactive(createDefaultModelData(featureId, `未分类模型 (${featureId})`))
-      modelList.value.push(tempModel)
-      syncModelInfo(tempModel)
-    }
-  }
-
-  // ----------------------------------------------------------------
-  // 要素与属性
-  // ----------------------------------------------------------------
-
-  const syncModelInfo = model => {
-    selectedModel.value = model
-  }
-  const highlightModel = model => {
-    featureManager.highlightModel(model)
-  }
-  const showModelProperties = model => {
-    syncModelInfo(model)
-  }
-
-  const scanAndStoreFeatures = () => {
-    if (tilesetRef.value && featureManager.getFeatureCount() === 0) {
-      featureManager.setTileset(tilesetRef.value)
-      featureManager.scanAndStoreFeatures()
-    }
-  }
-
-  const initializeDefaultModelList = () => {
+  // ---- 模型列表初始化 ----
+  const initializeDefaultModelList = preferredSelection => {
     modelList.value = []
-    if (featureManager.getFeatureCount() === 0) return
-
-    const featureIds = featureManager.getAllFeatureIds()
-    modelList.value = buildDefaultModelListFromFeatureIds(featureIds, getFeatureNameById).map(
-      model => reactive(model)
-    )
-
-    if (modelList.value.length > 0) {
-      showOperationMessage(`基于特征数据生成了 ${modelList.value.length} 个模型`, 'success')
-    }
+    if (interaction.featureManager.getFeatureCount() === 0) return
+    const featureIds = interaction.featureManager.getAllFeatureIds()
+    modelList.value = buildDefaultModelListFromFeatureIds(featureIds, getFeatureNameById).map(m => reactive(m))
+    syncSelectedModelAfterListUpdate(preferredSelection)
+    if (modelList.value.length > 0) showOperationMessage(`基于特征数据生成了 ${modelList.value.length} 个模型`, 'success')
   }
 
-  const appendMissingModelsFromFeatures = () => {
-    if (featureManager.getFeatureCount() === 0) return
-    const featureIds = featureManager.getAllFeatureIds()
-    const additions = appendMissingModelsFromFeatureIds(
-      modelList.value,
-      featureIds,
-      getFeatureNameById
-    )
-    additions.forEach(model => {
-      modelList.value.push(reactive(model))
-    })
-  }
-
-  const initializeModelList = propertiesData => {
-    if (propertiesData.modelMappings && Array.isArray(propertiesData.modelMappings)) {
+  const initializeModelList = (propertiesData, preferredSelection) => {
+    if (propertiesData?.modelMappings && Array.isArray(propertiesData.modelMappings) && propertiesData.modelMappings.length > 0) {
       modelConfigRaw.value = JSON.parse(JSON.stringify(propertiesData))
-      modelList.value = propertiesData.modelMappings.map(m =>
-        reactive(normalizeModelMappingFromConfig(m))
-      )
-      scanAndStoreFeatures()
-      appendMissingModelsFromFeatures()
+      modelList.value = propertiesData.modelMappings.map(m => reactive(normalizeModelMappingFromConfig(m)))
+      interaction.scanAndStoreFeatures(tilesetRef.value)
+      const featureIds = interaction.featureManager.getAllFeatureIds()
+      const additions = appendMissingModelsFromFeatureIds(modelList.value, featureIds, getFeatureNameById)
+      additions.forEach(m => modelList.value.push(reactive(m)))
+      interaction.syncDbModelsWithFeatures(modelList)
       modelList.value.forEach(model => {
-        if (model.styleProperties?.color) {
-          featureManager.updateModelColor(model, model.styleProperties.color, globalOpacity.value)
+        if (model.styleProperties?.color && model.styleProperties.color !== '#ffffff') {
+          interaction.featureManager.updateModelColor(model, model.styleProperties.color, globalOpacity.value)
         }
+        interaction.featureManager.updateModelOpacity(model, globalOpacity.value)
+        if (!model.visible) interaction.featureManager.toggleModelVisibility(model, 100)
       })
-      showOperationMessage(`成功加载 ${modelList.value.length} 个模型的配置`, 'success')
+      syncSelectedModelAfterListUpdate(preferredSelection)
+      showOperationMessage(`成功从数据库加载 ${modelList.value.length} 个模型的配置`, 'success')
     } else {
-      if (featureManager.getFeatureCount() === 0 && tilesetRef.value) scanAndStoreFeatures()
-      initializeDefaultModelList()
+      if (interaction.featureManager.getFeatureCount() === 0 && tilesetRef.value) interaction.scanAndStoreFeatures(tilesetRef.value)
+      initializeDefaultModelList(preferredSelection)
     }
   }
 
   const loadModelProperties = async () => {
-    const candidates = []
-    if (currentConfigFile.value)
-      candidates.push(currentConfigFile.value.replace(/tileset\.json$/i, 'feature.json'))
-    candidates.push(DEFAULT_MODEL_CONFIG_PATH)
-
-    for (const path of candidates) {
-      try {
-        const data = await fetchJsonOrNull(path)
-        if (!data) continue
-        initializeModelList(data)
-        return
-      } catch (e) {
-        console.warn('Failed to load config', e)
-      }
+    const preferredSelection = createModelSelectionSnapshot(selectedModel.value)
+    const data = await getFeatureDataForConfig(currentConfigFile.value)
+    if (data && data.modelMappings && data.modelMappings.length > 0) {
+      initializeModelList(data, preferredSelection)
+      showOperationMessage('已从数据库加载模型配置', 'success')
+      return
     }
-
-    if (featureManager.getFeatureCount() === 0 && tilesetRef.value) scanAndStoreFeatures()
-    initializeDefaultModelList()
-    showOperationMessage('未找到模型属性文件，使用默认模型配置', 'warning')
+    if (interaction.featureManager.getFeatureCount() === 0 && tilesetRef.value) interaction.scanAndStoreFeatures(tilesetRef.value)
+    initializeDefaultModelList(preferredSelection)
+    showOperationMessage('数据库暂无模型配置，使用3D模型默认属性', 'info')
   }
 
-  // ----------------------------------------------------------------
-  // 操作与配置变更
-  // ----------------------------------------------------------------
-
-  const reloadCurrentModelWithLodConfig = async (
-    nextLodConfig = lodConfig.value,
-    presetName = 'custom'
-  ) => {
+  // ---- 模型重载 ----
+  const reloadCurrentModelWithLodConfig = async (nextLodConfig = lodConfig.value, presetName = 'custom') => {
     if (!currentConfigFile.value) return { type: 'warning', message: '未选择配置文件' }
 
     try {
       const configPath = currentConfigFile.value
       const modelPath = resolveTilesetPath(configPath)
-
       const savedPosition = { ...modelPosition.value }
       const savedTransform = { ...modelTransform.value }
       const viewer = getViewer()
-
       const cameraSaved = viewer && {
         position: viewer.camera.position.clone(),
         direction: viewer.camera.direction.clone(),
         up: viewer.camera.up.clone()
       }
+      const preferredSelection = createModelSelectionSnapshot(selectedModel.value)
 
       modelList.value = []
       selectedModel.value = null
-      featureManager.resetState()
+      interaction.featureManager.resetState()
 
-      const featureData = await fetchJsonOrNull(configPath)
-
+      const featureData = await getFeatureDataForConfig(configPath)
       loading.value = true
       const result = await load3DModel([modelPath], nextLodConfig || {}, presetName)
       loading.value = false
-
       modelLoadStatus.value = result
+
       if (result.type !== 'error' && tilesetRef.value) {
-        featureManager.setTileset(tilesetRef.value)
-        scanAndStoreFeatures()
-
-        if (featureData) initializeModelList(featureData)
-        else initializeDefaultModelList()
-
+        interaction.featureManager.setTileset(tilesetRef.value)
+        interaction.scanAndStoreFeatures(tilesetRef.value)
+        if (featureData && featureData.modelMappings && featureData.modelMappings.length > 0) {
+          initializeModelList(featureData, preferredSelection)
+        } else {
+          initializeDefaultModelList(preferredSelection)
+        }
         updatePosition(savedPosition)
         updateTransform(savedTransform)
         syncUndergroundViewIfNeeded()
-
         if (cameraSaved && viewer) {
-          viewer.camera.setView({
-            destination: cameraSaved.position,
-            orientation: { direction: cameraSaved.direction, up: cameraSaved.up }
-          })
+          viewer.camera.setView({ destination: cameraSaved.position, orientation: { direction: cameraSaved.direction, up: cameraSaved.up } })
         }
-
-        initModelEventHandler()
+        interaction.initModelEventHandler(viewer, tilesetRef, feature => interaction.handleModelSelection(feature, modelList, selectedModel))
       }
-
       return result
     } catch (error) {
       console.error(error)
-      initializeDefaultModelList()
+      initializeDefaultModelList(createModelSelectionSnapshot(selectedModel.value))
       loading.value = false
       return { type: 'error', message: error.message || '模型重载失败' }
     }
@@ -556,43 +356,10 @@ export default function useModel() {
   const onConfigChange = async configFilePath => {
     if (configFilePath) currentConfigFile.value = configFilePath
     if (!currentConfigFile.value) return
-
     await reloadCurrentModelWithLodConfig()
   }
 
-  const toggleModelVisibility = model => {
-    if (!tilesetRef.value) return
-    const result = featureManager.toggleModelVisibility(model)
-    showOperationMessage(result.message, result.success ? 'success' : 'warning')
-  }
-
-  const updateModelOpacity = model => {
-    if (!tilesetRef.value) return
-    featureManager.updateModelOpacity(model, globalOpacity.value)
-  }
-
-  const updateGlobalOpacity = newOpacity => {
-    globalOpacity.value = Number(newOpacity)
-    modelList.value.forEach(model => updateModelOpacity(model))
-  }
-
-  const resetAllOpacity = () => {
-    modelList.value.forEach(m => (m.opacity = 0))
-    globalOpacity.value = 0
-    featureManager.resetAllOpacity(modelList.value, 0)
-  }
-
-  const showAllModels = () => featureManager.showAllModels(modelList.value)
-  const hideAllModels = () => featureManager.hideAllModels(modelList.value)
-  const showOnlyModel = model => {
-    if (!tilesetRef.value) return
-    modelList.value.forEach(m => {
-      m.visible = m.id === model.id
-      featureManager.toggleModelVisibility(m)
-    })
-    showOperationMessage(`仅显示模型: ${model.name}`, 'success')
-  }
-
+  // ---- 模型操作 ----
   const updateModelId = (model, newId) => {
     if (!model || !newId) return false
     const trimmed = newId.trim()
@@ -617,22 +384,17 @@ export default function useModel() {
       showOperationMessage('未选择配置文件，无法保存', 'warning')
       return false
     }
-
+    const modelId = getModelConfigId(currentConfigFile.value) || ''
+    const configName = modelConfigFiles.value.find(f => f.path === currentConfigFile.value)?.name || ''
     const modelMappings = buildModelMappingsForSave(modelList.value)
-
     const payload = {
-      ...((modelConfigRaw.value && typeof modelConfigRaw.value === 'object'
-        ? modelConfigRaw.value
-        : {}) || {}),
+      model_id: modelId, name: configName,
+      ...((modelConfigRaw.value && typeof modelConfigRaw.value === 'object' ? modelConfigRaw.value : {}) || {}),
       modelMappings
     }
-
     try {
       const result = await saveModelConfigApi(currentConfigFile.value, payload)
-      if (!result.success) {
-        showOperationMessage(result.message, 'error')
-        return false
-      }
+      if (!result.success) { showOperationMessage(result.message, 'error'); return false }
       modelConfigRaw.value = JSON.parse(JSON.stringify(payload))
       showOperationMessage(result.message, 'success')
       return true
@@ -642,10 +404,7 @@ export default function useModel() {
     }
   }
 
-  const resetView = async () => {
-    if (tilesetRef.value) await resetViewToModel(tilesetRef.value)
-  }
-
+  // ---- 地下视图 ----
   const applyUndergroundView = enabled => {
     undergroundViewController.apply({
       tileset: tilesetRef.value,
@@ -668,7 +427,6 @@ export default function useModel() {
   const updateGlobeTranslucency = ({ frontFaceAlpha, backFaceAlpha } = {}) => {
     if (typeof frontFaceAlpha === 'number') globeFrontFaceAlpha.value = frontFaceAlpha
     if (typeof backFaceAlpha === 'number') globeBackFaceAlpha.value = backFaceAlpha
-
     if (!undergroundViewEnabled.value) return
     applyUndergroundView(true)
   }
@@ -676,24 +434,19 @@ export default function useModel() {
   const enterUndergroundView = () => {
     const viewer = getViewer()
     if (!viewer || !tilesetRef.value) return
-
-    if (!undergroundViewEnabled.value) {
-      undergroundViewEnabled.value = true
-    }
+    if (!undergroundViewEnabled.value) undergroundViewEnabled.value = true
     applyUndergroundView(true)
-
     flyToUndergroundView(viewer, tilesetRef.value, 0.8)
+  }
+
+  // ---- 位置/变换 ----
+  const resetView = async () => {
+    if (tilesetRef.value) await resetViewToModel(tilesetRef.value)
   }
 
   const resetModel = () => {
     if (!tilesetRef.value || !originalModelMatrix) return
-    applyModelTransform(
-      tilesetRef.value,
-      originalModelMatrix,
-      { ...DEFAULT_POSITION },
-      { ...DEFAULT_TRANSFORM },
-      originalBoundingSphereCenter
-    )
+    applyModelTransform(tilesetRef.value, originalModelMatrix, { ...DEFAULT_POSITION }, { ...DEFAULT_TRANSFORM }, originalBoundingSphereCenter)
     currentTransform = { ...DEFAULT_TRANSFORM }
     modelPosition.value = { ...DEFAULT_POSITION }
     modelTransform.value = { ...DEFAULT_TRANSFORM }
@@ -704,13 +457,7 @@ export default function useModel() {
   const updatePosition = newPosition => {
     if (!tilesetRef.value || !originalModelMatrix) return
     modelPosition.value = { ...modelPosition.value, ...newPosition }
-    applyModelTransform(
-      tilesetRef.value,
-      originalModelMatrix,
-      modelPosition.value,
-      currentTransform,
-      originalBoundingSphereCenter
-    )
+    applyModelTransform(tilesetRef.value, originalModelMatrix, modelPosition.value, currentTransform, originalBoundingSphereCenter)
     syncUndergroundViewIfNeeded()
   }
 
@@ -718,24 +465,19 @@ export default function useModel() {
     if (!tilesetRef.value || !originalModelMatrix) return
     modelTransform.value = { ...modelTransform.value, ...newTransform }
     currentTransform = { ...newTransform }
-    applyModelTransform(
-      tilesetRef.value,
-      originalModelMatrix,
-      modelPosition.value,
-      currentTransform,
-      originalBoundingSphereCenter
-    )
+    applyModelTransform(tilesetRef.value, originalModelMatrix, modelPosition.value, currentTransform, originalBoundingSphereCenter)
     syncUndergroundViewIfNeeded()
   }
 
+  // ---- LOD 配置 ----
   const updateLodConfig = newConfig => {
     lodConfig.value = { ...lodConfig.value, ...newConfig }
     if (tilesetRef.value) {
       const ok = applyConfigToTileset(lodConfig.value)
-      if (adaptiveLoadState.level === 0) syncAdaptiveBaseline()
+      if (adaptiveLoad.adaptiveLoadState.level === 0) adaptiveLoad.syncAdaptiveBaseline(lodConfig.value)
       return ok
     }
-    if (adaptiveLoadState.level === 0) syncAdaptiveBaseline()
+    if (adaptiveLoad.adaptiveLoadState.level === 0) adaptiveLoad.syncAdaptiveBaseline(lodConfig.value)
     return false
   }
 
@@ -749,50 +491,74 @@ export default function useModel() {
     if (tilesetRef.value) applyConfigToTileset(lodConfig.value)
   }
 
-  // ----------------------------------------------------------------
-  // 初始化
-  // ----------------------------------------------------------------
-
-  /**
-   * 扫描 public/3d 目录下可用配置列表
-   */
+  // ---- 初始化 ----
   const discoverAvailableModels = async () => {
-    const configs = await discoverModelConfigs(10)
+    const configs = await discoverModelConfigs()
     modelConfigFiles.value = configs
 
-    if (!currentConfigFile.value && configs.length > 0) {
-      const preferredConfig =
-        configs.find(config => config.path === DEFAULT_MODEL_CONFIG_PATH) || configs[0]
-      currentConfigFile.value = preferredConfig.path
+    const idMap = new Map()
+    const featuresMap = new Map()
+    configs.forEach(config => {
+      if (config.model_id && config.path) idMap.set(config.path, config.model_id)
+      const normalized = normalizeFeatures(config.features)
+      if (config.path && normalized) featuresMap.set(config.path, normalized)
+    })
+
+    if (featuresMap.size === 0 && idMap.size > 0) {
+      for (const [path, modelId] of idMap.entries()) {
+        try {
+          const data = await fetchModelFeatures(modelId)
+          if (data && data.modelMappings && data.modelMappings.length > 0) {
+            featuresMap.set(path, data); break
+          }
+        } catch (_) { /* continue */ }
+      }
+    }
+
+    modelConfigIdMap.value = idMap
+    modelFeaturesCache.value = featuresMap
+    console.log('[initModel] 模型配置:', configs.length, '条, idMap:', idMap.size, '条, featuresMap:', featuresMap.size, '条')
+
+    if (configs.length > 0) {
+      const hasCurrent = currentConfigFile.value && featuresMap.has(currentConfigFile.value)
+      if (!hasCurrent) {
+        const preferredConfig =
+          configs.find(config => config.path === DEFAULT_MODEL_CONFIG_PATH && featuresMap.has(config.path)) ||
+          configs.find(config => featuresMap.has(config.path)) ||
+          configs[0]
+        currentConfigFile.value = preferredConfig.path
+      }
     }
   }
 
   const initModel = async () => {
     loading.value = true
     try {
-      // 第一步：发现模型配置
       await discoverAvailableModels()
-
-      // 第二步：确定初始模型路径
       const initialTilesetPath = resolveTilesetPath(currentConfigFile.value)
-
-      // 第三步：加载模型
       const loadResult = await load3DModel([initialTilesetPath])
       modelLoadStatus.value = loadResult
 
-      if (tilesetRef.value) {
-        scanAndStoreFeatures()
-        initModelEventHandler()
+      const viewer = getViewer()
 
-        // 第四步：加载属性
+      if (tilesetRef.value) {
+        interaction.scanAndStoreFeatures(tilesetRef.value)
+        interaction.initModelEventHandler(viewer, tilesetRef, feature => interaction.handleModelSelection(feature, modelList, selectedModel))
+
         if (currentConfigFile.value) {
-          const data = await fetchJsonOrNull(currentConfigFile.value)
-          if (data) initializeModelList(data)
-          else await loadModelProperties()
+          const dbData = await getFeatureDataForConfig(currentConfigFile.value)
+          console.log('[initModel] dbData:', dbData ? `modelMappings ${dbData.modelMappings?.length || 0} 条` : 'null')
+          if (dbData && dbData.modelMappings && dbData.modelMappings.length > 0) {
+            initializeModelList(dbData)
+            console.log('[initModel] 已从数据库加载模型列表, modelList:', modelList.value.length, '条')
+          } else {
+            console.warn('[initModel] 数据库无模型数据，降级到 loadModelProperties')
+            await loadModelProperties()
+          }
         } else {
+          console.warn('[initModel] currentConfigFile 未设置，降级到 loadModelProperties')
           await loadModelProperties()
         }
-
         syncUndergroundViewIfNeeded()
       }
 
@@ -806,34 +572,7 @@ export default function useModel() {
     }
   }
 
-  const disableSelection = () => {
-    if (modelClickHandler)
-      modelClickHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_CLICK)
-  }
-
-  const enableSelection = () => {
-    if (modelClickHandler)
-      modelClickHandler.setInputAction(onLeftClick, Cesium.ScreenSpaceEventType.LEFT_CLICK)
-  }
-
-  const fitToModel = async () => {
-    const viewer = getViewer()
-    if (viewer && tilesetRef.value) {
-      try {
-        await viewer.zoomTo(tilesetRef.value)
-      } catch (e) {
-        warn('model', 'useModel', e)
-      }
-    }
-  }
-
-  const getLodStats = () => {
-    return {
-      ...lodRuntime.value,
-      totalMemoryUsageInBytes: getTilesetMemoryUsageBytes(tilesetRef.value)
-    }
-  }
-
+  // ---- 销毁 ----
   const destroyModel = () => {
     const viewer = getViewer()
     if (tilesetRef.value && viewer?.scene?.primitives?.contains(tilesetRef.value)) {
@@ -843,47 +582,45 @@ export default function useModel() {
     originalModelMatrix = null
     originalBoundingSphereCenter = null
     if (removeTilesetEventListeners) {
-      removeTilesetEventListeners()
-      removeTilesetEventListeners = null
+      removeTilesetEventListeners(); removeTilesetEventListeners = null
     }
-    if (modelClickHandler) {
-      try {
-        modelClickHandler.destroy()
-      } catch (e) {
-        console.warn('Failed to destroy click handler', e)
-      }
-      modelClickHandler = null
-    }
-    stopGlobalFpsMonitoring()
-    featureManager.destroy()
+    adaptiveLoad.stopGlobalFpsMonitoring(tilesetRef, lodConfig)
+    interaction.destroy()
     undergroundViewController.destroy?.()
     modelList.value = []
     selectedModel.value = null
   }
 
+  const fitToModel = async () => {
+    const viewer = getViewer()
+    if (viewer && tilesetRef.value) {
+      try { await viewer.zoomTo(tilesetRef.value) } catch (e) { warn('model', 'useModel', e) }
+    }
+  }
+
+  const getLodStats = () => ({
+    ...lodRuntime.value,
+    totalMemoryUsageInBytes: getTilesetMemoryUsageBytes(tilesetRef.value)
+  })
+
   const getOriginalModelMatrix = () => originalModelMatrix
 
-  return {
-    modelConfigFiles,
-    currentConfigFile,
-    modelList,
-    globalOpacity,
-    modelPosition,
-    modelTransform,
-    modelLoadStatus,
-    loading,
-    selectedModel,
-    undergroundViewEnabled,
-    globeFrontFaceAlpha,
-    globeBackFaceAlpha,
+  // ---- 返回 ----
+  sharedModelService = {
+    modelConfigFiles, currentConfigFile, modelList, globalOpacity,
+    modelPosition, modelTransform, modelLoadStatus, loading, selectedModel,
+    undergroundViewEnabled, globeFrontFaceAlpha, globeBackFaceAlpha,
 
     onConfigChange,
-    toggleModelVisibility,
-    updateModelOpacity,
-    updateGlobalOpacity,
-    resetAllOpacity,
-    showAllModels,
-    hideAllModels,
+    toggleModelVisibility: model => interaction.toggleModelVisibility(model),
+    updateModelOpacity: model => interaction.updateModelOpacity(model),
+    updateGlobalOpacity: newOpacity => {
+      globalOpacity.value = Number(newOpacity)
+      interaction.updateGlobalOpacity(globalOpacity.value, modelList)
+    },
+    resetAllOpacity: () => interaction.resetAllOpacity(modelList),
+    showAllModels: () => interaction.showAllModels(modelList),
+    hideAllModels: () => interaction.hideAllModels(modelList),
     fitToModel,
     fitToModels: fitToModel,
     resetView,
@@ -893,16 +630,16 @@ export default function useModel() {
     enterUndergroundView,
     updatePosition,
     updateTransform,
-    syncModelInfo,
-    highlightModel,
-    showModelProperties,
-    showOnlyModel,
+    syncModelInfo: model => { selectedModel.value = model },
+    highlightModel: model => interaction.highlightModel(model),
+    showModelProperties: model => { selectedModel.value = model },
+    showOnlyModel: model => interaction.showOnlyModel(model, modelList),
     updateModelId,
     reloadCurrentConfig,
     reloadCurrentModelWithLodConfig,
     saveModelConfig,
-    disableSelection,
-    enableSelection,
+    disableSelection: () => interaction.disableSelection(),
+    enableSelection: () => interaction.enableSelection(),
     initModel,
     destroyModel,
 
@@ -913,15 +650,19 @@ export default function useModel() {
     resetLodConfig,
     DEFAULT_LOD_CONFIG,
     lodRuntime,
-    adaptiveLoadState,
+    adaptiveLoadState: adaptiveLoad.adaptiveLoadState,
+    lodVisualizationState,
+    applyLodVisualizationMode,
 
     tilesetRef,
     tileset: tilesetRef,
-    modelClickHandler: () => modelClickHandler,
+    modelClickHandler: () => interaction.modelClickHandler(),
     getOriginalModelMatrix,
 
-    fps,
-    startGlobalFpsMonitoring,
-    stopGlobalFpsMonitoring
+    fps: adaptiveLoad.fps,
+    startGlobalFpsMonitoring: () => adaptiveLoad.startGlobalFpsMonitoring(tilesetRef, lodConfig, lodRuntime),
+    stopGlobalFpsMonitoring: () => adaptiveLoad.stopGlobalFpsMonitoring(tilesetRef, lodConfig)
   }
+
+  return sharedModelService
 }

@@ -1,8 +1,22 @@
+import {
+  fetchDefaultRoute,
+  fetchRoutes,
+  createRoute,
+  updateRoute,
+  setDefaultRoute as setDefaultRouteApi,
+  deleteRoute as deleteRouteApi
+} from './routeApiService.js'
+
 const STORAGE_KEY_DEFAULT_ROUTE = 'mining_truck_default_route'
 const STORAGE_KEY_SAVED_PATHS = 'mining_truck_saved_paths'
 
 // 静态默认路线缓存
 let staticDefaultRouteCache = null
+
+// 数据库路线缓存（dbRouteId -> 路线数据映射）
+let dbRouteCache = null
+let dbRouteCacheTime = 0
+const DB_CACHE_TTL = 10000
 
 /**
  * 从静态资源加载默认路线
@@ -17,13 +31,11 @@ export async function loadStaticDefaultRoute() {
   try {
     const response = await fetch('/default-route.json')
     if (!response.ok) {
-      console.warn('[routeStorage] 静态默认路线文件不存在:', response.status)
       return null
     }
 
     const data = await response.json()
     if (!Array.isArray(data.points) || data.points.length < 2) {
-      console.warn('[routeStorage] 静态默认路线数据无效')
       return null
     }
 
@@ -43,15 +55,8 @@ export async function loadStaticDefaultRoute() {
     // 缓存结果
     staticDefaultRouteCache = formattedData
 
-    console.log(
-      '[routeStorage] 静态默认路线已加载:',
-      formattedData.name,
-      `(${formattedData.points.length} 个点)`
-    )
-
     return formattedData
   } catch (error) {
-    console.warn('[routeStorage] 加载静态默认路线失败:', error.message)
     return null
   }
 }
@@ -61,12 +66,80 @@ export async function loadStaticDefaultRoute() {
  */
 export function clearStaticRouteCache() {
   staticDefaultRouteCache = null
-  console.log('[routeStorage] 静态路线缓存已清除')
 }
+
+// ===== 数据库操作（优先） =====
+
+async function tryDb(fn, fallback = null) {
+  try { return await fn() } catch (e) {
+    console.warn('[routeStorage] DB操作失败，降级到localStorage:', e.message)
+    return fallback
+  }
+}
+
+export async function loadDefaultRouteFromDb() {
+  const route = await fetchDefaultRoute()
+  if (route && Array.isArray(route.points) && route.points.length >= 2) {
+    return {
+      id: route.id,
+      name: route.name || '默认矿卡路线',
+      points: route.points,
+      isDefault: true,
+      source: 'database'
+    }
+  }
+  return null
+}
+
+export async function saveDefaultRouteToDb(name, points) {
+  const route = await fetchDefaultRoute()
+  if (route?.id) {
+    await updateRoute(route.id, { name, points })
+  } else {
+    await createRoute(name, points, true)
+  }
+}
+
+export async function saveRouteToDb(name, points, isDefault = false) {
+  if (isDefault) {
+    return saveDefaultRouteToDb(name, points)
+  }
+  return createRoute(name, points, false)
+}
+
+export async function loadAllRoutesFromDb() {
+  const routes = await fetchRoutes()
+  return routes.map(r => ({
+    id: r.id,
+    name: r.name || '未命名路线',
+    points: r.points || [],
+    isDefault: !!r.is_default,
+    createdAt: r.created_at,
+    source: 'database'
+  }))
+}
+
+export async function setRouteAsDefaultInDb(routeId) {
+  await setDefaultRouteApi(routeId)
+  dbRouteCache = null
+}
+
+export async function updateRouteInDb(routeId, name, points, isDefault = false) {
+  const data = { name, points }
+  if (isDefault) data.is_default = 1
+  await updateRoute(routeId, data)
+  dbRouteCache = null
+}
+
+export async function deleteRouteFromDb(routeId) {
+  await deleteRouteApi(routeId)
+  dbRouteCache = null
+}
+
+// ===== 原有 localStorage 操作（作为降级方案保留） =====
 
 export function saveDefaultRoute(routeData) {
   if (!routeData || !Array.isArray(routeData.points) || routeData.points.length < 2) {
-    console.warn('[routeStorage] 路线数据无效，无法保存默认路线')
     return false
   }
 
@@ -83,7 +156,6 @@ export function saveDefaultRoute(routeData) {
     }
 
     localStorage.setItem(STORAGE_KEY_DEFAULT_ROUTE, JSON.stringify(payload))
-    console.log('[routeStorage] 默认路线已保存:', payload.name, `(${payload.points.length} 个点)`)
     return true
   } catch (error) {
     console.error('[routeStorage] 保存默认路线失败:', error)
@@ -107,11 +179,6 @@ export async function loadDefaultRoute(options = {}) {
       if (raw) {
         const data = JSON.parse(raw)
         if (Array.isArray(data.points) && data.points.length >= 2) {
-          console.log(
-            '[routeStorage] 默认路线已从localStorage加载:',
-            data.name,
-            `(${data.points.length} 个点, 保存于 ${data.savedAt})`
-          )
           return {
             name: data.name,
             points: data.points,
@@ -152,15 +219,9 @@ export function loadDefaultRouteSync() {
 
     const data = JSON.parse(raw)
     if (!Array.isArray(data.points) || data.points.length < 2) {
-      console.warn('[routeStorage] 存储的默认路线数据无效')
       return null
     }
 
-    console.log(
-      '[routeStorage] 默认路线已加载:',
-      data.name,
-      `(${data.points.length} 个点, 保存于 ${data.savedAt})`
-    )
     return {
       name: data.name,
       points: data.points,
@@ -176,7 +237,6 @@ export function loadDefaultRouteSync() {
 export function clearDefaultRoute() {
   try {
     localStorage.removeItem(STORAGE_KEY_DEFAULT_ROUTE)
-    console.log('[routeStorage] 默认路线已清除')
     return true
   } catch (error) {
     console.error('[routeStorage] 清除默认路线失败:', error)
@@ -253,32 +313,24 @@ export function loadAllPaths() {
 export async function initializeDefaultRoute(options = {}) {
   const { useStaticAsFallback = true, forceStatic = false } = options
 
-  // 如果强制使用静态资源
   if (forceStatic) {
     const staticRoute = await loadStaticDefaultRoute()
-    if (staticRoute) {
-      console.log('[routeStorage] 已强制加载静态默认路线')
-      return staticRoute
-    }
-    console.warn('[routeStorage] 强制加载静态路线失败，尝试其他来源')
+    if (staticRoute) return staticRoute
   }
 
-  // 先尝试从localStorage加载
+  // 1. 优先从数据库加载
+  const dbRoute = await tryDb(() => loadDefaultRouteFromDb())
+  if (dbRoute) return dbRoute
+
+  // 2. 降级：从 localStorage 加载
   const localRoute = loadDefaultRouteSync()
-  if (localRoute) {
-    console.log('[routeStorage] 已从localStorage恢复默认路线')
-    return localRoute
-  }
+  if (localRoute) return localRoute
 
-  // 如果localStorage没有且允许使用静态资源作为后备
+  // 3. 最终降级：从静态文件加载
   if (useStaticAsFallback) {
     const staticRoute = await loadStaticDefaultRoute()
-    if (staticRoute) {
-      console.log('[routeStorage] 已从静态资源加载默认路线作为初始值')
-      return staticRoute
-    }
+    if (staticRoute) return staticRoute
   }
 
-  console.log('[routeStorage] 没有找到可用的默认路线')
   return null
 }

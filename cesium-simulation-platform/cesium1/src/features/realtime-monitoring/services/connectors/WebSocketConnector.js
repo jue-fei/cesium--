@@ -21,7 +21,6 @@ export class WebSocketConnector extends DataConnector {
 
   connect() {
     if (!this._url) {
-      console.error('[WebSocketConnector] 未配置连接URL')
       return
     }
 

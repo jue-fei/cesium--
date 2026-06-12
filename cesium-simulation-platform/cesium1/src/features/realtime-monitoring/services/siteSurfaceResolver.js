@@ -43,7 +43,6 @@ export function createSiteSurfaceResolver({
         )
       }
     } catch (error) {
-      console.warn('[RealtimeDataEngine] 读取要素ID失败:', error)
     }
 
     // @ts-ignore
@@ -82,7 +81,6 @@ export function createSiteSurfaceResolver({
         )
       }
     } catch (error) {
-      console.warn('[RealtimeDataEngine] 命中指定子模型表面失败:', error)
     }
 
     return null
