@@ -3,9 +3,20 @@
     <div class="flex flex-col gap-4">
       <!-- 多目标优化视图 -->
       <div class="bg-white/5 rounded-lg p-4 border border-white/5 hover:border-blue-500/30 transition-all duration-300">
-        <div
-          class="text-sm font-semibold text-blue-100 mb-3 flex items-center gap-2 before:content-[''] before:w-1 before:h-3 before:bg-blue-500 before:rounded-sm">
-          🎯 多目标调度优化实验
+        <div class="flex items-center justify-between mb-3">
+          <div
+            class="text-sm font-semibold text-blue-100 flex items-center gap-2 before:content-[''] before:w-1 before:h-3 before:bg-blue-500 before:rounded-sm">
+            🎯 多目标调度优化实验
+          </div>
+          <button
+            class="px-2.5 py-1 rounded bg-blue-500/20 border border-blue-500/30 text-blue-300 text-[11px] hover:bg-blue-500/30 transition-all flex items-center gap-1"
+            @click="showNSGADetail = true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+            </svg>
+            查看详情
+          </button>
         </div>
         <MultiObjectiveView />
       </div>
@@ -235,6 +246,14 @@
           </div>
         </div>
       </div>
+
+      <!-- NSGA-III 详情弹窗 -->
+      <el-dialog v-model="showNSGADetail" title="NSGA-III 多目标调度优化详情" width="900px"
+        :close-on-click-modal="true" :append-to-body="true" destroy-on-close
+        custom-class="nsga-detail-dialog"
+        style="--el-dialog-bg-color: #1a1a2e; --el-dialog-border-color: rgba(255,255,255,0.08);">
+        <MultiObjectiveView />
+      </el-dialog>
     </div>
   </div>
 </template>
@@ -292,6 +311,7 @@ const {
 const wsUrl = ref('ws://localhost:8080/trucks/realtime')
 const httpUrl = ref('/api/trucks')
 const showDataSourceConfig = ref(false)
+const showNSGADetail = ref(false)
 
 function handleSwitchDataSource(type) {
   if (type === connectionType.value) {

@@ -97,11 +97,11 @@ function cloneTruckState(truck) {
     tirePressure: Array.isArray(truck.tirePressure) ? [...truck.tirePressure] : truck.tirePressure,
     position: truck.position
       ? {
-        ...truck.position,
-        cartesian: Array.isArray(truck.position.cartesian)
-          ? [...truck.position.cartesian]
-          : undefined
-      }
+          ...truck.position,
+          cartesian: Array.isArray(truck.position.cartesian)
+            ? [...truck.position.cartesian]
+            : undefined
+        }
       : truck.position
   }
 }
@@ -116,11 +116,23 @@ function upsertTruckState(collection, data) {
   }
 }
 
+const MIN_TIMELINE_RANGE_MS = 60000 // 最小时间轴范围 60 秒
+
 function syncTimelineRange() {
   if (!dataEngine) return
+  const now = Date.now()
   const { startTime, endTime } = dataEngine.getTimeRange()
-  timelineStartTime.value = Math.min(startTime, endTime)
-  timelineEndTime.value = Math.max(startTime, endTime, currentTimestamp.value)
+  let s = Math.min(startTime, endTime)
+  let e = Math.max(startTime, endTime, currentTimestamp.value)
+
+  // 确保最小时间范围，防止时间轴不可操作
+  if (e - s < MIN_TIMELINE_RANGE_MS) {
+    s = Math.min(s, now - MIN_TIMELINE_RANGE_MS)
+    e = Math.max(e, now)
+  }
+
+  timelineStartTime.value = s
+  timelineEndTime.value = e
 }
 
 function buildAlertCandidates(trucks) {
@@ -261,7 +273,9 @@ async function initMonitoringManager(viewer) {
       const simConfig = await simConfigRes.json()
       truckSimulator.applySimConfig(simConfig)
     }
-  } catch (_) { /* 使用默认配置 */ }
+  } catch (_) {
+    /* 使用默认配置 */
+  }
 
   let simStartTimer = null
   const tryStartSimulator = () => {
@@ -295,11 +309,12 @@ async function initMonitoringManager(viewer) {
 
   // 先加载路径，确保 API 数据到达前路径已就绪
   try {
-    const defaultRoute = await initializeDefaultRoute({ useStaticAsFallback: true })
+    const defaultRoute = await initializeDefaultRoute()
     if (defaultRoute && defaultRoute.points.length >= 2) {
       dataEngine.setCustomPath(defaultRoute.points)
     }
   } catch (error) {
+    console.warn('[useMonitoring] 初始化默认路线失败:', error)
   }
 
   connectionManager.switchTo('http_poll', { url: '/api/trucks', pollInterval: 2000 })
@@ -307,8 +322,7 @@ async function initMonitoringManager(viewer) {
   startMonitoring()
   syncTimelineRange()
 
-  miningSiteDebugTimer = setTimeout(() => {
-  }, 2000)
+  miningSiteDebugTimer = null
 }
 
 function updateTruckFromRealtime(data) {
@@ -521,10 +535,10 @@ function focusTruck(truckId) {
   const dest =
     truck.position.cartesian?.length === 3
       ? new Cesium.Cartesian3(
-        truck.position.cartesian[0],
-        truck.position.cartesian[1],
-        truck.position.cartesian[2] + 150
-      )
+          truck.position.cartesian[0],
+          truck.position.cartesian[1],
+          truck.position.cartesian[2] + 150
+        )
       : Cesium.Cartesian3.fromDegrees(truck.position.longitude, truck.position.latitude, 150)
   viewerRef.camera.flyTo({
     destination: dest,

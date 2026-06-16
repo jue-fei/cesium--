@@ -4,7 +4,6 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "vite",
-    "dev:api": "node server/index.js",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint . --fix",
@@ -15,12 +14,8 @@
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
     "cesium": "^1.138.0",
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
     "element-plus": "^2.13.2",
     "exceljs": "^4.4.0",
-    "express": "^5.2.1",
-    "mysql2": "^3.22.5",
     "pinia": "^2.3.1",
     "vue": "^3.5.29"
   },

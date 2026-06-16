@@ -30,6 +30,7 @@ import {
 import { useModelStore } from '../../../stores/modelStore.js'
 import useViewer from '@/composables/useViewer.js'
 import useMessage from '@/composables/useMessage.js'
+import useMeasurement from '@/features/measurement-analysis/services/useMeasurement.js'
 
 // ---- 内部共享状态 ----
 let originalModelMatrix = null
@@ -197,6 +198,8 @@ export default function useModel() {
   const load3DModel = async (modelPaths, lodConfigParam = {}, presetName = 'balanced') => {
     const viewer = getViewer()
     if (!viewer) return { type: 'error', message: 'Cesium Viewer未初始化' }
+
+    useMeasurement().clearHistoryVisualization()
 
     if (tilesetRef.value && viewer.scene.primitives.contains(tilesetRef.value)) {
       viewer.scene.primitives.remove(tilesetRef.value)
@@ -446,6 +449,7 @@ export default function useModel() {
 
   const resetModel = () => {
     if (!tilesetRef.value || !originalModelMatrix) return
+    useMeasurement().clearHistoryVisualization()
     applyModelTransform(tilesetRef.value, originalModelMatrix, { ...DEFAULT_POSITION }, { ...DEFAULT_TRANSFORM }, originalBoundingSphereCenter)
     currentTransform = { ...DEFAULT_TRANSFORM }
     modelPosition.value = { ...DEFAULT_POSITION }
@@ -456,6 +460,7 @@ export default function useModel() {
 
   const updatePosition = newPosition => {
     if (!tilesetRef.value || !originalModelMatrix) return
+    useMeasurement().clearHistoryVisualization()
     modelPosition.value = { ...modelPosition.value, ...newPosition }
     applyModelTransform(tilesetRef.value, originalModelMatrix, modelPosition.value, currentTransform, originalBoundingSphereCenter)
     syncUndergroundViewIfNeeded()
@@ -463,6 +468,7 @@ export default function useModel() {
 
   const updateTransform = newTransform => {
     if (!tilesetRef.value || !originalModelMatrix) return
+    useMeasurement().clearHistoryVisualization()
     modelTransform.value = { ...modelTransform.value, ...newTransform }
     currentTransform = { ...newTransform }
     applyModelTransform(tilesetRef.value, originalModelMatrix, modelPosition.value, currentTransform, originalBoundingSphereCenter)

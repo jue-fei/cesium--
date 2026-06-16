@@ -30,10 +30,31 @@ const DEFAULT_BOREHOLE_VISUAL = {
   MARKER_SIZE: 24
 }
 
-// 以下函数优先从数据库 API 读取，API 不可用时使用上方兜底值
+function resolveObjectConfig(...candidates) {
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      return candidate
+    }
+  }
+  return null
+}
+
+function getBoreholeConfigSection(sectionName) {
+  // 当前后端返回的 boreholes 是钻孔数据数组，不是显示配置对象。
+  // 这里只接受未来显式提供的对象型配置，避免误把数组当配置源。
+  const settings = resolveObjectConfig(
+    apiConfig.appSettings,
+    apiConfig.visualSettings,
+    apiConfig.geologySettings
+  )
+  const section = settings?.[sectionName]
+  return resolveObjectConfig(section)
+}
+
+// 以下函数优先从显式配置对象读取；未提供时使用兜底值。
 
 export function getBoreholeVisualConfig() {
-  const api = apiConfig.boreholes?.map?.borehole_visual
+  const api = getBoreholeConfigSection('borehole_visual')
   if (api) {
     return {
       ...DEFAULT_BOREHOLE_VISUAL,
@@ -46,11 +67,11 @@ export function getBoreholeVisualConfig() {
 }
 
 export function getBoreholeLayerConfig() {
-  const api = apiConfig.boreholes?.map?.borehole_layer
+  const api = getBoreholeConfigSection('borehole_layer')
   if (api) return api
   return { defaultOreDensity: DEFAULT_ORE_DENSITY, oreGradeThresholds: ORE_GRADE_THRESHOLDS }
 }
 
 export function getDefaultOreDensity() {
-  return apiConfig.boreholes?.map?.borehole_layer?.defaultOreDensity ?? DEFAULT_ORE_DENSITY
+  return getBoreholeLayerConfig().defaultOreDensity ?? DEFAULT_ORE_DENSITY
 }

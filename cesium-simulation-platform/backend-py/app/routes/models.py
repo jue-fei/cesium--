@@ -94,7 +94,7 @@ def create_model(body: ModelCreate, db: Connection = Depends(get_db)):
     with db.cursor() as cursor:
         cursor.execute(sql, values)
         db.commit()
-    return {"code": 0, "message": "模型创建成功", "model_id": model_id}
+    return {"code": 0, "message": "模型创建成功", "data": {"model_id": body.model_id}}
 
 
 @router.put("/{model_id}")

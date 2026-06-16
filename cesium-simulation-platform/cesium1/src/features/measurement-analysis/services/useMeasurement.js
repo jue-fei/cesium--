@@ -695,7 +695,12 @@ export default function useMeasurement() {
   let historyVisualizationEntities = []
   const highlightedRecordId = ref(null)
 
-  const showHistoryOnScene = record => {
+  const showHistoryOnScene = async record => {
+    if (highlightedRecordId.value === record.id) {
+      clearHistoryVisualization()
+      return
+    }
+
     const viewer = getViewer()
     if (!viewer || !record || !record.points) return
 
@@ -705,12 +710,22 @@ export default function useMeasurement() {
 
     if (positions.length === 0) return
 
+    const isTerrain = record.distanceMode === 'terrain'
+    const isArea = record.type === 'area'
+    const pointColor = isArea
+      ? Cesium.Color.fromCssColorString('#ffb74d')
+      : isTerrain
+        ? Cesium.Color.fromCssColorString('#81c784')
+        : Cesium.Color.fromCssColorString('#4fc3f7')
+    const lineColor = pointColor
+
     positions.forEach(pos => {
       const pt = viewer.entities.add({
+        _historyVisualization: true,
         position: pos,
         point: {
           pixelSize: 8,
-          color: Cesium.Color.ORANGE,
+          color: pointColor,
           outlineColor: Cesium.Color.WHITE,
           outlineWidth: 1
         }
@@ -719,16 +734,50 @@ export default function useMeasurement() {
     })
 
     if (positions.length >= 2) {
-      const line = viewer.entities.add({
-        polyline: {
-          positions,
-          width: 2,
-          material: new Cesium.PolylineDashMaterialProperty({
-            color: Cesium.Color.ORANGE
-          })
+      if (isTerrain) {
+        for (let i = 0; i < positions.length - 1; i++) {
+          try {
+            const { positions: terrainPositions } = await calculateTerrainPath(
+              viewer,
+              positions[i],
+              positions[i + 1]
+            )
+            const line = viewer.entities.add({
+              _historyVisualization: true,
+              polyline: {
+                positions: terrainPositions,
+                width: 2,
+                material: lineColor
+              }
+            })
+            historyVisualizationEntities.push(line)
+          } catch (e) {
+            const fallbackLine = viewer.entities.add({
+              _historyVisualization: true,
+              polyline: {
+                positions: [positions[i], positions[i + 1]],
+                width: 2,
+                material: new Cesium.PolylineDashMaterialProperty({
+                  color: lineColor
+                })
+              }
+            })
+            historyVisualizationEntities.push(fallbackLine)
+          }
         }
-      })
-      historyVisualizationEntities.push(line)
+      } else {
+        const line = viewer.entities.add({
+          _historyVisualization: true,
+          polyline: {
+            positions,
+            width: 2,
+            material: new Cesium.PolylineDashMaterialProperty({
+              color: lineColor
+            })
+          }
+        })
+        historyVisualizationEntities.push(line)
+      }
     }
 
     highlightedRecordId.value = record.id
@@ -738,6 +787,13 @@ export default function useMeasurement() {
     const viewer = getViewer()
     if (viewer) {
       historyVisualizationEntities.forEach(e => viewer.entities.remove(e))
+      // 兜底：遍历所有实体，移除带有历史可视化标记的实体（防止数组引用失效）
+      const allEntities = viewer.entities.values || []
+      for (let i = allEntities.length - 1; i >= 0; i--) {
+        if (allEntities[i]._historyVisualization) {
+          viewer.entities.remove(allEntities[i])
+        }
+      }
     }
     historyVisualizationEntities = []
     highlightedRecordId.value = null

@@ -9,14 +9,11 @@ import {
 
 const STORAGE_KEY_DEFAULT_ROUTE = 'mining_truck_default_route'
 const STORAGE_KEY_SAVED_PATHS = 'mining_truck_saved_paths'
+const ROUTE_OFFLINE_FALLBACK_ENABLED =
+  String(import.meta.env.VITE_ENABLE_ROUTE_OFFLINE_FALLBACK || '').toLowerCase() === 'true'
 
 // 静态默认路线缓存
 let staticDefaultRouteCache = null
-
-// 数据库路线缓存（dbRouteId -> 路线数据映射）
-let dbRouteCache = null
-let dbRouteCacheTime = 0
-const DB_CACHE_TTL = 10000
 
 /**
  * 从静态资源加载默认路线
@@ -71,8 +68,10 @@ export function clearStaticRouteCache() {
 // ===== 数据库操作（优先） =====
 
 async function tryDb(fn, fallback = null) {
-  try { return await fn() } catch (e) {
-    console.warn('[routeStorage] DB操作失败，降级到localStorage:', e.message)
+  try {
+    return await fn()
+  } catch (e) {
+    console.warn('[routeStorage] 数据库路线接口不可用:', e.message)
     return fallback
   }
 }
@@ -121,22 +120,19 @@ export async function loadAllRoutesFromDb() {
 
 export async function setRouteAsDefaultInDb(routeId) {
   await setDefaultRouteApi(routeId)
-  dbRouteCache = null
 }
 
 export async function updateRouteInDb(routeId, name, points, isDefault = false) {
   const data = { name, points }
   if (isDefault) data.is_default = 1
   await updateRoute(routeId, data)
-  dbRouteCache = null
 }
 
 export async function deleteRouteFromDb(routeId) {
   await deleteRouteApi(routeId)
-  dbRouteCache = null
 }
 
-// ===== 原有 localStorage 操作（作为降级方案保留） =====
+// ===== 原有 localStorage 操作（仅作为显式离线模式兜底保留） =====
 
 export function saveDefaultRoute(routeData) {
   if (!routeData || !Array.isArray(routeData.points) || routeData.points.length < 2) {
@@ -226,7 +222,8 @@ export function loadDefaultRouteSync() {
       name: data.name,
       points: data.points,
       savedAt: data.savedAt,
-      pointCount: data.points.length
+      pointCount: data.points.length,
+      source: 'localStorage'
     }
   } catch (error) {
     console.error('[routeStorage] 加载默认路线失败:', error)
@@ -302,16 +299,25 @@ export function loadAllPaths() {
   }
 }
 
+function isOfflineFallbackEnabled(options = {}) {
+  return options.allowOfflineFallback ?? ROUTE_OFFLINE_FALLBACK_ENABLED
+}
+
 /**
  * 初始化默认路线（应用启动时调用）
- * 优先加载静态资源作为系统默认
+ * 在线模式下仅使用数据库路线；离线兜底需显式启用
  * @param {Object} options - 配置选项
- * @param {boolean} options.useStaticAsFallback - 当localStorage没有数据时是否使用静态资源
+ * @param {boolean} options.allowOfflineFallback - 是否允许离线兜底（localStorage/静态文件）
+ * @param {boolean} options.useStaticAsFallback - 当离线兜底启用时，是否允许使用静态资源
  * @param {boolean} options.forceStatic - 强制使用静态资源（忽略localStorage）
  * @returns {Promise<Object|null>}
  */
 export async function initializeDefaultRoute(options = {}) {
-  const { useStaticAsFallback = true, forceStatic = false } = options
+  const {
+    allowOfflineFallback = isOfflineFallbackEnabled(options),
+    useStaticAsFallback = allowOfflineFallback,
+    forceStatic = false
+  } = options
 
   if (forceStatic) {
     const staticRoute = await loadStaticDefaultRoute()
@@ -321,6 +327,10 @@ export async function initializeDefaultRoute(options = {}) {
   // 1. 优先从数据库加载
   const dbRoute = await tryDb(() => loadDefaultRouteFromDb())
   if (dbRoute) return dbRoute
+
+  if (!allowOfflineFallback) {
+    return null
+  }
 
   // 2. 降级：从 localStorage 加载
   const localRoute = loadDefaultRouteSync()

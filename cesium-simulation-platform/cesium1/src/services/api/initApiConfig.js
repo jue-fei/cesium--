@@ -4,6 +4,7 @@
  */
 const API = '/api'
 const listeners = []
+let loadPromise = null
 
 export const apiConfig = {
   modelConfigs: null,
@@ -13,7 +14,8 @@ export const apiConfig = {
   mineralTypes: null,
   miningPits: null,
   geologyStats: null,
-  loaded: false
+  loaded: false,
+  error: null
 }
 
 async function fetchJSON(url) {
@@ -32,49 +34,74 @@ async function fetchJSONSafe(url) {
   }
 }
 
+function resetApiConfig() {
+  apiConfig.modelConfigs = null
+  apiConfig.trucks = null
+  apiConfig.boreholes = null
+  apiConfig.orebodies = null
+  apiConfig.mineralTypes = null
+  apiConfig.miningPits = null
+  apiConfig.geologyStats = null
+  apiConfig.loaded = false
+}
+
+function notifyLoaded() {
+  for (const fn of listeners) fn(apiConfig)
+  listeners.length = 0
+}
+
 export async function loadApiConfig() {
   if (apiConfig.loaded) return apiConfig
+  if (loadPromise) return loadPromise
 
-  try {
-    // 核心数据：模型 / 矿卡 / 钻孔 / 矿体
-    const [models, trucks, boreholes, orebodies] = await Promise.all([
-      fetchJSON(`${API}/models`),
-      fetchJSON(`${API}/trucks`),
-      fetchJSON(`${API}/boreholes`),
-      fetchJSON(`${API}/orebodies`)
-    ])
+  loadPromise = (async () => {
+    resetApiConfig()
+    apiConfig.error = null
 
-    apiConfig.modelConfigs = models
-    apiConfig.trucks = trucks
-    apiConfig.boreholes = boreholes
-    apiConfig.orebodies = orebodies
+    try {
+      // 核心数据：模型 / 矿卡 / 钻孔 / 矿体
+      const [models, trucks, boreholes, orebodies] = await Promise.all([
+        fetchJSON(`${API}/models`),
+        fetchJSON(`${API}/trucks`),
+        fetchJSON(`${API}/boreholes`),
+        fetchJSON(`${API}/orebodies`)
+      ])
 
-    // 矿卡辅助数据 + 地质统计
-    const [mineralTypes, miningPits, geologyStats] = await Promise.all([
-      fetchJSONSafe(`${API}/monitoring/minerals`),
-      fetchJSONSafe(`${API}/monitoring/mining-pits`),
-      fetchJSONSafe(`${API}/geology/stats`)
-    ])
+      apiConfig.modelConfigs = models
+      apiConfig.trucks = trucks
+      apiConfig.boreholes = boreholes
+      apiConfig.orebodies = orebodies
 
-    apiConfig.mineralTypes = mineralTypes
-    apiConfig.miningPits = miningPits
-    apiConfig.geologyStats = geologyStats
+      // 辅助数据失败时允许保留为空，不阻断应用初始化。
+      const [mineralTypes, miningPits, geologyStats] = await Promise.all([
+        fetchJSONSafe(`${API}/monitoring/minerals`),
+        fetchJSONSafe(`${API}/monitoring/mining-pits`),
+        fetchJSONSafe(`${API}/geology/stats`)
+      ])
 
-    apiConfig.loaded = true
+      apiConfig.mineralTypes = mineralTypes
+      apiConfig.miningPits = miningPits
+      apiConfig.geologyStats = geologyStats
+      apiConfig.loaded = true
+      notifyLoaded()
+      return apiConfig
+    } catch (error) {
+      resetApiConfig()
+      apiConfig.error = error
+      console.error('[API] 核心配置加载失败:', error.message)
+      throw new Error(`核心配置加载失败: ${error.message}`)
+    } finally {
+      loadPromise = null
+    }
+  })()
 
-    for (const fn of listeners) fn(apiConfig)
-    listeners.length = 0
-    return apiConfig
-  } catch (e) {
-    console.error('[API] 核心配置加载失败:', e.message)
-    apiConfig.loaded = true
-    for (const fn of listeners) fn(apiConfig)
-    listeners.length = 0
-    return apiConfig
-  }
+  return loadPromise
 }
 
 export function onConfigLoaded(fn) {
-  if (apiConfig.loaded) { fn(apiConfig) }
-  else { listeners.push(fn) }
+  if (apiConfig.loaded) {
+    fn(apiConfig)
+  } else {
+    listeners.push(fn)
+  }
 }
