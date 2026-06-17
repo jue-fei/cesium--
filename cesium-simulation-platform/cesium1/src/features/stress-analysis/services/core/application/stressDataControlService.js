@@ -1,8 +1,4 @@
-import {
-  applyHeatmapDisplayToConfigObject,
-  cloneColorRamp,
-  normalizeHeatmapDisplay
-} from '../render/index.js'
+import { applyHeatmapDisplayToConfigObject, normalizeHeatmapDisplay } from '../render/index.js'
 import { resolvePointRenderMode, resolvePointSourceStrategy } from '../shared/stressActionShared.js'
 import { clampInt } from '../shared/stressMathUtils.js'
 import { resolveColormapRamp } from '../../panel/stressHeatmapPanelState.js'

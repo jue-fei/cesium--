@@ -431,6 +431,8 @@ class ClippingManager {
       }
       this.tileset.clippingPlanes = undefined
     } catch (e) {
+      // Ignore cleanup failures when tileset clipping state is already invalidated.
+      void e
     }
   }
 
@@ -1332,6 +1334,7 @@ class ClippingManager {
       try {
         this.clippingPolygonCollection.removeAll()
       } catch (e) {
+        // Ignore collection cleanup failures during teardown.
       }
     }
     this.clearTilesetClippingPolygons()
@@ -1343,6 +1346,7 @@ class ClippingManager {
     try {
       this.tileset.clippingPolygons = undefined
     } catch (e) {
+      // Ignore cleanup failures when clipping polygons have already been detached.
     }
   }
 
@@ -1385,10 +1389,12 @@ class ClippingManager {
       try {
         this.clearAllPlanes()
       } catch (e) {
+        // Ignore plane cleanup failures during manager teardown.
       }
       try {
         this.clearAllPolygons()
       } catch (e) {
+        // Ignore polygon cleanup failures during manager teardown.
       }
     } else {
       this.resetCoreState()

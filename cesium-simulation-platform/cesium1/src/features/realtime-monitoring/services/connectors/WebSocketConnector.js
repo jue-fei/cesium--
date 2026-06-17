@@ -1,4 +1,5 @@
 import { DataConnector } from './DataConnector.js'
+import { logger } from '@/utils/logger.js'
 
 export class WebSocketConnector extends DataConnector {
   constructor(config = {}) {
@@ -61,7 +62,7 @@ export class WebSocketConnector extends DataConnector {
         }
       }
     } catch (err) {
-      console.error('[WebSocketConnector] 连接失败:', err)
+      logger.error('websocket-connector', '连接失败', { url: this._url }, err)
       this.setStatus('error')
       this._scheduleReconnect()
     }

@@ -33,8 +33,8 @@ const COLORMAP_DIVERGING = [
 ]
 
 // 保持旧名兼容
-const COLORMAP_JET = COLORMAP_STRESS_16
-const COLORMAP_COOLWARM = COLORMAP_DIVERGING
+export const COLORMAP_JET = COLORMAP_STRESS_16
+export const COLORMAP_COOLWARM = COLORMAP_DIVERGING
 
 function lerpColor(a, b, t) {
   return [

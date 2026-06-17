@@ -40,20 +40,23 @@
 import { onMounted, onUnmounted, computed, defineAsyncComponent } from 'vue'
 import './assets/styles/app.css'
 import { createAppBootstrap } from './app/createAppBootstrap.js'
+import { logger } from './utils/logger.js'
 
 import RightSidebar from './components/RightSidebar.vue'
 import BasePanel from './components/BasePanel.vue'
 import GlobalMessage from './components/GlobalMessage.vue'
-import { TOOL_REGISTRY } from '@/features/shared/index.js'
+import {
+  TOOL_REGISTRY,
+  useBlasting,
+  useClipping,
+  useGeologyAnalysis,
+  useMeasurement,
+  useModel,
+  useMonitoring
+} from '@/features/shared/index.js'
 
 import useViewer from './composables/useViewer.js'
-import useModel from './features/model-control/services/useModel.js'
-import useClipping from './features/model-clipping/services/useClipping.js'
-import useGeologyAnalysis from './features/geology-analysis/services/useGeologyAnalysis.js'
-import useMeasurement from './features/measurement-analysis/services/useMeasurement.js'
 import useMessage from './composables/useMessage.js'
-import useMonitoring from './features/realtime-monitoring/services/useMonitoring.js'
-import useBlasting from './features/blasting-simulation/services/useBlasting.js'
 import useUI from './composables/useUI.js'
 import { useLifecycle } from './composables/useLifecycle.js'
 import { useCesiumSceneLabels } from './composables/useCesiumSceneLabels.js'
@@ -97,7 +100,7 @@ onMounted(async () => {
   try {
     await bootstrap.start('cesiumContainer')
   } catch (err) {
-    console.error('App init error:', err)
+    logger.error('app', '应用初始化失败', null, err)
     notify('应用初始化失败', 'error')
   }
 })
@@ -106,6 +109,3 @@ onUnmounted(() => {
   bootstrap.stop()
 })
 </script>
-
-<style>
-</style>

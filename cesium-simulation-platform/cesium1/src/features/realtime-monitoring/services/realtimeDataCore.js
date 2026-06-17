@@ -75,7 +75,8 @@ export function isValidRealtimeTruckData(data) {
   if (!data) return false
   const hasTruckId = typeof data.truckId === 'string' || typeof data.truck_id === 'string'
   const position = data.position
-  const hasPosition = position &&
+  const hasPosition =
+    position &&
     typeof position === 'object' &&
     (Array.isArray(position.cartesian) ||
       (typeof position.longitude === 'number' && typeof position.latitude === 'number'))
@@ -83,9 +84,19 @@ export function isValidRealtimeTruckData(data) {
   return Boolean(hasTruckId && (hasPosition || hasPhase))
 }
 
+function normalizeRealtimeVehicleInfo(data) {
+  return {
+    vehicleInfo: data.vehicleInfo || data.vehicle_info || {},
+    driverInfo: data.driverInfo || data.driver_info || {}
+  }
+}
+
+function normalizeRealtimeMineralType(data) {
+  return data.mineralType || data.mineral_type || { name: '未知', code: 'UNK' }
+}
+
 export function normalizeRealtimeTruckData(data, now = Date.now()) {
-  const vehicleInfo = data.vehicleInfo || data.vehicle_info || {}
-  const driverInfo = data.driverInfo || data.driver_info || {}
+  const { vehicleInfo, driverInfo } = normalizeRealtimeVehicleInfo(data)
   return {
     ...data,
     receivedAt: now,
@@ -99,7 +110,7 @@ export function normalizeRealtimeTruckData(data, now = Date.now()) {
     driver: data.driver || '未知驾驶员',
     driverInfo,
     vehicleInfo,
-    mineralType: data.mineralType || data.mineral_type || { name: '未知', code: 'UNK' }
+    mineralType: normalizeRealtimeMineralType(data)
   }
 }
 

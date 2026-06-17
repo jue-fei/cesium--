@@ -1072,6 +1072,7 @@ function buildKrigingField({
       zs
     )
     if (!validation.valid) {
+      // Validation is diagnostics-only; interpolation keeps the computed field.
     }
   }
 
@@ -1271,6 +1272,7 @@ function buildIdwField({
       zs
     )
     if (!validation.valid) {
+      // Validation is diagnostics-only; interpolation keeps the computed field.
     }
   }
 

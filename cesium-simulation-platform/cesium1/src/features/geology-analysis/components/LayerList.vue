@@ -70,7 +70,8 @@
             >密度: <span class="text-gray-300 font-mono">{{ orebody.density }}t/m³</span></span
           >
           <span v-if="orebody.metalContent"
-            >金属量: <span class="text-green-400 font-mono">{{ orebody.metalContent }}万吨</span></span
+            >金属量:
+            <span class="text-green-400 font-mono">{{ orebody.metalContent }}万吨</span></span
           >
           <span v-if="orebody.confidenceLevel"
             >置信度:
@@ -112,19 +113,19 @@ const getGradeClass = grade => {
 
 const getStatusClass = status => {
   const map = {
-    '正在开采': 'bg-green-500/10 text-green-400',
-    '勘探': 'bg-blue-500/10 text-blue-400',
-    '规划中': 'bg-yellow-500/10 text-yellow-400',
-    '已闭坑': 'bg-gray-500/10 text-gray-400'
+    正在开采: 'bg-green-500/10 text-green-400',
+    勘探: 'bg-blue-500/10 text-blue-400',
+    规划中: 'bg-yellow-500/10 text-yellow-400',
+    已闭坑: 'bg-gray-500/10 text-gray-400'
   }
   return map[status] || 'bg-gray-500/10 text-gray-400'
 }
 
 const getConfidenceClass = level => {
   const map = {
-    '探明': 'bg-green-500/10 text-green-400',
-    '控制': 'bg-yellow-500/10 text-yellow-400',
-    '推断': 'bg-blue-500/10 text-blue-400'
+    探明: 'bg-green-500/10 text-green-400',
+    控制: 'bg-yellow-500/10 text-yellow-400',
+    推断: 'bg-blue-500/10 text-blue-400'
   }
   return map[level] || 'bg-gray-500/10 text-gray-400'
 }

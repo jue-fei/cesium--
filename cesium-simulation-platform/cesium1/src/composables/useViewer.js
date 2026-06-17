@@ -2,6 +2,10 @@ import { storeToRefs } from 'pinia'
 import * as Cesium from 'cesium'
 import { useViewerStore } from '@/stores/viewerStore.js'
 import { getDisplayQualityProfile, getTerrainQualityProfile } from '@/features/shared/index.js'
+import { logger } from '@/utils/logger.js'
+
+const VIEWER_INIT_MARK_START = 'viewer-init:start'
+const VIEWER_INIT_MARK_END = 'viewer-init:end'
 
 export default function useViewer() {
   const store = useViewerStore()
@@ -37,6 +41,7 @@ export default function useViewer() {
   const initViewer = async (containerId = 'cesiumContainer') => {
     if (viewer.value) return viewer.value
 
+    performance.mark(VIEWER_INIT_MARK_START)
     Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN || ''
 
     const v = new Cesium.Viewer(containerId, {
@@ -65,6 +70,13 @@ export default function useViewer() {
     applyDisplayQuality(displayQuality.value)
     applyTerrainQuality(terrainQuality.value)
     store.setViewer(v)
+    performance.mark(VIEWER_INIT_MARK_END)
+    performance.measure('viewer-init', VIEWER_INIT_MARK_START, VIEWER_INIT_MARK_END)
+    logger.info('viewer', 'Cesium Viewer 初始化完成', {
+      containerId,
+      displayQuality: displayQuality.value,
+      terrainQuality: terrainQuality.value
+    })
 
     return v
   }

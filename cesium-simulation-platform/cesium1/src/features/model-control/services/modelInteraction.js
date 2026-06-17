@@ -7,33 +7,40 @@ import { useModelStore } from '../../../stores/modelStore.js'
 import { useMeasurementStore } from '../../../stores/measurementStore.js'
 import useMessage from '@/composables/useMessage.js'
 
-/**
- * 模型交互管理器
- * 负责：点击检测、模型选中、特征管理、可见性/透明度控制
- */
-export function createModelInteractionManager() {
-  const store = useModelStore()
-  const { modelList, globalOpacity } = storeToRefs(store)
-  const measurementStore = useMeasurementStore()
-  const { isMeasuring, isAreaMeasuring } = storeToRefs(measurementStore)
-  const { showOperationMessage } = useMessage()
+function getFeatureNameFromFeature(feature) {
+  try {
+    if (feature) {
+      return (
+        feature.getProperty('name') ||
+        feature.getProperty('Name') ||
+        feature.getProperty('description') ||
+        'Unknown Model'
+      )
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return 'Unknown Model'
+}
 
-  const featureManager = new FeatureManager()
-  let modelClickHandler = null
+function resetModelClickHandler(modelClickHandlerRef) {
+  if (!modelClickHandlerRef.value) return
+  try {
+    modelClickHandlerRef.value.destroy()
+  } catch (_) {
+    /* ignore */
+  }
+  modelClickHandlerRef.value = null
+}
 
+function createSelectionHelpers({
+  featureManager,
+  globalOpacity,
+  showOperationMessage,
+  measurementState
+}) {
   function getFeatureNameById(featureId) {
-    const feature = featureManager.featureMap.get(featureId)
-    try {
-      if (feature) {
-        return (
-          feature.getProperty('name') ||
-          feature.getProperty('Name') ||
-          feature.getProperty('description') ||
-          'Unknown Model'
-        )
-      }
-    } catch (_) { /* ignore */ }
-    return 'Unknown Model'
+    return getFeatureNameFromFeature(featureManager.featureMap.get(featureId))
   }
 
   function scanAndStoreFeatures(tileset) {
@@ -43,16 +50,12 @@ export function createModelInteractionManager() {
     }
   }
 
-  function initModelEventHandler(viewer, tileset, onFeatureClick) {
+  function initModelEventHandler(viewer, tileset, onFeatureClick, modelClickHandlerRef) {
     if (!viewer) return
+    resetModelClickHandler(modelClickHandlerRef)
 
-    if (modelClickHandler) {
-      try { modelClickHandler.destroy() } catch (e) { /* ignore */ }
-      modelClickHandler = null
-    }
-
-    modelClickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
-    modelClickHandler.setInputAction(click => {
+    const nextHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+    nextHandler.setInputAction(click => {
       if (!tileset.value) return
       const pickedFeature = viewer.scene.pick(click.position)
       if (!Cesium.defined(pickedFeature)) return
@@ -61,10 +64,12 @@ export function createModelInteractionManager() {
         pickedFeature.primitive === tileset.value &&
         pickedFeature instanceof Cesium.Cesium3DTileFeature
       ) {
-        if (isMeasuring.value || isAreaMeasuring.value) return
+        if (measurementState.isMeasuring.value || measurementState.isAreaMeasuring.value) return
         onFeatureClick(pickedFeature)
       }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+
+    modelClickHandlerRef.value = nextHandler
   }
 
   function handleModelSelection(feature, modelListRef, selectedModelRef) {
@@ -74,7 +79,7 @@ export function createModelInteractionManager() {
       return
     }
 
-    const model = modelListRef.value.find(m => (m.featureId || m.id) === featureId)
+    const model = modelListRef.value.find(item => (item.featureId || item.id) === featureId)
     if (model) {
       selectedModelRef.value = model
       if (!model.visible) {
@@ -82,13 +87,23 @@ export function createModelInteractionManager() {
         featureManager.toggleModelVisibility(model, globalOpacity.value)
       }
       showOperationMessage(`已选中模型: ${model.name}`, 'success')
-    } else {
-      const tempModel = reactive(createDefaultModelData(featureId, `未分类模型 (${featureId})`))
-      modelListRef.value.push(tempModel)
-      selectedModelRef.value = tempModel
+      return
     }
+
+    const tempModel = reactive(createDefaultModelData(featureId, `未分类模型 (${featureId})`))
+    modelListRef.value.push(tempModel)
+    selectedModelRef.value = tempModel
   }
 
+  return {
+    getFeatureNameById,
+    scanAndStoreFeatures,
+    initModelEventHandler,
+    handleModelSelection
+  }
+}
+
+function createVisibilityHelpers({ featureManager, globalOpacity, showOperationMessage }) {
   function toggleModelVisibility(model) {
     const result = featureManager.toggleModelVisibility(model, globalOpacity.value)
     showOperationMessage(result.message, result.success ? 'success' : 'warning')
@@ -99,12 +114,14 @@ export function createModelInteractionManager() {
   }
 
   function updateGlobalOpacity(newOpacity, modelListRef) {
-    const val = Number(newOpacity)
-    modelListRef.value.forEach(model => featureManager.updateModelOpacity(model, val))
+    const opacityValue = Number(newOpacity)
+    modelListRef.value.forEach(model => featureManager.updateModelOpacity(model, opacityValue))
   }
 
   function resetAllOpacity(modelListRef) {
-    modelListRef.value.forEach(m => (m.opacity = 0))
+    modelListRef.value.forEach(model => {
+      model.opacity = 0
+    })
     featureManager.resetAllOpacity(modelListRef.value, globalOpacity.value)
   }
 
@@ -117,9 +134,9 @@ export function createModelInteractionManager() {
   }
 
   function showOnlyModel(model, modelListRef) {
-    modelListRef.value.forEach(m => {
-      m.visible = m.id === model.id
-      featureManager.toggleModelVisibility(m, globalOpacity.value)
+    modelListRef.value.forEach(item => {
+      item.visible = item.id === model.id
+      featureManager.toggleModelVisibility(item, globalOpacity.value)
     })
     showOperationMessage(`仅显示模型: ${model.name}`, 'success')
   }
@@ -132,60 +149,7 @@ export function createModelInteractionManager() {
     featureManager.updateModelColor(model, color, globalOpacity.value)
   }
 
-  function disableSelection() {
-    if (modelClickHandler)
-      modelClickHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_CLICK)
-  }
-
-  function enableSelection() {
-    if (modelClickHandler)
-      modelClickHandler.setInputAction(click => {
-        // re-enable handled by initModelEventHandler
-      }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
-  }
-
-  function syncDbModelsWithFeatures(modelListRef) {
-    if (featureManager.getFeatureCount() === 0) return
-    const featureIds = new Set(featureManager.getAllFeatureIds())
-    const featureEntries = Array.from(featureManager.featureMap.entries())
-    modelListRef.value.forEach(model => {
-      const fid = model.featureId || model.id
-      if (featureIds.has(fid)) {
-        model._dbLinked = true
-        return
-      }
-      const modelName = (model.name || '').toLowerCase().trim()
-      if (!modelName) return
-      for (const [fId, feature] of featureEntries) {
-        try {
-          const fName = String(
-            feature.getProperty('name') || feature.getProperty('Name') || ''
-          ).toLowerCase().trim()
-          if (fName && fName === modelName) {
-            model.featureId = fId
-            model._dbLinked = true
-            return
-          }
-        } catch (_) { /* ignore */ }
-      }
-    })
-  }
-
-  function destroy() {
-    if (modelClickHandler) {
-      try { modelClickHandler.destroy() } catch (e) { /* ignore */ }
-      modelClickHandler = null
-    }
-    featureManager.destroy()
-  }
-
   return {
-    featureManager,
-    modelClickHandler: () => modelClickHandler,
-    getFeatureNameById,
-    scanAndStoreFeatures,
-    initModelEventHandler,
-    handleModelSelection,
     toggleModelVisibility,
     updateModelOpacity,
     updateGlobalOpacity,
@@ -194,10 +158,113 @@ export function createModelInteractionManager() {
     hideAllModels,
     showOnlyModel,
     highlightModel,
-    updateModelColor,
+    updateModelColor
+  }
+}
+
+function createDatabaseSyncHelpers(featureManager) {
+  function syncDbModelsWithFeatures(modelListRef) {
+    if (featureManager.getFeatureCount() === 0) return
+
+    const featureIds = new Set(featureManager.getAllFeatureIds())
+    const featureEntries = Array.from(featureManager.featureMap.entries())
+    modelListRef.value.forEach(model => {
+      const featureId = model.featureId || model.id
+      if (featureIds.has(featureId)) {
+        model._dbLinked = true
+        return
+      }
+
+      const modelName = (model.name || '').toLowerCase().trim()
+      if (!modelName) return
+
+      for (const [entryId, feature] of featureEntries) {
+        try {
+          const featureName = String(
+            feature.getProperty('name') || feature.getProperty('Name') || ''
+          )
+            .toLowerCase()
+            .trim()
+          if (featureName && featureName === modelName) {
+            model.featureId = entryId
+            model._dbLinked = true
+            return
+          }
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    })
+  }
+
+  return { syncDbModelsWithFeatures }
+}
+
+/**
+ * 模型交互管理器
+ * 负责：点击检测、模型选中、特征管理、可见性/透明度控制
+ */
+export function createModelInteractionManager() {
+  const store = useModelStore()
+  const { globalOpacity } = storeToRefs(store)
+  const measurementStore = useMeasurementStore()
+  const { isMeasuring, isAreaMeasuring } = storeToRefs(measurementStore)
+  const { showOperationMessage } = useMessage()
+
+  const featureManager = new FeatureManager()
+  const modelClickHandlerRef = { value: null }
+  const selectionHelpers = createSelectionHelpers({
+    featureManager,
+    globalOpacity,
+    showOperationMessage,
+    measurementState: { isMeasuring, isAreaMeasuring }
+  })
+  const visibilityHelpers = createVisibilityHelpers({
+    featureManager,
+    globalOpacity,
+    showOperationMessage
+  })
+  const databaseSyncHelpers = createDatabaseSyncHelpers(featureManager)
+
+  function disableSelection() {
+    if (modelClickHandlerRef.value) {
+      modelClickHandlerRef.value.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_CLICK)
+    }
+  }
+
+  function enableSelection() {
+    if (modelClickHandlerRef.value) {
+      modelClickHandlerRef.value.setInputAction(() => {
+        // re-enable handled by initModelEventHandler
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+    }
+  }
+
+  function destroy() {
+    resetModelClickHandler(modelClickHandlerRef)
+    featureManager.destroy()
+  }
+
+  return {
+    featureManager,
+    modelClickHandler: () => modelClickHandlerRef.value,
+    getFeatureNameById: selectionHelpers.getFeatureNameById,
+    scanAndStoreFeatures: selectionHelpers.scanAndStoreFeatures,
+    initModelEventHandler: (viewer, tileset, onFeatureClick) =>
+      selectionHelpers.initModelEventHandler(viewer, tileset, onFeatureClick, modelClickHandlerRef),
+    handleModelSelection: selectionHelpers.handleModelSelection,
+    toggleModelVisibility: visibilityHelpers.toggleModelVisibility,
+    updateModelOpacity: visibilityHelpers.updateModelOpacity,
+    updateGlobalOpacity: visibilityHelpers.updateGlobalOpacity,
+    resetAllOpacity: visibilityHelpers.resetAllOpacity,
+    showAllModels: visibilityHelpers.showAllModels,
+    hideAllModels: visibilityHelpers.hideAllModels,
+    showOnlyModel: visibilityHelpers.showOnlyModel,
+    highlightModel: visibilityHelpers.highlightModel,
+    updateModelColor: visibilityHelpers.updateModelColor,
     disableSelection,
     enableSelection,
-    syncDbModelsWithFeatures,
+    syncDbModelsWithFeatures: databaseSyncHelpers.syncDbModelsWithFeatures,
     destroy
   }
 }

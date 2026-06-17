@@ -14,7 +14,6 @@ const BELOW_GROUND_DEPTH = 500
 
 let polylineCollection = null
 let labelCollection = null
-let rulerVisible = false
 const enabled = ref(false)
 
 function removePrimitives() {
@@ -177,7 +176,6 @@ function buildRuler(viewer, tileset) {
     })
   }
 
-  rulerVisible = true
   return true
 }
 
@@ -201,7 +199,6 @@ export function useDepthRuler() {
 
   function hideRuler() {
     removePrimitives()
-    rulerVisible = false
   }
 
   function showRuler() {

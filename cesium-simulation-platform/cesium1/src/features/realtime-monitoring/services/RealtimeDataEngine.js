@@ -4,14 +4,18 @@ import {
   appendHistoryEntry,
   calculateGreatCircleDistance,
   findNearestHistoryPoint,
-  findPathSegmentByDistance,
   getHistoryTimeRange,
   getTruckStatesAtTime,
   isValidRealtimeTruckData,
-  normalizeLoopProgress,
-  normalizeRealtimeTruckData,
-  resolveSampledPathInterpolation
+  normalizeRealtimeTruckData
 } from './realtimeDataCore.js'
+import {
+  createCustomPathState,
+  getCurrentCustomPathPoints,
+  getHeightFromPathPoints,
+  getPositionOnCustomPath,
+  sampleGroundPath
+} from './realtimePathHelpers.js'
 import {
   buildSurfacePoolCandidates,
   findNearestSurfacePoint,
@@ -19,6 +23,9 @@ import {
   selectResolvedSurfacePool
 } from './siteSurfaceCore.js'
 import { createSiteSurfaceResolver } from './siteSurfaceResolver.js'
+import { resolveGroundHeight } from './groundHeightSampling.js'
+import { resolveMiningSites } from './miningSiteInitialization.js'
+import { logger } from '@/utils/logger.js'
 
 export let MINING_SITE_1 = null
 export let MINING_SITE_2 = null
@@ -26,7 +33,6 @@ export let MINING_SITE_2 = null
 // 采场半径（道路距离中心的距离，单位：米）
 const SITE_RADIUS = 50
 const VEHICLE_SURFACE_OFFSET = 0.5
-const ENDPOINT_PATH_WINDOW = 0.03
 const SITE_RADIUS_RATIO = 0.05
 const INITIAL_SITE_RADIUS_RATIO = 0.2
 const MIN_SITE_RADIUS = 18
@@ -55,6 +61,7 @@ export class RealtimeDataEngine {
     this.viewer = null
     this.originalModelMatrix = null
     this.customPathPoints = null
+    this.customPathTotalLength = 0
     this.sampledGroundPath = null
     this.siteSurfacePointCache = new Map()
     this._tilesetSwitchTimer = null
@@ -292,33 +299,11 @@ export class RealtimeDataEngine {
   setCustomPath(pathPoints) {
     if (!pathPoints || pathPoints.length < 2) return false
 
-    this.customPathPoints = pathPoints.map((p, index) => {
-      const currentCartesian = Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.height || 0)
-      const originalCartesian = this.transformCurrentPointToOriginal(currentCartesian)
-      return {
-        index,
-        longitude: p.longitude,
-        latitude: p.latitude,
-        height: p.height || 0,
-        currentCartesian,
-        originalCartesian,
-        cumulativeDistance: 0
-      }
-    })
-
-    let totalDistance = 0
-    for (let i = 1; i < this.customPathPoints.length; i++) {
-      const prev = this.customPathPoints[i - 1],
-        curr = this.customPathPoints[i]
-      const segmentDistance = Cesium.Cartesian3.distance(
-        prev.originalCartesian,
-        curr.originalCartesian
-      )
-      totalDistance += segmentDistance
-      curr.cumulativeDistance = totalDistance
-    }
-    this.customPathTotalLength = totalDistance
-
+    const pathState = createCustomPathState(pathPoints, currentCartesian =>
+      this.transformCurrentPointToOriginal(currentCartesian)
+    )
+    this.customPathPoints = pathState.customPathPoints
+    this.customPathTotalLength = pathState.customPathTotalLength
     this.samplePathOnGround(20)
 
     if (MINING_SITE_1 && MINING_SITE_2) {
@@ -337,49 +322,16 @@ export class RealtimeDataEngine {
   }
 
   getPositionOnPath(progress) {
-    if (!this.customPathPoints || this.customPathPoints.length < 2) {
-      return null
-    }
-
-    progress = normalizeLoopProgress(progress)
-
-    // 如果有预采样的路径，使用采样点插值
-    if (this.sampledGroundPath && this.sampledGroundPath.length >= 2) {
-      return this.getPositionFromSampledPath(progress)
-    }
-
-    const currentPathPoints = this.getCurrentCustomPathPoints()
-    const targetDistance = progress * this.customPathTotalLength
-    const segment = findPathSegmentByDistance(currentPathPoints, targetDistance)
-    if (!segment) return null
-
-    const interpolatedCartesian = Cesium.Cartesian3.lerp(
-      segment.prev.currentCartesian,
-      segment.curr.currentCartesian,
-      segment.segmentProgress,
-      new Cesium.Cartesian3()
-    )
-
-    return this.cartesianToWorldPosition(interpolatedCartesian, segment.prev.height || 0)
-  }
-
-  getPositionFromSampledPath(progress) {
-    const sampledPath = this.sampledGroundPath
-    const interpolation = resolveSampledPathInterpolation(progress, sampledPath.length)
-    if (!interpolation) return null
-
-    const point1 = sampledPath[interpolation.index1]
-    const point2 = sampledPath[interpolation.index2]
-    const point1Current = this.transformOriginalPointToCurrent(point1.originalCartesian)
-    const point2Current = this.transformOriginalPointToCurrent(point2.originalCartesian)
-    const interpolatedCartesian = Cesium.Cartesian3.lerp(
-      point1Current,
-      point2Current,
-      interpolation.localProgress,
-      new Cesium.Cartesian3()
-    )
-
-    return this.cartesianToWorldPosition(interpolatedCartesian, 0)
+    return getPositionOnCustomPath({
+      customPathPoints: this.customPathPoints,
+      sampledGroundPath: this.sampledGroundPath,
+      customPathTotalLength: this.customPathTotalLength,
+      progress,
+      transformOriginalPointToCurrent: originalCartesian =>
+        this.transformOriginalPointToCurrent(originalCartesian),
+      cartesianToWorldPosition: (cartesian, fallbackHeight) =>
+        this.cartesianToWorldPosition(cartesian, fallbackHeight)
+    })
   }
 
   samplePathOnGround(samplesPerSegment = 50) {
@@ -387,38 +339,7 @@ export class RealtimeDataEngine {
       return
     }
 
-    const sampledPath = []
-
-    for (let i = 0; i < this.customPathPoints.length - 1; i++) {
-      const start = this.customPathPoints[i]
-      const end = this.customPathPoints[i + 1]
-
-      for (let j = 0; j < samplesPerSegment; j++) {
-        const t = j / samplesPerSegment
-        const originalCartesian = Cesium.Cartesian3.lerp(
-          start.originalCartesian,
-          end.originalCartesian,
-          t,
-          new Cesium.Cartesian3()
-        )
-
-        sampledPath.push({
-          originalCartesian,
-          segmentIndex: i,
-          segmentProgress: t
-        })
-      }
-    }
-
-    const last = this.customPathPoints[this.customPathPoints.length - 1]
-    sampledPath.push({
-      originalCartesian: Cesium.Cartesian3.clone(last.originalCartesian),
-      segmentIndex: this.customPathPoints.length - 1,
-      segmentProgress: 1
-    })
-
-    // 存储采样路径
-    this.sampledGroundPath = sampledPath
+    this.sampledGroundPath = sampleGroundPath(this.customPathPoints, samplesPerSegment)
   }
 
   getCurrentCustomPathPoints() {
@@ -426,116 +347,25 @@ export class RealtimeDataEngine {
       return []
     }
 
-    return this.customPathPoints.map(point => {
-      const currentCartesian = this.transformOriginalPointToCurrent(point.originalCartesian)
-      const worldPosition = this.cartesianToWorldPosition(currentCartesian, point.height || 0)
-
-      return {
-        ...point,
-        ...worldPosition,
-        currentCartesian
-      }
-    })
+    return getCurrentCustomPathPoints(
+      this.customPathPoints,
+      originalCartesian => this.transformOriginalPointToCurrent(originalCartesian),
+      (cartesian, fallbackHeight) => this.cartesianToWorldPosition(cartesian, fallbackHeight)
+    )
   }
 
   // 使用 Cesium 获取指定经纬度位置的地面高度 -> 针对 3D Tiles 模型优化
   sampleGroundHeight(longitude, latitude, defaultHeight = 0) {
-    if (!this.viewer) {
-      return this.getHeightFromPathPoints(longitude, latitude) + VEHICLE_SURFACE_OFFSET
-    }
-
-    try {
-      const scene = this.viewer.scene
-      let pickedPosition = null
-
-      // 方法1: 优先使用 pickPosition 从屏幕坐标获取 3D Tiles 表面
-      // 这需要先将经纬度转换为屏幕坐标
-      const cartesian = Cesium.Cartesian3.fromDegrees(longitude, latitude, 100)
-      const screenPosition = this.getScreenPositionFromCartesian(scene, cartesian)
-
-      if (screenPosition && scene.pickPositionSupported) {
-        // 从屏幕坐标拾取 3D 表面位置
-        const pickedCartesian = scene.pickPosition(screenPosition)
-        if (pickedCartesian) {
-          const cartographic = Cesium.Cartographic.fromCartesian(pickedCartesian)
-          // 验证高度是否合理（不是地下或空中）
-          if (cartographic.height > -100 && cartographic.height < 10000) {
-            pickedPosition = cartographic.height
-          }
-        }
-      }
-
-      // 方法2: 如果 pickPosition 失败，尝试从 tileset 直接获取
-      if (pickedPosition === null && this.tileset) {
-        // 创建从高处向下的射线
-        const cartesianTop = Cesium.Cartesian3.fromDegrees(longitude, latitude, 1000)
-        const cartesianBottom = Cesium.Cartesian3.fromDegrees(longitude, latitude, -1000)
-        const direction = Cesium.Cartesian3.normalize(
-          Cesium.Cartesian3.subtract(cartesianBottom, cartesianTop, new Cesium.Cartesian3()),
-          new Cesium.Cartesian3()
-        )
-        const ray = new Cesium.Ray(cartesianTop, direction)
-
-        // 尝试与 tileset 相交
-        const features = scene.drillPickFromRay(ray, 10)
-        if (features && features.length > 0) {
-          // 找到第一个有效的交点
-          for (const feature of features) {
-            if (feature && feature.position) {
-              const cartographic = Cesium.Cartographic.fromCartesian(feature.position)
-              if (cartographic.height > -100 && cartographic.height < 10000) {
-                pickedPosition = cartographic.height
-                break
-              }
-            }
-          }
-        }
-      }
-
-      // 方法3: 使用 globe.pick 检测地形
-      if (pickedPosition === null && scene.globe) {
-        const cartesianTop = Cesium.Cartesian3.fromDegrees(longitude, latitude, 1000)
-        const direction = new Cesium.Cartesian3(0, 0, -1)
-        const ray = new Cesium.Ray(cartesianTop, direction)
-        const picked = scene.globe.pick(ray, scene)
-        if (picked) {
-          const cartographic = Cesium.Cartographic.fromCartesian(picked)
-          pickedPosition = cartographic.height
-        }
-      }
-
-      // 方法4: 如果仍然没有获取到，使用原始路径点插值
-      if (pickedPosition === null || pickedPosition === undefined) {
-        pickedPosition = this.getHeightFromPathPoints(longitude, latitude)
-      }
-
-      // 如果所有方法都失败，使用默认高度
-      if (pickedPosition === null || pickedPosition === undefined) {
-        pickedPosition = defaultHeight
-      }
-
-      return pickedPosition + VEHICLE_SURFACE_OFFSET
-    } catch (error) {
-      return this.getHeightFromPathPoints(longitude, latitude) + VEHICLE_SURFACE_OFFSET
-    }
-  }
-
-  getScreenPositionFromCartesian(scene, cartesian) {
-    if (!scene || !cartesian) return null
-
-    if (typeof scene.cartesianToCanvasCoordinates === 'function') {
-      return scene.cartesianToCanvasCoordinates(cartesian, new Cesium.Cartesian2())
-    }
-
-    if (Cesium.SceneTransforms?.worldToWindowCoordinates) {
-      return Cesium.SceneTransforms.worldToWindowCoordinates(
-        scene,
-        cartesian,
-        new Cesium.Cartesian2()
-      )
-    }
-
-    return null
+    return resolveGroundHeight({
+      viewer: this.viewer,
+      hasTileset: !!this.tileset,
+      longitude,
+      latitude,
+      defaultHeight,
+      vehicleSurfaceOffset: VEHICLE_SURFACE_OFFSET,
+      getHeightFromPathPoints: (targetLongitude, targetLatitude) =>
+        this.getHeightFromPathPoints(targetLongitude, targetLatitude)
+    })
   }
 
   getHeightFromPathPoints(longitude, latitude) {
@@ -543,55 +373,7 @@ export class RealtimeDataEngine {
       return 0
     }
 
-    const currentPathPoints = this.getCurrentCustomPathPoints()
-    if (currentPathPoints.length === 0) {
-      return 0
-    }
-
-    // 找到最近的两个路径点进行插值
-    let nearestIndex = 0
-    let minDistance = Infinity
-
-    for (let i = 0; i < currentPathPoints.length; i++) {
-      const point = currentPathPoints[i]
-      const dLon = point.longitude - longitude
-      const dLat = point.latitude - latitude
-      const distance = Math.sqrt(dLon * dLon + dLat * dLat)
-
-      if (distance < minDistance) {
-        minDistance = distance
-        nearestIndex = i
-      }
-    }
-
-    // 如果找到的是第一个或最后一个点，直接返回
-    if (nearestIndex === 0 || nearestIndex === currentPathPoints.length - 1) {
-      return currentPathPoints[nearestIndex].height
-    }
-
-    // 在两个相邻点之间插值
-    const prev = currentPathPoints[nearestIndex - 1]
-    const curr = currentPathPoints[nearestIndex]
-    const next = currentPathPoints[nearestIndex + 1]
-
-    // 计算到前后点的距离
-    const distToPrev = Math.sqrt(
-      Math.pow(prev.longitude - longitude, 2) + Math.pow(prev.latitude - latitude, 2)
-    )
-    const distToNext = Math.sqrt(
-      Math.pow(next.longitude - longitude, 2) + Math.pow(next.latitude - latitude, 2)
-    )
-
-    // 距离加权插值
-    const totalDist = distToPrev + distToNext
-    if (totalDist === 0) {
-      return curr.height
-    }
-
-    const weightPrev = distToNext / totalDist
-    const weightNext = distToPrev / totalDist
-
-    return prev.height * weightPrev + next.height * weightNext
+    return getHeightFromPathPoints(this.getCurrentCustomPathPoints(), longitude, latitude)
   }
 
   async getGroundHeightAsync(longitude, latitude) {
@@ -611,6 +393,7 @@ export class RealtimeDataEngine {
         }
       }
     } catch (error) {
+      // Terrain sampling can fail on some providers; fall back to sync sampling.
     }
 
     // 回退到同步方法
@@ -629,64 +412,17 @@ export class RealtimeDataEngine {
   }
 
   initMiningSites() {
-    const originalSites = this.tileset?.spec?.sites
-    const sitesList =
-      Array.isArray(originalSites) && originalSites.length >= 2 ? originalSites : null
-
-    if (sitesList && this.tileset) {
-      MINING_SITE_1 = this.buildMiningSiteFromSpec(sitesList[0], MINING_PIT_1_POSITION)
-      MINING_SITE_2 = this.buildMiningSiteFromSpec(sitesList[1], MINING_PIT_2_POSITION)
-      return
-    }
-
-    if (this.tileset && this.tileset.boundingSphere) {
-      this.initMiningSitesFromModel()
-      return
-    }
-
-    this.initMiningSitesFromDefaults()
-  }
-
-  initMiningSitesFromModel() {
-    try {
-      const center = this.tileset.boundingSphere.center
-      const cartographic = Cesium.Cartographic.fromCartesian(center)
-
-      const modelLongitude = Cesium.Math.toDegrees(cartographic.longitude)
-      const modelLatitude = Cesium.Math.toDegrees(cartographic.latitude)
-      const modelHeight = cartographic.height
-
-      MINING_SITE_1 = {
-        longitude: modelLongitude - 0.0005,
-        latitude: modelLatitude,
-        height: modelHeight + 5
-      }
-
-      MINING_SITE_2 = {
-        longitude: modelLongitude + 0.0005,
-        latitude: modelLatitude,
-        height: modelHeight + 5
-      }
-    } catch (error) {
-      this.initMiningSitesFromDefaults()
-    }
-  }
-
-  initMiningSitesFromDefaults() {
-    if (!MINING_SITE_1) {
-      MINING_SITE_1 = {
-        longitude: MINING_PIT_1_POSITION.x,
-        latitude: MINING_PIT_1_POSITION.y,
-        height: MINING_PIT_1_POSITION.z
-      }
-    }
-    if (!MINING_SITE_2) {
-      MINING_SITE_2 = {
-        longitude: MINING_PIT_2_POSITION.x,
-        latitude: MINING_PIT_2_POSITION.y,
-        height: MINING_PIT_2_POSITION.z
-      }
-    }
+    const nextSites = resolveMiningSites({
+      tileset: this.tileset,
+      buildMiningSiteFromSpec: (spec, fallbackPosition) =>
+        this.buildMiningSiteFromSpec(spec, fallbackPosition),
+      defaultSite1Position: MINING_PIT_1_POSITION,
+      defaultSite2Position: MINING_PIT_2_POSITION,
+      currentSite1: MINING_SITE_1,
+      currentSite2: MINING_SITE_2
+    })
+    MINING_SITE_1 = nextSites.site1
+    MINING_SITE_2 = nextSites.site2
   }
 
   setTileset(tileset) {
@@ -784,7 +520,7 @@ export class RealtimeDataEngine {
       try {
         cb(data)
       } catch (e) {
-        console.error('[RealtimeDataEngine] 监听器失败:', e)
+        logger.error('realtime-data-engine', '监听器执行失败', null, e)
       }
     })
   }
@@ -810,6 +546,7 @@ export class RealtimeDataEngine {
     this.siteSurfacePointCache.clear()
     this.listeners = []
     this.customPathPoints = null
+    this.customPathTotalLength = 0
     this.sampledGroundPath = null
     this._lastTilesetModelMatrix = null
   }

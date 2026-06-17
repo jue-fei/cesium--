@@ -20,10 +20,10 @@ export class TruckSimulator {
         fuelLevel: { min: 60, max: 90 }
       },
       locationMap: {
-        '装载中': '采场1装载区',
-        '重载运输': '采场1→采场2运输线',
-        '卸载中': '采场2卸载区',
-        '空载返程': '采场2→采场1返程线'
+        装载中: '采场1装载区',
+        重载运输: '采场1→采场2运输线',
+        卸载中: '采场2卸载区',
+        空载返程: '采场2→采场1返程线'
       },
       ...options
     }
@@ -36,13 +36,39 @@ export class TruckSimulator {
 
   applySimConfig(config) {
     if (config?.simulation) {
-      if (config.simulation.updateIntervalMs) this._config.updateIntervalMs = config.simulation.updateIntervalMs
+      if (config.simulation.updateIntervalMs)
+        this._config.updateIntervalMs = config.simulation.updateIntervalMs
       if (config.simulation.cycleTimeMs) this._config.cycleTimeMs = config.simulation.cycleTimeMs
     }
     if (config?.speedProfile) Object.assign(this._config.speedProfile, config.speedProfile)
     if (config?.phaseRatio) Object.assign(this._config.phaseRatio, config.phaseRatio)
     if (config?.vehicleStatus) Object.assign(this._config.vehicleStatus, config.vehicleStatus)
     if (config?.locationMap) Object.assign(this._config.locationMap, config.locationMap)
+  }
+
+  _buildTruckState(existing, truck) {
+    return {
+      ...existing,
+      ...truck,
+      phase: existing ? existing.phase : (truck.phase ?? 0),
+      speed: truck.speed ?? 0,
+      payload: truck.payload ?? 0,
+      engineTemp: truck.engineTemp ?? this._randomInRange(this._config.vehicleStatus.engineTemp),
+      fuelLevel: truck.fuelLevel ?? this._randomInRange(this._config.vehicleStatus.fuelLevel),
+      cycleCount: existing ? existing.cycleCount : (truck.cycleCount ?? 0)
+    }
+  }
+
+  _initializeTruckRuntimeState(truck) {
+    if (!this._fuelLevels.has(truck.truckId)) {
+      this._fuelLevels.set(
+        truck.truckId,
+        truck.fuelLevel ?? this._randomInRange(this._config.vehicleStatus.fuelLevel)
+      )
+    }
+    if (!this._cycleCounts.has(truck.truckId)) {
+      this._cycleCounts.set(truck.truckId, truck.cycleCount ?? 0)
+    }
   }
 
   setTrucks(trucks) {
@@ -52,22 +78,8 @@ export class TruckSimulator {
     }
     for (const t of trucks) {
       const existing = this._trucks.get(t.truckId)
-      this._trucks.set(t.truckId, {
-        ...existing,
-        ...t,
-        phase: existing ? existing.phase : (t.phase ?? 0),
-        speed: t.speed ?? 0,
-        payload: t.payload ?? 0,
-        engineTemp: t.engineTemp ?? this._randomInRange(this._config.vehicleStatus.engineTemp),
-        fuelLevel: t.fuelLevel ?? this._randomInRange(this._config.vehicleStatus.fuelLevel),
-        cycleCount: existing ? existing.cycleCount : (t.cycleCount ?? 0)
-      })
-      if (!this._fuelLevels.has(t.truckId)) {
-        this._fuelLevels.set(t.truckId, t.fuelLevel ?? this._randomInRange(this._config.vehicleStatus.fuelLevel))
-      }
-      if (!this._cycleCounts.has(t.truckId)) {
-        this._cycleCounts.set(t.truckId, t.cycleCount ?? 0)
-      }
+      this._trucks.set(t.truckId, this._buildTruckState(existing, t))
+      this._initializeTruckRuntimeState(t)
     }
   }
 
@@ -135,7 +147,8 @@ export class TruckSimulator {
       truck.heading = this._calcHeading(phase)
 
       // 排除旧 position，强制 processData 从最新 phase 重新计算
-      const { position: _pos, ...updateData } = truck
+      const updateData = { ...truck }
+      delete updateData.position
       updates.push(updateData)
     }
 
@@ -153,7 +166,12 @@ export class TruckSimulator {
   }
 
   _statusKey(status) {
-    const map = { '装载中': 'loading', '重载运输': 'loadedTransport', '卸载中': 'unloading', '空载返程': 'emptyReturn' }
+    const map = {
+      装载中: 'loading',
+      重载运输: 'loadedTransport',
+      卸载中: 'unloading',
+      空载返程: 'emptyReturn'
+    }
     return map[status] || 'emptyReturn'
   }
 

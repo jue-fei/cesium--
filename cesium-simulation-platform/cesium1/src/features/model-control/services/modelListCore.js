@@ -75,21 +75,35 @@ export function getFeatureNameFromFeature(feature, fallbackName = 'Unknown Model
   return featureName
 }
 
-export function normalizeModelMappingFromConfig(modelMapping) {
-  const model = modelMapping && typeof modelMapping === 'object' ? modelMapping : {}
-  const style = model.styleProperties || model.style_properties || {}
-  const normalizedStyle = {
+function normalizeStyleProperties(style) {
+  return {
     color: style.color || '#ffffff',
     opacity: typeof style.opacity === 'number' ? style.opacity : 1,
     visible: typeof style.visible === 'boolean' ? style.visible : true,
     highlightColor: style.highlightColor || style.color || '#ffffff'
   }
+}
+
+function toUiOpacity(styleOpacity) {
+  const normalizedOpacity = typeof styleOpacity === 'number' ? styleOpacity : 1
+  return Math.max(0, Math.min(100, Math.round((1 - normalizedOpacity) * 100)))
+}
+
+function normalizeModelCollections(model) {
+  return {
+    geologyProperties: model.geologyProperties || model.geology_properties || {},
+    miningProperties: model.miningProperties || model.mining_properties || {},
+    safetyProperties: model.safetyProperties || model.safety_properties || {}
+  }
+}
+
+export function normalizeModelMappingFromConfig(modelMapping) {
+  const model = modelMapping && typeof modelMapping === 'object' ? modelMapping : {}
+  const style = model.styleProperties || model.style_properties || {}
+  const normalizedStyle = normalizeStyleProperties(style)
   const featureId = model.feature_id || model.featureId || model.id
-  // style.opacity 范围 0(透明)~1(不透明)，转换为 UI transparency 0(不透明)~100(完全透明)
-  const uiOpacity = Math.max(
-    0,
-    Math.min(100, Math.round((1 - (typeof style.opacity === 'number' ? style.opacity : 1)) * 100))
-  )
+  const uiOpacity = toUiOpacity(style.opacity)
+  const modelCollections = normalizeModelCollections(model)
   return {
     ...model,
     id: model.id || featureId,
@@ -100,9 +114,7 @@ export function normalizeModelMappingFromConfig(modelMapping) {
     includeInConfig: true,
     sourceFeature: JSON.parse(JSON.stringify(model)),
     styleProperties: normalizedStyle,
-    geologyProperties: model.geologyProperties || model.geology_properties || {},
-    miningProperties: model.miningProperties || model.mining_properties || {},
-    safetyProperties: model.safetyProperties || model.safety_properties || {}
+    ...modelCollections
   }
 }
 

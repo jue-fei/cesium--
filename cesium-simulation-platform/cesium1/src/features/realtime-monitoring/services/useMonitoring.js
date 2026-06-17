@@ -11,7 +11,16 @@ import {
 import { initializeDefaultRoute } from './routeStorage.js'
 import { ConnectionManager } from './ConnectionManager.js'
 import { TruckSimulator } from './TruckSimulator.js'
+import { deriveAlertState } from './monitoringAlerts.js'
+import {
+  canInterpolateTruckPosition,
+  cloneTruckState,
+  hasRenderableTruckPosition,
+  interpolateTruckPosition,
+  upsertTruckState
+} from './monitoringTruckState.js'
 import useModel from '@/features/model-control/services/useModel.js'
+import { logger } from '@/utils/logger.js'
 
 const HISTORY_LIVE_THRESHOLD_MS = 1500
 const ALERT_HISTORY_LIMIT = 50
@@ -67,55 +76,6 @@ let previousPositions = new Map()
 let tilesetSwitchCooldown = false
 const MODEL_TRANSFORM_THROTTLE_MS = 150
 
-function isFiniteNumber(value) {
-  return typeof value === 'number' && Number.isFinite(value)
-}
-
-function hasValidCartesianArray(position) {
-  return (
-    Array.isArray(position?.cartesian) &&
-    position.cartesian.length === 3 &&
-    position.cartesian.every(component => isFiniteNumber(component))
-  )
-}
-
-function hasValidGeographicPosition(position) {
-  return isFiniteNumber(position?.longitude) && isFiniteNumber(position?.latitude)
-}
-
-function hasRenderableTruckPosition(position) {
-  return hasValidCartesianArray(position) || hasValidGeographicPosition(position)
-}
-
-function cloneTruckState(truck) {
-  if (!truck) return truck
-  return {
-    ...truck,
-    mineralType: truck.mineralType ? { ...truck.mineralType } : truck.mineralType,
-    vehicleInfo: truck.vehicleInfo ? { ...truck.vehicleInfo } : truck.vehicleInfo,
-    driverInfo: truck.driverInfo ? { ...truck.driverInfo } : truck.driverInfo,
-    tirePressure: Array.isArray(truck.tirePressure) ? [...truck.tirePressure] : truck.tirePressure,
-    position: truck.position
-      ? {
-          ...truck.position,
-          cartesian: Array.isArray(truck.position.cartesian)
-            ? [...truck.position.cartesian]
-            : undefined
-        }
-      : truck.position
-  }
-}
-
-function upsertTruckState(collection, data) {
-  const idx = collection.value.findIndex(t => t.truckId === data.truckId)
-  if (idx >= 0) {
-    Object.assign(collection.value[idx], cloneTruckState(data))
-    collection.value = [...collection.value]
-  } else {
-    collection.value = [...collection.value, cloneTruckState(data)]
-  }
-}
-
 const MIN_TIMELINE_RANGE_MS = 60000 // 最小时间轴范围 60 秒
 
 function syncTimelineRange() {
@@ -135,56 +95,18 @@ function syncTimelineRange() {
   timelineEndTime.value = e
 }
 
-function buildAlertCandidates(trucks) {
-  return trucks
-    .flatMap(t => {
-      const alerts = []
-      if ((t.engineTemp || 0) >= 95)
-        alerts.push({
-          key: `${t.truckId}:engineTemp`,
-          truckId: t.truckId,
-          truckName: t.truckName || t.name || t.truckId,
-          level: 'high',
-          type: 'engineTemp',
-          message: `发动机温度 ${Math.round(t.engineTemp)}°C，建议立即检查冷却系统`,
-          timestamp: t.timestamp || currentTimestamp.value
-        })
-      if ((t.fuelLevel || 0) <= 30)
-        alerts.push({
-          key: `${t.truckId}:fuelLevel`,
-          truckId: t.truckId,
-          truckName: t.truckName || t.name || t.truckId,
-          level: 'medium',
-          type: 'fuelLevel',
-          message: `燃油仅剩 ${Math.round(t.fuelLevel)}%，建议尽快补能`,
-          timestamp: t.timestamp || currentTimestamp.value
-        })
-      if ((t.speed || 0) >= (t.vehicleInfo?.maxSpeed || 40) * 0.95)
-        alerts.push({
-          key: `${t.truckId}:speed`,
-          truckId: t.truckId,
-          truckName: t.truckName || t.name || t.truckId,
-          level: 'medium',
-          type: 'speed',
-          message: `当前速度 ${Math.round(t.speed)} km/h，接近车辆上限`,
-          timestamp: t.timestamp || currentTimestamp.value
-        })
-      return alerts
-    })
-    .sort(
-      (a, b) => ({ high: 3, medium: 2, low: 1 })[b.level] - { high: 3, medium: 2, low: 1 }[a.level]
-    )
-}
-
 function updateAlerts(trucks) {
-  const nextAlerts = buildAlertCandidates(trucks)
-  const nextKeys = new Set(nextAlerts.map(a => a.key))
-  nextAlerts.forEach(a => {
-    if (!activeAlertKeys.has(a.key))
-      alertHistory.value = [{ ...a }, ...alertHistory.value].slice(0, ALERT_HISTORY_LIMIT)
+  const nextState = deriveAlertState({
+    trucks,
+    currentTimestamp: currentTimestamp.value,
+    activeAlertKeys,
+    previousAlertHistory: alertHistory.value,
+    alertHistoryLimit: ALERT_HISTORY_LIMIT,
+    activeAlertLimit: ACTIVE_ALERT_LIMIT
   })
-  activeAlertKeys = nextKeys
-  alertList.value = nextAlerts.slice(0, ACTIVE_ALERT_LIMIT)
+  activeAlertKeys = nextState.nextAlertKeys
+  alertList.value = nextState.nextAlertList
+  alertHistory.value = nextState.nextAlertHistory
 }
 
 function setDisplayedTruckStates(states, { immediateRender = false } = {}) {
@@ -277,7 +199,6 @@ async function initMonitoringManager(viewer) {
     /* 使用默认配置 */
   }
 
-  let simStartTimer = null
   const tryStartSimulator = () => {
     if (truckSimulator._timer) return // 已启动
     const trucks = dataEngine.getAllTrucks()
@@ -314,7 +235,7 @@ async function initMonitoringManager(viewer) {
       dataEngine.setCustomPath(defaultRoute.points)
     }
   } catch (error) {
-    console.warn('[useMonitoring] 初始化默认路线失败:', error)
+    logger.warn('use-monitoring', '初始化默认路线失败', null, error)
   }
 
   connectionManager.switchTo('http_poll', { url: '/api/trucks', pollInterval: 2000 })
@@ -327,11 +248,7 @@ async function initMonitoringManager(viewer) {
 
 function updateTruckFromRealtime(data) {
   const prev = liveTruckStates.value.find(t => t.truckId === data.truckId)
-  if (
-    !isHistoricalPlayback.value &&
-    hasValidCartesianArray(prev?.position) &&
-    hasValidCartesianArray(data?.position)
-  ) {
+  if (!isHistoricalPlayback.value && canInterpolateTruckPosition(prev?.position, data?.position)) {
     previousPositions.set(data.truckId, {
       position: cloneTruckState(prev).position,
       timestamp: performance.now()
@@ -376,34 +293,6 @@ function stopMonitoring() {
   isMonitoring.value = false
 }
 
-function lerp(start, end, t) {
-  return start + (end - start) * t
-}
-function easeOutCubic(t) {
-  return 1 - Math.pow(1 - t, 3)
-}
-
-function interpolatePosition(truckId, target) {
-  const prev = previousPositions.get(truckId)
-  if (!prev) return target
-  if (!hasValidCartesianArray(prev.position) || !hasValidCartesianArray(target)) {
-    previousPositions.delete(truckId)
-    return target
-  }
-  const elapsed = performance.now() - prev.timestamp
-  if (elapsed >= INTERPOLATION_DURATION) {
-    previousPositions.delete(truckId)
-    return target
-  }
-  const t = easeOutCubic(elapsed / INTERPOLATION_DURATION)
-  return {
-    cartesian: prev.position.cartesian.map((v, i) => lerp(v, target.cartesian[i], t)),
-    longitude: lerp(prev.position.longitude, target.longitude, t),
-    latitude: lerp(prev.position.latitude, target.latitude, t),
-    height: lerp(prev.position.height || 0, target.height || 0, t)
-  }
-}
-
 function renderTrucks() {
   if (
     !equipmentManager?.updateTrucks ||
@@ -417,7 +306,9 @@ function renderTrucks() {
     .filter(s => hasRenderableTruckPosition(s?.position))
     .map(s => ({
       id: s.truckId,
-      position: interpolatePosition(s.truckId, s.position),
+      position: interpolateTruckPosition(s.truckId, s.position, previousPositions, {
+        durationMs: INTERPOLATION_DURATION
+      }),
       status: s.status,
       heading: s.heading,
       name: s.name,

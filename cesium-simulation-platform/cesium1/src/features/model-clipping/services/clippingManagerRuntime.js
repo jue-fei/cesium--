@@ -26,6 +26,8 @@ export function createClippingManagerRuntime({ getViewer, tilesetRef }) {
     try {
       if (clippingManager?.destroy) clippingManager.destroy()
     } catch (e) {
+      // Ignore destroy failures when the viewer or tileset has already been released.
+      void e
     }
     clippingManager = null
   }

@@ -96,7 +96,7 @@ export function createExperimentWorkerClient(options = {}) {
     }
   }
 
-  function handleWorkerError(err) {
+  function handleWorkerError() {
     if (currentRunId) {
       handleRunError(new Error('Worker意外终止'))
     }

@@ -61,10 +61,27 @@ CORS_ALLOW_CREDENTIALS=true
 
 ```bash
 npm install
+cp .env.example .env
 npm run dev
 ```
 
 默认地址为 `http://localhost:3000`，并通过 Vite 代理将 `/api` 请求转发到 `http://localhost:3003`。
+
+### Cesium Token 配置
+
+前端通过环境变量读取 Cesium 相关配置，示例文件位于 `cesium1/.env.example`：
+
+```bash
+VITE_CESIUM_TOKEN=
+VITE_CESIUM_ASSETS_URL=/
+VITE_ENABLE_ROUTE_OFFLINE_FALLBACK=false
+VITE_SENTRY_DSN=
+```
+
+- `VITE_CESIUM_TOKEN` 为必填项，没有该值时 Cesium ion 相关资源无法正常访问。
+- `VITE_CESIUM_ASSETS_URL` 用于指定 Cesium 静态资源基址，默认读取 `index.html` 中的 `cesium-base-url`。
+- `VITE_ENABLE_ROUTE_OFFLINE_FALLBACK` 用于显式开启路线离线兜底。
+- `VITE_SENTRY_DSN` 预留给后续错误上报平台。
 
 ### 生产构建
 
@@ -81,6 +98,8 @@ npm run build
 npm run preview
 npm run lint
 npm run lint:check
+npm run imports:check
+npm run ci:check
 npm run format
 npm run audit:prod
 ```
@@ -185,6 +204,12 @@ cesium1/
 
 跨功能模块的公共导出统一放在 `@/features/shared/index.js`，优先通过该入口复用模块能力。
 
+### 工程文档
+
+- 架构说明：`../docs/architecture.md`
+- 部署说明：`../docs/deployment.md`
+- 协作规范：`../docs/contributing.md`
+
 ### 路线离线兜底
 
 默认情况下，监控模块只使用数据库中的路线配置。
@@ -198,3 +223,9 @@ VITE_ENABLE_ROUTE_OFFLINE_FALLBACK=true
 ### 自适应 LOD
 
 系统会根据 FPS 逐级调整渲染质量，在性能恢复后再逐步回升。
+
+## API 文档
+
+FastAPI 默认 Swagger 地址：
+
+- `http://localhost:3003/docs`

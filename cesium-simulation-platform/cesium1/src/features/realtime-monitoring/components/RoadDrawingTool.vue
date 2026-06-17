@@ -39,7 +39,15 @@
         :disabled="!viewer"
         @click="toggleDrawing"
       >
-        {{ isDrawing ? (editingPathIndex >= 0 ? '✓ 更新' : '✓ 完成') : (editingPathIndex >= 0 ? '✎ 编辑' : '✎ 绘制') }}
+        {{
+          isDrawing
+            ? editingPathIndex >= 0
+              ? '✓ 更新'
+              : '✓ 完成'
+            : editingPathIndex >= 0
+              ? '✎ 编辑'
+              : '✎ 绘制'
+        }}
       </button>
 
       <button
@@ -118,10 +126,14 @@
         <span class="text-blue-400">💡</span>
         {{
           isDrawing
-            ? (editingPathIndex >= 0 ? '编辑模式：添加/修改路径点，双击完成更新' : '点击模型表面添加路径点，双击完成绘制')
+            ? editingPathIndex >= 0
+              ? '编辑模式：添加/修改路径点，双击完成更新'
+              : '点击模型表面添加路径点，双击完成绘制'
             : pathPoints.length === 0
               ? '点击"绘制"创建新道路，或从下方列表选择已有路径进行编辑'
-              : (editingPathIndex >= 0 ? '点击"编辑"修改路径点，或点击"应用"同步到矿卡' : '路径已创建，可以应用到矿卡或继续编辑')
+              : editingPathIndex >= 0
+                ? '点击"编辑"修改路径点，或点击"应用"同步到矿卡'
+                : '路径已创建，可以应用到矿卡或继续编辑'
         }}
       </p>
     </div>
@@ -172,7 +184,15 @@ const PREVIEW_PATH_SAMPLES_PER_SEGMENT = 10
 const ROUTE_DISPLAY_LIFT_METERS = 0.03
 
 const statusText = computed(() =>
-  isDrawing.value ? (editingPathIndex.value >= 0 ? '编辑中...' : '绘制中...') : pathPoints.value.length === 0 ? '就绪' : (editingPathIndex.value >= 0 ? '已加载' : '已完成')
+  isDrawing.value
+    ? editingPathIndex.value >= 0
+      ? '编辑中...'
+      : '绘制中...'
+    : pathPoints.value.length === 0
+      ? '就绪'
+      : editingPathIndex.value >= 0
+        ? '已加载'
+        : '已完成'
 )
 
 const cartesianToPoint = cartesian => {
@@ -299,11 +319,15 @@ function finishDrawing() {
         existing.createdAt = new Date().toLocaleString()
         // 更新数据库
         if (existing._dbId) {
-          updateRouteInDb(existing._dbId, existing.name, existing.points, existing.isDefault).catch(() => {})
+          updateRouteInDb(existing._dbId, existing.name, existing.points, existing.isDefault).catch(
+            () => {}
+          )
         } else {
-          saveRouteToDb(existing.name, existing.points, existing.isDefault).then(res => {
-            if (res?.id) existing._dbId = res.id
-          }).catch(() => {})
+          saveRouteToDb(existing.name, existing.points, existing.isDefault)
+            .then(res => {
+              if (res?.id) existing._dbId = res.id
+            })
+            .catch(() => {})
         }
         saveAllPaths(savedPaths.value)
         emit('path-updated', { name: existing.name, points: pathPoints.value })
@@ -320,9 +344,11 @@ function finishDrawing() {
       createdAt: new Date().toLocaleString(),
       isDefault: false
     }
-    saveRouteToDb(name, newPath.points, false).then(res => {
-      if (res?.id) newPath._dbId = res.id
-    }).catch(() => {})
+    saveRouteToDb(name, newPath.points, false)
+      .then(res => {
+        if (res?.id) newPath._dbId = res.id
+      })
+      .catch(() => {})
     savedPaths.value.push(newPath)
     selectedPathIndex.value = savedPaths.value.length - 1
     saveAllPaths(savedPaths.value)
@@ -771,9 +797,7 @@ function setCurrentAsDefault() {
     p.isDefault = false
   })
 
-  const defaultPoints = pathPoints.value.length >= 2
-    ? [...pathPoints.value]
-    : []
+  const defaultPoints = pathPoints.value.length >= 2 ? [...pathPoints.value] : []
 
   if (pathPoints.value.length >= 2) {
     const existingIndex = savedPaths.value.findIndex(p => p.name === '默认矿卡路线')
@@ -792,10 +816,18 @@ function setCurrentAsDefault() {
   }
 
   // 保存到数据库
-  saveDefaultRouteToDb('默认矿卡路线', defaultPoints.length >= 2 ? defaultPoints : savedPaths.value.find(p => p.isDefault)?.points || []).catch(() => {})
+  saveDefaultRouteToDb(
+    '默认矿卡路线',
+    defaultPoints.length >= 2
+      ? defaultPoints
+      : savedPaths.value.find(p => p.isDefault)?.points || []
+  ).catch(() => {})
   saveDefaultRoute({
     name: '默认矿卡路线',
-    points: defaultPoints.length >= 2 ? defaultPoints : savedPaths.value.find(p => p.isDefault)?.points || []
+    points:
+      defaultPoints.length >= 2
+        ? defaultPoints
+        : savedPaths.value.find(p => p.isDefault)?.points || []
   })
   saveAllPaths(savedPaths.value)
   emit('default-route-set', {

@@ -112,7 +112,6 @@ export default function useGeologyAnalysis() {
       }
     }
 
-
     // 从 API 加载钻孔数据
     if (store.boreholes.length === 0) {
       loadBoreholesFromApi()
@@ -187,8 +186,8 @@ export default function useGeologyAnalysis() {
    * 计算矿体储量
    */
   /**
- * 从 API 加载矿体数据并写入 store
- */
+   * 从 API 加载矿体数据并写入 store
+   */
   async function loadOrebodiesFromApi() {
     try {
       // 如果 API 配置还未加载，等待回调
@@ -221,6 +220,8 @@ export default function useGeologyAnalysis() {
         return true
       }
     } catch (e) {
+      // Ignore API preload failures and allow local fallback data paths.
+      void e
     }
     return false
   }
@@ -250,6 +251,8 @@ export default function useGeologyAnalysis() {
         return true
       }
     } catch (e) {
+      // Ignore API preload failures and allow local fallback data paths.
+      void e
     }
     return false
   }
@@ -273,6 +276,8 @@ export default function useGeologyAnalysis() {
         return true
       }
     } catch (e) {
+      // Ignore API preload failures and allow local fallback data paths.
+      void e
     }
     return false
   }

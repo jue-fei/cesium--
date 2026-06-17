@@ -153,7 +153,7 @@ export function resolveColormapRamp(presetKey) {
   return STRESS_COLORMAP_PRESETS.turbo16.ramp
 }
 
-export function resolveStressUnit(configUnit, unitStress, _unused) {
+export function resolveStressUnit(configUnit, unitStress) {
   return configUnit || unitStress || ''
 }
 

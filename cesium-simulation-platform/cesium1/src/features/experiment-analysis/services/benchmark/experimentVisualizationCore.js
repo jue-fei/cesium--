@@ -15,7 +15,7 @@ function percentile(sortedValues, ratio) {
 }
 
 export function computeHeatmapGlobalRange(snapshots, options = {}) {
-  const { lowerQuantile = 0.01, upperQuantile = 0.995, minSpan = 1, paddingRatio = 0.04 } = options
+  const { upperQuantile = 0.995, minSpan = 1, paddingRatio = 0.04 } = options
 
   const values = []
   for (const snap of snapshots || []) {

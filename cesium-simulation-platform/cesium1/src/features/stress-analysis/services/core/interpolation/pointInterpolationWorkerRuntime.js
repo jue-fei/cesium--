@@ -84,7 +84,7 @@ function ensureInterpolationWorker() {
       }
     }
   }
-  interpolationWorker.onerror = err => {
+  interpolationWorker.onerror = () => {
     resolveAndClearPendingInterpolationJobsByFallback()
     resetInterpolationWorker()
   }

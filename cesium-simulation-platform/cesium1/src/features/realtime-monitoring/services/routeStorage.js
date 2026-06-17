@@ -6,6 +6,7 @@ import {
   setDefaultRoute as setDefaultRouteApi,
   deleteRoute as deleteRouteApi
 } from './routeApiService.js'
+import { logger } from '@/utils/logger.js'
 
 const STORAGE_KEY_DEFAULT_ROUTE = 'mining_truck_default_route'
 const STORAGE_KEY_SAVED_PATHS = 'mining_truck_saved_paths'
@@ -71,7 +72,7 @@ async function tryDb(fn, fallback = null) {
   try {
     return await fn()
   } catch (e) {
-    console.warn('[routeStorage] 数据库路线接口不可用:', e.message)
+    logger.warn('route-storage', '数据库路线接口不可用，已按配置尝试降级', null, e)
     return fallback
   }
 }
@@ -154,7 +155,7 @@ export function saveDefaultRoute(routeData) {
     localStorage.setItem(STORAGE_KEY_DEFAULT_ROUTE, JSON.stringify(payload))
     return true
   } catch (error) {
-    console.error('[routeStorage] 保存默认路线失败:', error)
+    logger.error('route-storage', '保存默认路线失败', null, error)
     return false
   }
 }
@@ -198,7 +199,7 @@ export async function loadDefaultRoute(options = {}) {
 
     return null
   } catch (error) {
-    console.error('[routeStorage] 加载默认路线失败:', error)
+    logger.error('route-storage', '加载默认路线失败', { preferStatic }, error)
     return null
   }
 }
@@ -226,7 +227,7 @@ export function loadDefaultRouteSync() {
       source: 'localStorage'
     }
   } catch (error) {
-    console.error('[routeStorage] 加载默认路线失败:', error)
+    logger.error('route-storage', '同步加载默认路线失败', null, error)
     return null
   }
 }
@@ -236,7 +237,7 @@ export function clearDefaultRoute() {
     localStorage.removeItem(STORAGE_KEY_DEFAULT_ROUTE)
     return true
   } catch (error) {
-    console.error('[routeStorage] 清除默认路线失败:', error)
+    logger.error('route-storage', '清除默认路线失败', null, error)
     return false
   }
 }
@@ -281,7 +282,7 @@ export function saveAllPaths(paths) {
     localStorage.setItem(STORAGE_KEY_SAVED_PATHS, JSON.stringify(payload))
     return true
   } catch (error) {
-    console.error('[routeStorage] 保存路径列表失败:', error)
+    logger.error('route-storage', '保存路径列表失败', null, error)
     return false
   }
 }
@@ -294,7 +295,7 @@ export function loadAllPaths() {
     if (!Array.isArray(data)) return []
     return data
   } catch (error) {
-    console.error('[routeStorage] 加载路径列表失败:', error)
+    logger.error('route-storage', '加载路径列表失败', null, error)
     return []
   }
 }

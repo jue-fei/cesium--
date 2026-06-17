@@ -60,7 +60,12 @@
       class="text-sm font-semibold text-blue-100 mb-3 flex items-center gap-2 before:content-[''] before:w-1 before:h-3 before:bg-blue-500 before:rounded-sm"
     >
       属性信息: {{ selectedModel.name
-      }}<span v-if="selectedModel._dbLinked" class="ml-1 text-[10px] text-blue-400" title="已关联数据库">◈ DB</span>
+      }}<span
+        v-if="selectedModel._dbLinked"
+        class="ml-1 text-[10px] text-blue-400"
+        title="已关联数据库"
+        >◈ DB</span
+      >
     </div>
     <div class="grid grid-cols-2 gap-2 bg-black/20 p-2 rounded-md border border-white/5">
       <div
@@ -86,7 +91,9 @@
             class="flex flex-col"
           >
             <span class="text-[10px] text-gray-400 mb-0.5">{{ entry.key || '属性' }}</span>
-            <span class="text-xs text-gray-200 break-all whitespace-pre-wrap">{{ entry.value }}</span>
+            <span class="text-xs text-gray-200 break-all whitespace-pre-wrap">{{
+              entry.value
+            }}</span>
           </div>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { apiConfig, onConfigLoaded } from '@/services/api/initApiConfig.js'
+import { logger } from '@/utils/logger.js'
 
 /**
  * 从统一缓存 apiConfig 获取模型配置列表（含 features 用于前端直接渲染）
@@ -14,14 +15,14 @@ export async function discoverModelConfigs() {
   })
   if (apiConfig.loaded && apiConfig.modelConfigs) {
     const result = apiConfig.modelConfigs.map(normalize)
-    console.log('[modelApi] 从 apiConfig 加载模型配置:', result.length, '条')
+    logger.debug('model-api', '从 apiConfig 读取模型配置', { count: result.length })
     return result
   }
   // 等待 apiConfig 加载完成
   return new Promise(resolve => {
     onConfigLoaded(() => {
       const result = (apiConfig.modelConfigs || []).map(normalize)
-      console.log('[modelApi] apiConfig 加载完成，返回模型配置:', result.length, '条')
+      logger.debug('model-api', 'apiConfig 加载完成后返回模型配置', { count: result.length })
       resolve(result)
     })
   })
@@ -38,7 +39,7 @@ export async function fetchModelFeatures(modelConfigId) {
       return json.data
     }
   } catch (e) {
-    console.warn('[modelApi] fetchModelFeatures 失败:', e.message)
+    logger.warn('model-api', '加载模型特征失败', { modelConfigId }, e)
   }
   return null
 }
@@ -54,7 +55,9 @@ export async function fetchJsonOrNull(path) {
     const response = await fetch(path)
     if (!response.ok) return null
     return await response.json()
-  } catch (_) { return null }
+  } catch (_) {
+    return null
+  }
 }
 
 /**

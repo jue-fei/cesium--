@@ -2,9 +2,13 @@
  * API 配置加载器
  * 从数据库加载矿卡信息 + 模型地质信息
  */
+import { logger } from '@/utils/logger.js'
+
 const API = '/api'
 const listeners = []
 let loadPromise = null
+const API_CONFIG_MARK_START = 'api-config-load:start'
+const API_CONFIG_MARK_END = 'api-config-load:end'
 
 export const apiConfig = {
   modelConfigs: null,
@@ -55,6 +59,7 @@ export async function loadApiConfig() {
   if (loadPromise) return loadPromise
 
   loadPromise = (async () => {
+    performance.mark(API_CONFIG_MARK_START)
     resetApiConfig()
     apiConfig.error = null
 
@@ -83,12 +88,20 @@ export async function loadApiConfig() {
       apiConfig.miningPits = miningPits
       apiConfig.geologyStats = geologyStats
       apiConfig.loaded = true
+      performance.mark(API_CONFIG_MARK_END)
+      performance.measure('api-config-load', API_CONFIG_MARK_START, API_CONFIG_MARK_END)
+      logger.info('api-config', '核心配置加载完成', {
+        models: models.length,
+        trucks: trucks.length,
+        boreholes: boreholes.length,
+        orebodies: orebodies.length
+      })
       notifyLoaded()
       return apiConfig
     } catch (error) {
       resetApiConfig()
       apiConfig.error = error
-      console.error('[API] 核心配置加载失败:', error.message)
+      logger.error('api-config', '核心配置加载失败', null, error)
       throw new Error(`核心配置加载失败: ${error.message}`)
     } finally {
       loadPromise = null

@@ -453,14 +453,19 @@ export function useLodPanelController() {
   const requestStageLabel = computed(() => {
     if (lodRuntime.value?.allTilesLoaded) return '完成'
     if (lodRuntime.value?.initialTilesLoaded) return '首屏'
-    if ((lodRuntime.value?.pendingRequests || 0) > 0 || (lodRuntime.value?.tilesProcessing || 0) > 0) {
+    if (
+      (lodRuntime.value?.pendingRequests || 0) > 0 ||
+      (lodRuntime.value?.tilesProcessing || 0) > 0
+    ) {
       return '进行中'
     }
     return modelLoaded.value ? '待加载' : '未加载'
   })
 
   const detailTierLabel = computed(() => {
-    const sse = Number(local.value?.maximumScreenSpaceError ?? lodConfig.value?.maximumScreenSpaceError ?? 16)
+    const sse = Number(
+      local.value?.maximumScreenSpaceError ?? lodConfig.value?.maximumScreenSpaceError ?? 16
+    )
     if (sse <= 10) return '高细节'
     if (sse <= 24) return '平衡'
     return '性能优先'
@@ -469,7 +474,8 @@ export function useLodPanelController() {
   const adaptiveStatusLabel = computed(() => {
     if (!modelLoaded.value) return '待机'
     if (!adaptiveLoadState.enabled) return '关闭'
-    if (adaptiveLoadState.level > 0) return adaptiveLoadState.appliedStepLabel || `等级 ${adaptiveLoadState.level}`
+    if (adaptiveLoadState.level > 0)
+      return adaptiveLoadState.appliedStepLabel || `等级 ${adaptiveLoadState.level}`
     return '基线'
   })
 

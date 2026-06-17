@@ -26,6 +26,12 @@ export {
   calculateStratigraphyStats
 } from '../geology-analysis/services/useGeologyAnalysis.js'
 
+// ---- realtime-monitoring（实时监控：矿卡、路线、回放）----
+export { default as useMonitoring } from '../realtime-monitoring/services/useMonitoring.js'
+
+// ---- blasting-simulation（爆破模拟：数据播放与场景动画）----
+export { default as useBlasting } from '../blasting-simulation/services/useBlasting.js'
+
 // ---- lod-optimization（LOD 优化：FPS 监控 / 自适应降级 / 质量配置）----
 export { createFpsMonitor } from '../lod-optimization/services/fpsMonitor.js'
 export {

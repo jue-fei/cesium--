@@ -1,4 +1,5 @@
 import * as Cesium from 'cesium'
+import { logger } from '@/utils/logger.js'
 
 function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value)
@@ -70,11 +71,11 @@ export class EquipmentManager {
           position.height || 0
         )
       } else {
-        console.error(`[EquipmentManager] 矿卡 ${id} 位置格式错误:`, position)
+        logger.error('equipment-manager', `矿卡 ${id} 位置格式错误`, { position })
         return
       }
     } catch (error) {
-      console.error(`[EquipmentManager] 矿卡 ${id} 位置计算失败:`, error)
+      logger.error('equipment-manager', `矿卡 ${id} 位置计算失败`, null, error)
       return
     }
 

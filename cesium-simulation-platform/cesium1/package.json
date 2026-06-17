@@ -8,6 +8,8 @@
     "preview": "vite preview",
     "lint": "eslint . --fix",
     "lint:check": "eslint .",
+    "imports:check": "node ./scripts/check-import-boundaries.mjs",
+    "ci:check": "npm run lint:check && npm run imports:check && npm run build",
     "audit:prod": "npm audit --omit=dev",
     "format": "prettier --write src/"
   },

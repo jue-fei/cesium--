@@ -35,7 +35,9 @@
         </button>
         <span v-if="isLoading" class="text-xs text-gray-500 animate-pulse">加载中…</span>
         <span v-else-if="!hasValidRange" class="text-xs text-gray-500">无数据</span>
-        <span v-else class="text-base font-semibold text-green-400 font-mono">{{ currentTimeStr }}</span>
+        <span v-else class="text-base font-semibold text-green-400 font-mono">{{
+          currentTimeStr
+        }}</span>
       </div>
     </div>
 
@@ -82,7 +84,9 @@
                 :style="{ left: tick.position + '%' }"
               >
                 <div class="w-px h-1 bg-white/10"></div>
-                <span class="text-[9px] text-gray-600 mt-0.5 whitespace-nowrap transform -translate-x-1/2">
+                <span
+                  class="text-[9px] text-gray-600 mt-0.5 whitespace-nowrap transform -translate-x-1/2"
+                >
                   {{ tick.label }}
                 </span>
               </div>
@@ -226,7 +230,12 @@
           </select>
         </div>
         <label class="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer">
-          <input v-model="loop" type="checkbox" class="w-3.5 h-3.5 accent-blue-500" :disabled="!hasValidRange" />
+          <input
+            v-model="loop"
+            type="checkbox"
+            class="w-3.5 h-3.5 accent-blue-500"
+            :disabled="!hasValidRange"
+          />
           循环
         </label>
       </div>
@@ -503,7 +512,7 @@ watch(
 
 watch(
   () => [props.startTime, props.endTime],
-  ([newStart, newEnd]) => {
+  ([, newEnd]) => {
     currentTime.value = clamp(currentTime.value)
     // 如果当前在播放且范围变化导致越界，暂停
     if (isPlaying.value && currentTime.value >= newEnd) {

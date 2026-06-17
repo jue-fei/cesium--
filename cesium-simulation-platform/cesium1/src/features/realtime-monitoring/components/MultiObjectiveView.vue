@@ -11,26 +11,49 @@
         <div class="config-item">
           <span class="config-label">调度偏好</span>
           <el-select v-model="preferencePreset" size="small" class="config-select">
-            <el-option v-for="option in preferenceOptions" :key="option.value" :label="option.label"
-              :value="option.value" />
+            <el-option
+              v-for="option in preferenceOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
           </el-select>
         </div>
         <div class="config-item">
           <span class="config-label">中继点数</span>
           <el-select v-model="optimizationConfig.numWaypoints" size="small" class="config-select">
-            <el-option v-for="count in waypointOptions" :key="count" :label="`${count} 个`" :value="count" />
+            <el-option
+              v-for="count in waypointOptions"
+              :key="count"
+              :label="`${count} 个`"
+              :value="count"
+            />
           </el-select>
         </div>
         <div class="config-item">
           <span class="config-label">进化代数</span>
           <el-select v-model="optimizationConfig.generations" size="small" class="config-select">
-            <el-option v-for="count in generationOptions" :key="count" :label="`${count} 代`" :value="count" />
+            <el-option
+              v-for="count in generationOptions"
+              :key="count"
+              :label="`${count} 代`"
+              :value="count"
+            />
           </el-select>
         </div>
         <div class="config-item">
           <span class="config-label">参考方向</span>
-          <el-select v-model="optimizationConfig.referenceDivisions" size="small" class="config-select">
-            <el-option v-for="count in referenceDivisionOptions" :key="count" :label="`${count} 阶划分`" :value="count" />
+          <el-select
+            v-model="optimizationConfig.referenceDivisions"
+            size="small"
+            class="config-select"
+          >
+            <el-option
+              v-for="count in referenceDivisionOptions"
+              :key="count"
+              :label="`${count} 阶划分`"
+              :value="count"
+            />
           </el-select>
         </div>
       </div>
@@ -40,24 +63,37 @@
         <span class="config-tag">参数维度: {{ decisionDimensions }}</span>
         <span class="config-tag">偏好: {{ activePreference.label }}</span>
       </div>
-      <el-button size="small" :type="running ? 'warning' : 'success'" :loading="running" :disabled="running"
-        @click="runOptimization" style="width:100%">
+      <el-button
+        size="small"
+        :type="running ? 'warning' : 'success'"
+        :loading="running"
+        :disabled="running"
+        style="width: 100%"
+        @click="runOptimization"
+      >
         {{ running ? `优化计算中 ${genProgress}/${totalGens}` : '执行 NSGA-III 优化' }}
       </el-button>
       <div v-if="running" class="gen-bar">
-        <div class="gen-fill" :style="{ width: (genProgress / totalGens * 100) + '%' }"></div>
+        <div class="gen-fill" :style="{ width: (genProgress / totalGens) * 100 + '%' }"></div>
       </div>
     </div>
 
     <!-- 图例 -->
     <div v-if="paretoStats" class="legend-bar">
-      <span class="legend-item"><span class="legend-dot legend-line-dot"></span>Pareto 前沿投影</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#67C23A"></span>{{ levelLegend.primary
-      }}</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#E6A23C"></span>{{ levelLegend.secondary
-      }}</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#4a5568"></span>{{ levelLegend.tertiary
-      }}</span>
+      <span class="legend-item"
+        ><span class="legend-dot legend-line-dot"></span>Pareto 前沿投影</span
+      >
+      <span class="legend-item"
+        ><span class="legend-dot" style="background: #67c23a"></span>{{ levelLegend.primary }}</span
+      >
+      <span class="legend-item"
+        ><span class="legend-dot" style="background: #e6a23c"></span
+        >{{ levelLegend.secondary }}</span
+      >
+      <span class="legend-item"
+        ><span class="legend-dot" style="background: #4a5568"></span
+        >{{ levelLegend.tertiary }}</span
+      >
     </div>
 
     <!-- Pareto前沿统计 -->
@@ -69,8 +105,11 @@
       <div class="stats-grid">
         <div v-for="obj in objectives" :key="obj.id" class="stat-item">
           <span class="stat-label" :style="{ color: obj.color }">{{ obj.nameShort }}</span>
-          <span class="stat-range">{{ fmt(paretoStats.objectiveRanges[obj.id]?.min) }}~{{
-            fmt(paretoStats.objectiveRanges[obj.id]?.max) }}</span>
+          <span class="stat-range"
+            >{{ fmt(paretoStats.objectiveRanges[obj.id]?.min) }}~{{
+              fmt(paretoStats.objectiveRanges[obj.id]?.max)
+            }}</span
+          >
         </div>
       </div>
       <div class="stats-extra">
@@ -112,12 +151,20 @@
         <span class="section-note">按当前偏好与典型调度目标提取可直接比选的方案</span>
       </div>
       <div class="recommendation-grid">
-        <button v-for="plan in representativePlans" :key="plan.id" type="button" class="recommendation-card"
+        <button
+          v-for="plan in representativePlans"
+          :key="plan.id"
+          type="button"
+          class="recommendation-card"
           :class="{ 'recommendation-card-active': plan.individual === selectedPath }"
-          @click="selectPath(plan.individual)">
+          @click="selectPath(plan.individual)"
+        >
           <div class="recommendation-head">
             <span class="recommendation-title">{{ plan.title }}</span>
-            <span class="recommendation-badge" :style="{ background: rankColor(displayRank(plan.individual)) }">
+            <span
+              class="recommendation-badge"
+              :style="{ background: rankColor(displayRank(plan.individual)) }"
+            >
               {{ getDisplayLevelShort(plan.individual) }}
             </span>
           </div>
@@ -144,9 +191,22 @@
       <div class="parallel-viz">
         <svg :viewBox="`0 0 ${parallelW} ${parallelH}`" class="parallel-svg">
           <g v-for="axis in parallelAxes" :key="axis.id">
-            <line :x1="axis.x" :y1="parallelPadTop" :x2="axis.x" :y2="parallelH - parallelPadBottom" stroke="#314155"
-              stroke-width="1" />
-            <text :x="axis.x" :y="14" text-anchor="middle" fill="#d9e4ef" font-size="9" font-weight="600">
+            <line
+              :x1="axis.x"
+              :y1="parallelPadTop"
+              :x2="axis.x"
+              :y2="parallelH - parallelPadBottom"
+              stroke="#314155"
+              stroke-width="1"
+            />
+            <text
+              :x="axis.x"
+              :y="14"
+              text-anchor="middle"
+              fill="#d9e4ef"
+              font-size="9"
+              font-weight="600"
+            >
               {{ axis.nameShort }}
             </text>
             <text :x="axis.x" :y="26" text-anchor="middle" fill="#67C23A" font-size="7">
@@ -156,15 +216,24 @@
               劣 {{ formatValue(axis.worst, axis) }}
             </text>
           </g>
-          <polyline v-for="(ind, idx) in allPopulation" :key="`pl-${idx}`" :points="getParallelPoints(ind)" fill="none"
+          <polyline
+            v-for="(ind, idx) in allPopulation"
+            :key="`pl-${idx}`"
+            :points="getParallelPoints(ind)"
+            fill="none"
             :stroke="ind === selectedPath ? '#409EFF' : rankColor(displayRank(ind))"
-            :stroke-width="ind === selectedPath ? 2.2 : (displayRank(ind) === 0 ? 1.2 : 0.8)"
-            :opacity="ind === selectedPath ? 0.95 : (displayRank(ind) === 0 ? 0.55 : 0.22)" stroke-linecap="round"
-            stroke-linejoin="round" />
+            :stroke-width="ind === selectedPath ? 2.2 : displayRank(ind) === 0 ? 1.2 : 0.8"
+            :opacity="ind === selectedPath ? 0.95 : displayRank(ind) === 0 ? 0.55 : 0.22"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </div>
       <div class="parallel-footer">
-        <span>当前高亮: {{ selectedPath ? recommendationHint : '请在方案卡片、表格或路径图中选择方案' }}</span>
+        <span
+          >当前高亮:
+          {{ selectedPath ? recommendationHint : '请在方案卡片、表格或路径图中选择方案' }}</span
+        >
       </div>
     </div>
 
@@ -173,11 +242,11 @@
       <div class="section-header">
         <span>双目标投影视图</span>
         <div class="axis-selects">
-          <el-select v-model="scatterX" size="small" style="width:56px">
+          <el-select v-model="scatterX" size="small" style="width: 56px">
             <el-option v-for="o in objectives" :key="o.id" :label="o.nameShort" :value="o.id" />
           </el-select>
-          <span style="color:#718096;font-size:10px">×</span>
-          <el-select v-model="scatterY" size="small" style="width:56px">
+          <span style="color: #718096; font-size: 10px">×</span>
+          <el-select v-model="scatterY" size="small" style="width: 56px">
             <el-option v-for="o in objectives" :key="o.id" :label="o.nameShort" :value="o.id" />
           </el-select>
         </div>
@@ -186,37 +255,104 @@
         <svg :viewBox="`0 0 ${scatterW} ${scatterH}`" class="scatter-svg">
           <!-- 网格 -->
           <g v-for="i in 5" :key="`sg-${i}`">
-            <line :x1="scatterPad" :y1="scatterPad + (i - 1) * scatterGridH" :x2="scatterW - scatterPadR"
-              :y2="scatterPad + (i - 1) * scatterGridH" stroke="#2d3748" stroke-width="0.4" />
-            <line :x1="scatterPad + (i - 1) * scatterGridW" :y1="scatterPad" :x2="scatterPad + (i - 1) * scatterGridW"
-              :y2="scatterH - scatterPadB" stroke="#2d3748" stroke-width="0.4" />
+            <line
+              :x1="scatterPad"
+              :y1="scatterPad + (i - 1) * scatterGridH"
+              :x2="scatterW - scatterPadR"
+              :y2="scatterPad + (i - 1) * scatterGridH"
+              stroke="#2d3748"
+              stroke-width="0.4"
+            />
+            <line
+              :x1="scatterPad + (i - 1) * scatterGridW"
+              :y1="scatterPad"
+              :x2="scatterPad + (i - 1) * scatterGridW"
+              :y2="scatterH - scatterPadB"
+              stroke="#2d3748"
+              stroke-width="0.4"
+            />
           </g>
           <!-- 全部个体散点 -->
           <g v-for="(ind, idx) in allPopulation" :key="`sp-${idx}`">
-            <circle :cx="scatterXPos(ind)" :cy="scatterYPos(ind)"
-              :r="ind === selectedPath ? 3.5 : (displayRank(ind) === 0 ? 2.5 : 1.5)" :fill="rankColor(displayRank(ind))"
-              :opacity="ind === selectedPath ? 1 : (displayRank(ind) === 0 ? 0.9 : 0.5)"
-              :stroke="ind === selectedPath ? '#fff' : 'none'" :stroke-width="ind === selectedPath ? 1.5 : 0"
-              style="cursor:pointer" @click="selectPath(ind)" />
+            <circle
+              :cx="scatterXPos(ind)"
+              :cy="scatterYPos(ind)"
+              :r="ind === selectedPath ? 3.5 : displayRank(ind) === 0 ? 2.5 : 1.5"
+              :fill="rankColor(displayRank(ind))"
+              :opacity="ind === selectedPath ? 1 : displayRank(ind) === 0 ? 0.9 : 0.5"
+              :stroke="ind === selectedPath ? '#fff' : 'none'"
+              :stroke-width="ind === selectedPath ? 1.5 : 0"
+              style="cursor: pointer"
+              @click="selectPath(ind)"
+            />
           </g>
           <!-- Pareto前沿连线 (Rank 0) -->
-          <polyline v-if="paretoLinePoints" :points="paretoLinePoints" fill="none" stroke="#67C23A" stroke-width="1.8"
-            stroke-dasharray="4,2" opacity="0.7" />
+          <polyline
+            v-if="paretoLinePoints"
+            :points="paretoLinePoints"
+            fill="none"
+            stroke="#67C23A"
+            stroke-width="1.8"
+            stroke-dasharray="4,2"
+            opacity="0.7"
+          />
           <!-- 轴标签 -->
-          <text :x="scatterW / 2" :y="scatterH - 4" text-anchor="middle" fill="#a0aec0" font-size="9">{{
-            scatterXObj.nameShort }} ({{ scatterXObj.unit }})</text>
-          <text :x="6" :y="scatterH / 2" text-anchor="middle" fill="#a0aec0" font-size="9" transform-origin="center"
-            :transform="`rotate(-90, 6, ${scatterH / 2})`">{{ scatterYObj.nameShort }} ({{ scatterYObj.unit }})</text>
+          <text
+            :x="scatterW / 2"
+            :y="scatterH - 4"
+            text-anchor="middle"
+            fill="#a0aec0"
+            font-size="9"
+          >
+            {{ scatterXObj.nameShort }} ({{ scatterXObj.unit }})
+          </text>
+          <text
+            :x="6"
+            :y="scatterH / 2"
+            text-anchor="middle"
+            fill="#a0aec0"
+            font-size="9"
+            transform-origin="center"
+            :transform="`rotate(-90, 6, ${scatterH / 2})`"
+          >
+            {{ scatterYObj.nameShort }} ({{ scatterYObj.unit }})
+          </text>
           <!-- 轴刻度 -->
-          <text v-for="(t, i) in xTicks" :key="`xt-${i}`" :x="scatterPad + i * scatterGridW"
-            :y="scatterH - scatterPadB + 12" text-anchor="middle" fill="#718096" font-size="7">{{ t }}</text>
-          <text v-for="(t, i) in yTicks" :key="`yt-${i}`" :x="scatterPad - 6"
-            :y="scatterPad + (4 - i) * scatterGridH + 3" text-anchor="end" fill="#718096" font-size="7">{{ t }}</text>
+          <text
+            v-for="(t, i) in xTicks"
+            :key="`xt-${i}`"
+            :x="scatterPad + i * scatterGridW"
+            :y="scatterH - scatterPadB + 12"
+            text-anchor="middle"
+            fill="#718096"
+            font-size="7"
+          >
+            {{ t }}
+          </text>
+          <text
+            v-for="(t, i) in yTicks"
+            :key="`yt-${i}`"
+            :x="scatterPad - 6"
+            :y="scatterPad + (4 - i) * scatterGridH + 3"
+            text-anchor="end"
+            fill="#718096"
+            font-size="7"
+          >
+            {{ t }}
+          </text>
         </svg>
       </div>
       <div class="scatter-info">
-        <span>X: {{ scatterXObj.nameShort }} ({{ fmt(scatterXRange.min) }}~{{ fmt(scatterXRange.max) }})</span>
-        <span>Y: {{ scatterYObj.nameShort }} ({{ fmt(scatterYRange.min) }}~{{ fmt(scatterYRange.max) }})</span>
+        <span
+          >X: {{ scatterXObj.nameShort }} ({{ fmt(scatterXRange.min) }}~{{
+            fmt(scatterXRange.max)
+          }})</span
+        >
+        <span
+          >Y: {{ scatterYObj.nameShort }} ({{ fmt(scatterYRange.min) }}~{{
+            fmt(scatterYRange.max)
+          }})</span
+        >
         <span>用途: 用于观察两个目标之间的局部权衡关系</span>
       </div>
     </div>
@@ -236,26 +372,67 @@
             <line :x1="i * 56" :y1="0" :x2="i * 56" :y2="160" stroke="#2d3748" stroke-width="0.5" />
           </g>
           <g v-for="(ind, idx) in rankGroup[3]" :key="`r3-${idx}`">
-            <polyline :points="pathPoints(ind)" fill="none" stroke="#4a5568"
-              :stroke-width="ind === selectedPath ? 2.5 : 0.5" :opacity="ind === selectedPath ? 0.9 : 0.18" />
+            <polyline
+              :points="pathPoints(ind)"
+              fill="none"
+              stroke="#4a5568"
+              :stroke-width="ind === selectedPath ? 2.5 : 0.5"
+              :opacity="ind === selectedPath ? 0.9 : 0.18"
+            />
           </g>
           <g v-for="(ind, idx) in rankGroup[2]" :key="`r2-${idx}`">
-            <polyline :points="pathPoints(ind)" fill="none" stroke="#E6A23C"
-              :stroke-width="ind === selectedPath ? 2.5 : 0.6" :opacity="ind === selectedPath ? 0.9 : 0.35" />
+            <polyline
+              :points="pathPoints(ind)"
+              fill="none"
+              stroke="#E6A23C"
+              :stroke-width="ind === selectedPath ? 2.5 : 0.6"
+              :opacity="ind === selectedPath ? 0.9 : 0.35"
+            />
           </g>
           <g v-for="(ind, idx) in rankGroup[1]" :key="`r1-${idx}`">
-            <polyline :points="pathPoints(ind)" fill="none" stroke="#67C23A"
-              :stroke-width="ind === selectedPath ? 3 : 1.2" :opacity="ind === selectedPath ? 1 : 0.7" />
+            <polyline
+              :points="pathPoints(ind)"
+              fill="none"
+              stroke="#67C23A"
+              :stroke-width="ind === selectedPath ? 3 : 1.2"
+              :opacity="ind === selectedPath ? 1 : 0.7"
+            />
           </g>
           <circle :cx="35" :cy="125" r="6" fill="#409EFF" />
-          <text :x="35" :y="115" text-anchor="middle" fill="#409EFF" font-size="9" font-weight="bold">起</text>
+          <text
+            :x="35"
+            :y="115"
+            text-anchor="middle"
+            fill="#409EFF"
+            font-size="9"
+            font-weight="bold"
+          >
+            起
+          </text>
           <circle :cx="245" :cy="35" r="6" fill="#F56C6C" />
-          <text :x="245" :y="25" text-anchor="middle" fill="#F56C6C" font-size="9" font-weight="bold">终</text>
+          <text
+            :x="245"
+            :y="25"
+            text-anchor="middle"
+            fill="#F56C6C"
+            font-size="9"
+            font-weight="bold"
+          >
+            终
+          </text>
         </svg>
         <div v-if="selectedPath" class="path-info">
-          <div>显示层级: <b :style="{ color: rankColor(displayRank(selectedPath)) }">{{ getDisplayLevelLabel(selectedPath)
-          }}</b></div>
-          <div>拥挤距离: <b>{{ selectedPath.crowdingDistance >= 1e9 ? '∞' : selectedPath.crowdingDistance.toFixed(3) }}</b>
+          <div>
+            显示层级:
+            <b :style="{ color: rankColor(displayRank(selectedPath)) }">{{
+              getDisplayLevelLabel(selectedPath)
+            }}</b>
+          </div>
+          <div>
+            拥挤距离:
+            <b>{{
+              selectedPath.crowdingDistance >= 1e9 ? '∞' : selectedPath.crowdingDistance.toFixed(3)
+            }}</b>
           </div>
         </div>
       </div>
@@ -270,18 +447,46 @@
             <circle :cx="70" :cy="70" :r="i * 14" fill="none" stroke="#4a5568" stroke-width="0.5" />
           </g>
           <g v-for="(obj, i) in objectives" :key="`a-${i}`">
-            <line :x1="70" :y1="70" :x2="70 + 45 * Math.cos((i * 72 - 90) * Math.PI / 180)"
-              :y2="70 + 45 * Math.sin((i * 72 - 90) * Math.PI / 180)" stroke="#4a5568" stroke-width="0.5" />
-            <text :x="70 + 58 * Math.cos((i * 72 - 90) * Math.PI / 180)"
-              :y="70 + 58 * Math.sin((i * 72 - 90) * Math.PI / 180)" text-anchor="middle" fill="#a0aec0"
-              font-size="8">{{ obj.nameShort }}</text>
+            <line
+              :x1="70"
+              :y1="70"
+              :x2="70 + 45 * Math.cos(((i * 72 - 90) * Math.PI) / 180)"
+              :y2="70 + 45 * Math.sin(((i * 72 - 90) * Math.PI) / 180)"
+              stroke="#4a5568"
+              stroke-width="0.5"
+            />
+            <text
+              :x="70 + 58 * Math.cos(((i * 72 - 90) * Math.PI) / 180)"
+              :y="70 + 58 * Math.sin(((i * 72 - 90) * Math.PI) / 180)"
+              text-anchor="middle"
+              fill="#a0aec0"
+              font-size="8"
+            >
+              {{ obj.nameShort }}
+            </text>
           </g>
-          <polygon v-if="paretoStats" :points="getRadarPoints('best')" fill="rgba(103,194,58,0.25)" stroke="#67C23A"
-            stroke-width="1.5" />
-          <polygon v-if="paretoStats" :points="getRadarPoints('worst')" fill="rgba(245,108,108,0.08)" stroke="#F56C6C"
-            stroke-width="0.8" stroke-dasharray="2,2" />
-          <polygon v-if="selectedPath" :points="getRadarPoints('selected')" fill="rgba(64,158,255,0.15)"
-            stroke="#409EFF" stroke-width="1.5" />
+          <polygon
+            v-if="paretoStats"
+            :points="getRadarPoints('best')"
+            fill="rgba(103,194,58,0.25)"
+            stroke="#67C23A"
+            stroke-width="1.5"
+          />
+          <polygon
+            v-if="paretoStats"
+            :points="getRadarPoints('worst')"
+            fill="rgba(245,108,108,0.08)"
+            stroke="#F56C6C"
+            stroke-width="0.8"
+            stroke-dasharray="2,2"
+          />
+          <polygon
+            v-if="selectedPath"
+            :points="getRadarPoints('selected')"
+            fill="rgba(64,158,255,0.15)"
+            stroke="#409EFF"
+            stroke-width="1.5"
+          />
         </svg>
       </div>
       <div v-if="selectedPath" class="obj-list">
@@ -289,10 +494,16 @@
           <div class="obj-info">
             <span class="dot" :style="{ background: obj.color }"></span>
             <span>{{ obj.nameShort }}</span>
-            <span :style="{ color: obj.color }">{{ formatValue(selectedPath.objectives[obj.id], obj) }}</span>
+            <span :style="{ color: obj.color }">{{
+              formatValue(selectedPath.objectives[obj.id], obj)
+            }}</span>
           </div>
-          <el-progress :percentage="getBestPercent(selectedPath.objectives[obj.id], obj)" :color="obj.color"
-            :stroke-width="3" :show-text="false" />
+          <el-progress
+            :percentage="getBestPercent(selectedPath.objectives[obj.id], obj)"
+            :color="obj.color"
+            :stroke-width="3"
+            :show-text="false"
+          />
         </div>
       </div>
     </div>
@@ -301,8 +512,14 @@
     <div v-if="selectedPath" class="detail-panel">
       <div class="section-header">
         <span>选中方案详情</span>
-        <el-tag size="small"
-          :style="{ background: rankColor(displayRank(selectedPath)), color: displayRank(selectedPath) === 0 ? '#1a1a2e' : '#fff', border: 'none' }">
+        <el-tag
+          size="small"
+          :style="{
+            background: rankColor(displayRank(selectedPath)),
+            color: displayRank(selectedPath) === 0 ? '#1a1a2e' : '#fff',
+            border: 'none'
+          }"
+        >
           {{ getDisplayLevelShort(selectedPath) }}
         </el-tag>
       </div>
@@ -311,13 +528,14 @@
         <div v-for="obj in objectives" :key="obj.id" class="detail-obj-row">
           <span class="detail-obj-dot" :style="{ background: obj.color }"></span>
           <span class="detail-obj-name">{{ obj.name }}</span>
-          <span class="detail-obj-val" :style="{ color: obj.color }">{{ fmt(selectedPath.objectives[obj.id]) }} {{
-            obj.unit }}</span>
+          <span class="detail-obj-val" :style="{ color: obj.color }"
+            >{{ fmt(selectedPath.objectives[obj.id]) }} {{ obj.unit }}</span
+          >
           <span class="detail-obj-dir">{{ obj.dir === 'min' ? '↓' : '↑' }}</span>
         </div>
       </div>
       <!-- 影响参数 -->
-      <div class="detail-params" v-if="selectedPath.objectives._params">
+      <div v-if="selectedPath.objectives._params" class="detail-params">
         <div class="detail-subtitle">路径特征参数</div>
         <div class="params-grid">
           <div class="param-item">
@@ -347,12 +565,16 @@
           </div>
           <div class="param-item">
             <span class="param-label">最小转弯半径</span>
-            <span class="param-val">{{ fmt(selectedPath.objectives._params.minTurnRadiusM) }} m</span>
+            <span class="param-val"
+              >{{ fmt(selectedPath.objectives._params.minTurnRadiusM) }} m</span
+            >
             <span class="param-desc">最小几何转弯半径</span>
           </div>
           <div class="param-item">
             <span class="param-label">危险暴露度</span>
-            <span class="param-val">{{ selectedPath.objectives._params.hazardExposure.toFixed(3) }}</span>
+            <span class="param-val">{{
+              selectedPath.objectives._params.hazardExposure.toFixed(3)
+            }}</span>
             <span class="param-desc">单位里程平均风险暴露</span>
           </div>
           <div class="param-item">
@@ -367,8 +589,9 @@
           </div>
           <div class="param-item">
             <span class="param-label">拥挤距离</span>
-            <span class="param-val">{{ selectedPath.crowdingDistance >= 1e9 ? '∞' :
-              selectedPath.crowdingDistance.toFixed(3) }}</span>
+            <span class="param-val">{{
+              selectedPath.crowdingDistance >= 1e9 ? '∞' : selectedPath.crowdingDistance.toFixed(3)
+            }}</span>
             <span class="param-desc">Pareto 解集中的分散程度</span>
           </div>
         </div>
@@ -380,9 +603,15 @@
           <span class="wp-note">起点→中继点→终点</span>
         </div>
         <div class="waypoints-grid">
-          <div v-for="(wp, i) in selectedPath.waypoints" :key="`wp-${i}`" class="wp-item"
-            :class="{ 'wp-endpoint': i === 0 || i === selectedPath.waypoints.length - 1 }">
-            <span class="wp-idx">{{ i === 0 ? '起' : i === selectedPath.waypoints.length - 1 ? '终' : i }}</span>
+          <div
+            v-for="(wp, i) in selectedPath.waypoints"
+            :key="`wp-${i}`"
+            class="wp-item"
+            :class="{ 'wp-endpoint': i === 0 || i === selectedPath.waypoints.length - 1 }"
+          >
+            <span class="wp-idx">{{
+              i === 0 ? '起' : i === selectedPath.waypoints.length - 1 ? '终' : i
+            }}</span>
             <span class="wp-coord">({{ wp.x.toFixed(1) }}, {{ wp.y.toFixed(1) }})</span>
           </div>
         </div>
@@ -393,7 +622,7 @@
     <div v-if="allPopulation.length > 0" class="list-panel">
       <div class="section-header">
         <span>候选解列表 ({{ allPopulation.length }})</span>
-        <span style="font-size:10px;color:#718096">点击行查看方案详情</span>
+        <span style="font-size: 10px; color: #718096">点击行查看方案详情</span>
       </div>
       <div class="table-scroll">
         <table class="ind-table">
@@ -402,7 +631,12 @@
               <th class="col-num">#</th>
               <th class="col-r">层级</th>
               <th class="col-cd">拥挤距离</th>
-              <th class="col-obj" v-for="obj in objectives" :key="obj.id" :style="{ color: obj.color }">
+              <th
+                v-for="obj in objectives"
+                :key="obj.id"
+                class="col-obj"
+                :style="{ color: obj.color }"
+              >
                 {{ obj.nameShort }}
                 <span class="th-unit">{{ obj.unit }}</span>
               </th>
@@ -412,31 +646,52 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(ind, idx) in sortedPopulation" :key="`row-${idx}`"
-              :class="{ 'row-sel': ind === selectedPath, 'row-r1': displayRank(ind) === 0 }" @click="selectPath(ind)">
+            <tr
+              v-for="(ind, idx) in sortedPopulation"
+              :key="`row-${idx}`"
+              :class="{ 'row-sel': ind === selectedPath, 'row-r1': displayRank(ind) === 0 }"
+              @click="selectPath(ind)"
+            >
               <td class="col-num">{{ idx + 1 }}</td>
               <td class="col-r">
-                <span class="rank-badge"
-                  :style="{ background: rankColor(displayRank(ind)), color: displayRank(ind) === 0 ? '#1a1a2e' : '#fff' }">
+                <span
+                  class="rank-badge"
+                  :style="{
+                    background: rankColor(displayRank(ind)),
+                    color: displayRank(ind) === 0 ? '#1a1a2e' : '#fff'
+                  }"
+                >
                   {{ getDisplayLevelShort(ind) }}
                 </span>
               </td>
               <td class="col-cd" :class="{ 'cd-inf': ind.crowdingDistance >= 1e9 }">
                 {{ ind.crowdingDistance >= 1e9 ? '∞' : ind.crowdingDistance.toFixed(2) }}
               </td>
-              <td class="col-obj" v-for="obj in objectives" :key="obj.id">
+              <td v-for="obj in objectives" :key="obj.id" class="col-obj">
                 {{ fmt(ind.objectives[obj.id]) }}
               </td>
-              <td class="col-param">{{ ind.objectives._params ? fmt(ind.objectives._params.routeLen) : '-' }}</td>
-              <td class="col-param">{{ ind.objectives._params ? fmt(ind.objectives._params.maxGrade) : '-' }}</td>
-              <td class="col-param">{{ ind.objectives._params ? ind.objectives._params.hazardExposure.toFixed(2) : '-'
-              }}</td>
+              <td class="col-param">
+                {{ ind.objectives._params ? fmt(ind.objectives._params.routeLen) : '-' }}
+              </td>
+              <td class="col-param">
+                {{ ind.objectives._params ? fmt(ind.objectives._params.maxGrade) : '-' }}
+              </td>
+              <td class="col-param">
+                {{
+                  ind.objectives._params ? ind.objectives._params.hazardExposure.toFixed(2) : '-'
+                }}
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
       <div class="rank-summary">
-        <span v-for="entry in sortedRankEntries" v-show="entry.size > 0" :key="'rs-' + entry.rankKey" class="rs-item">
+        <span
+          v-for="entry in sortedRankEntries"
+          v-show="entry.size > 0"
+          :key="'rs-' + entry.rankKey"
+          class="rs-item"
+        >
           <span class="rs-dot" :style="{ background: rankColor(entry.level) }"></span>
           {{ getSummaryLabel(entry.level) }}: {{ entry.size }}个
         </span>
@@ -448,6 +703,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { runNSGA3, OBJECTIVES, DEFAULT_CONFIG } from '../services/nsga3Core.js'
+import { logger } from '@/utils/logger.js'
 
 defineOptions({ name: 'MultiObjectiveView' })
 
@@ -460,7 +716,7 @@ const OBJECTIVE_META = {
 }
 
 const objectives = computed(() =>
-  OBJECTIVES.map((objective) => ({
+  OBJECTIVES.map(objective => ({
     ...objective,
     ...OBJECTIVE_META[objective.id]
   }))
@@ -561,7 +817,8 @@ const parallelAxes = computed(() => {
 
 const scatterXRange = computed(() => {
   if (allPopulation.value.length === 0) return { min: 0, max: 100 }
-  let min = Infinity, max = -Infinity
+  let min = Infinity,
+    max = -Infinity
   for (const ind of allPopulation.value) {
     const v = ind.objectives[scatterX.value]
     if (v < min) min = v
@@ -573,7 +830,8 @@ const scatterXRange = computed(() => {
 
 const scatterYRange = computed(() => {
   if (allPopulation.value.length === 0) return { min: 0, max: 100 }
-  let min = Infinity, max = -Infinity
+  let min = Infinity,
+    max = -Infinity
   for (const ind of allPopulation.value) {
     const v = ind.objectives[scatterY.value]
     if (v < min) min = v
@@ -644,8 +902,8 @@ const paretoLinePoints = computed(() => {
 })
 
 // 当全部个体都是Rank 0时，用拥挤距离分档来提供视觉层次
-const useCrowdingTiers = computed(() =>
-  allPopulation.value.length > 0 && allPopulation.value.every(ind => ind.rank === 0)
+const useCrowdingTiers = computed(
+  () => allPopulation.value.length > 0 && allPopulation.value.every(ind => ind.rank === 0)
 )
 
 const crowdingTierMap = computed(() => {
@@ -653,7 +911,8 @@ const crowdingTierMap = computed(() => {
   const map = new Map()
   const sorted = [...allPopulation.value].sort((a, b) => b.crowdingDistance - a.crowdingDistance)
   const n = sorted.length
-  const t1 = Math.ceil(n * 0.3), t2 = Math.ceil(n * 0.65)
+  const t1 = Math.ceil(n * 0.3),
+    t2 = Math.ceil(n * 0.65)
   sorted.forEach((ind, i) => {
     if (i < t1) map.set(ind, 0)
     else if (i < t2) map.set(ind, 1)
@@ -730,9 +989,7 @@ const sortedRankEntries = computed(() =>
 )
 
 const sortedPopulation = computed(() => {
-  const groupOrder = new Map(
-    sortedRankEntries.value.map((entry, index) => [entry.rankKey, index])
-  )
+  const groupOrder = new Map(sortedRankEntries.value.map((entry, index) => [entry.rankKey, index]))
 
   return [...allPopulation.value].sort((a, b) => {
     const rankKeyA = String(Math.min(displayRank(a), 2) + 1)
@@ -744,17 +1001,6 @@ const sortedPopulation = computed(() => {
     return b.crowdingDistance - a.crowdingDistance
   })
 })
-
-function pickBestByCrowding(all) {
-  if (!all || all.length === 0) return null
-  let best = all[0]
-  for (let i = 1; i < all.length; i++) {
-    if (all[i].crowdingDistance > best.crowdingDistance) {
-      best = all[i]
-    }
-  }
-  return best
-}
 
 function buildObjectiveRanges(individuals) {
   const ranges = {}
@@ -787,12 +1033,13 @@ function selectRecommendedPath(individuals) {
   for (const individual of individuals) {
     let score = 0
     for (const objective of OBJECTIVES) {
-      score += getObjectiveUtility(individual.objectives[objective.id], objective, ranges) * weights[objective.id]
+      score +=
+        getObjectiveUtility(individual.objectives[objective.id], objective, ranges) *
+        weights[objective.id]
     }
 
-    const crowdingBonus = individual.crowdingDistance >= 1e9
-      ? 0.03
-      : Math.min(0.03, individual.crowdingDistance / 100)
+    const crowdingBonus =
+      individual.crowdingDistance >= 1e9 ? 0.03 : Math.min(0.03, individual.crowdingDistance / 100)
     score += crowdingBonus
 
     if (score > bestScore) {
@@ -804,9 +1051,7 @@ function selectRecommendedPath(individuals) {
   return best
 }
 
-const recommendationTitle = computed(() =>
-  `${activePreference.value.label}下的推荐折中方案`
-)
+const recommendationTitle = computed(() => `${activePreference.value.label}下的推荐折中方案`)
 
 const recommendationHint = computed(() => {
   if (!selectedPath.value) return '待算法计算完成后生成推荐方案。'
@@ -839,8 +1084,9 @@ const representativePlans = computed(() => {
 
   const efficiency = pickPlanByScore(
     candidates,
-    ind => getObjectiveUtility(ind.objectives.t, OBJECTIVES[1], objectiveRanges.value) * 0.65
-      + getObjectiveUtility(ind.objectives.d, OBJECTIVES[0], objectiveRanges.value) * 0.35,
+    ind =>
+      getObjectiveUtility(ind.objectives.t, OBJECTIVES[1], objectiveRanges.value) * 0.65 +
+      getObjectiveUtility(ind.objectives.d, OBJECTIVES[0], objectiveRanges.value) * 0.35,
     used
   )
   if (efficiency) {
@@ -872,8 +1118,9 @@ const representativePlans = computed(() => {
 
   const heavyLoad = pickPlanByScore(
     candidates,
-    ind => getObjectiveUtility(ind.objectives.l, OBJECTIVES[4], objectiveRanges.value) * 0.7
-      + getObjectiveUtility(ind.objectives.f, OBJECTIVES[2], objectiveRanges.value) * 0.3,
+    ind =>
+      getObjectiveUtility(ind.objectives.l, OBJECTIVES[4], objectiveRanges.value) * 0.7 +
+      getObjectiveUtility(ind.objectives.f, OBJECTIVES[2], objectiveRanges.value) * 0.3,
     used
   )
   if (heavyLoad) {
@@ -896,11 +1143,13 @@ function getObjectiveScore(ind, objective) {
 }
 
 function getParallelPoints(ind) {
-  return parallelAxes.value.map((axis) => {
-    const score = getObjectiveScore(ind, axis)
-    const y = parallelPadTop + (1 - score) * (parallelH - parallelPadTop - parallelPadBottom)
-    return `${axis.x},${y}`
-  }).join(' ')
+  return parallelAxes.value
+    .map(axis => {
+      const score = getObjectiveScore(ind, axis)
+      const y = parallelPadTop + (1 - score) * (parallelH - parallelPadTop - parallelPadBottom)
+      return `${axis.x},${y}`
+    })
+    .join(' ')
 }
 
 function runOptimization() {
@@ -939,7 +1188,7 @@ function runOptimization() {
         result.paretoFront.length > 0 ? result.paretoFront : result.allIndividuals
       )
     } catch (e) {
-      console.error('NSGA-III error:', e)
+      logger.error('multi-objective-view', 'NSGA-III 计算失败', null, e)
     } finally {
       running.value = false
     }
@@ -956,23 +1205,25 @@ function pathPoints(ind) {
 
 function getRadarPoints(type) {
   if (!paretoStats.value || !paretoStats.value.objectiveRanges) return ''
-  return objectives.value.map((obj, i) => {
-    const range = paretoStats.value.objectiveRanges[obj.id]
-    if (!range) return '70,70'
-    let norm
-    if (type === 'best') {
-      norm = obj.dir === 'max' ? range.max / obj.max : 1 - range.min / obj.max
-    } else if (type === 'selected' && selectedPath.value) {
-      const v = selectedPath.value.objectives[obj.id]
-      norm = obj.dir === 'max' ? v / obj.max : 1 - v / obj.max
-    } else {
-      norm = obj.dir === 'max' ? range.min / obj.max : 1 - range.max / obj.max
-    }
-    norm = Math.max(0, Math.min(1, norm))
-    const r = 45 * norm
-    const angle = (i * 72 - 90) * Math.PI / 180
-    return `${70 + r * Math.cos(angle)},${70 + r * Math.sin(angle)}`
-  }).join(' ')
+  return objectives.value
+    .map((obj, i) => {
+      const range = paretoStats.value.objectiveRanges[obj.id]
+      if (!range) return '70,70'
+      let norm
+      if (type === 'best') {
+        norm = obj.dir === 'max' ? range.max / obj.max : 1 - range.min / obj.max
+      } else if (type === 'selected' && selectedPath.value) {
+        const v = selectedPath.value.objectives[obj.id]
+        norm = obj.dir === 'max' ? v / obj.max : 1 - v / obj.max
+      } else {
+        norm = obj.dir === 'max' ? range.min / obj.max : 1 - range.max / obj.max
+      }
+      norm = Math.max(0, Math.min(1, norm))
+      const r = 45 * norm
+      const angle = ((i * 72 - 90) * Math.PI) / 180
+      return `${70 + r * Math.cos(angle)},${70 + r * Math.sin(angle)}`
+    })
+    .join(' ')
 }
 
 function getBestPercent(v, obj) {
@@ -982,17 +1233,24 @@ function getBestPercent(v, obj) {
   }
   const range = paretoStats.value.objectiveRanges[obj.id]
   if (!range || range.max === range.min) return 50
-  const norm = obj.dir === 'max'
-    ? (v - range.min) / (range.max - range.min)
-    : 1 - (v - range.min) / (range.max - range.min)
+  const norm =
+    obj.dir === 'max'
+      ? (v - range.min) / (range.max - range.min)
+      : 1 - (v - range.min) / (range.max - range.min)
   return Math.round(Math.max(0, Math.min(1, norm)) * 100)
 }
 
-function formatValue(v, obj) { return Math.round(v) + obj.unit }
+function formatValue(v, obj) {
+  return Math.round(v) + obj.unit
+}
 
-function fmt(v) { return v == null ? '-' : Number(v).toFixed(1) }
+function fmt(v) {
+  return v == null ? '-' : Number(v).toFixed(1)
+}
 
-onMounted(() => { runOptimization() })
+onMounted(() => {
+  runOptimization()
+})
 </script>
 
 <style scoped>
@@ -1097,7 +1355,13 @@ onMounted(() => { runOptimization() })
 }
 
 .legend-line-dot {
-  background: repeating-linear-gradient(90deg, #67c23a 0px, #67c23a 3px, transparent 3px, transparent 5px);
+  background: repeating-linear-gradient(
+    90deg,
+    #67c23a 0px,
+    #67c23a 3px,
+    transparent 3px,
+    transparent 5px
+  );
 }
 
 .stats-panel,
@@ -1215,7 +1479,10 @@ onMounted(() => { runOptimization() })
   padding: 8px;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease,
+    background 0.15s ease;
 }
 
 .recommendation-card:hover {

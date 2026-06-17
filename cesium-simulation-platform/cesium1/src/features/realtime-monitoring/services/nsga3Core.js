@@ -18,15 +18,15 @@
 // ===================== 算法配置 =====================
 
 const DEFAULT_CONFIG = {
-  populationSize: 72,         // 结合 5 目标参考方向，适合 many-objective 展示
-  generations: 90,            // 适度增加迭代轮次提升前沿覆盖
-  crossoverProbability: 0.9,  // 交叉概率
-  mutationProbability: 0.12,  // 变异概率
-  etaC: 20,                   // SBX交叉分布指数
-  etaM: 20,                   // 多项式变异分布指数
-  tournamentSize: 2,          // 兼容旧配置，当前父代选择不使用该参数
-  referenceDivisions: 4,      // 5 目标下生成 70 个标准参考方向
-  numWaypoints: 6             // 决策变量个数 = 中继点数 * 2，更适合多参数场景
+  populationSize: 72, // 结合 5 目标参考方向，适合 many-objective 展示
+  generations: 90, // 适度增加迭代轮次提升前沿覆盖
+  crossoverProbability: 0.9, // 交叉概率
+  mutationProbability: 0.12, // 变异概率
+  etaC: 20, // SBX交叉分布指数
+  etaM: 20, // 多项式变异分布指数
+  tournamentSize: 2, // 兼容旧配置，当前父代选择不使用该参数
+  referenceDivisions: 4, // 5 目标下生成 70 个标准参考方向
+  numWaypoints: 6 // 决策变量个数 = 中继点数 * 2，更适合多参数场景
 }
 
 // ===================== 目标定义 =====================
@@ -41,9 +41,9 @@ const OBJECTIVES = [
 
 // ===================== 矿山地形系统 =====================
 
-const UNIT_TO_M = 10  // 1 SVG单位 = 10米
+const UNIT_TO_M = 10 // 1 SVG单位 = 10米
 const MAX_GRADE = 0.15
-const MIN_TURN_RADIUS_SVG = 5   // 5 SVG单位 = 50米
+const MIN_TURN_RADIUS_SVG = 5 // 5 SVG单位 = 50米
 const MIN_TURN_RADIUS_M = MIN_TURN_RADIUS_SVG * UNIT_TO_M
 const CONSTRAINT_EPS = 1e-9
 
@@ -52,11 +52,11 @@ const CONSTRAINT_EPS = 1e-9
  * 直接对角线穿越将经过爆破区A、设备交叉区，产生真实的安全vs距离trade-off
  */
 const HAZARD_ZONES = [
-  { cx: 75, cy: 115, r: 16, severity: 0.90, label: '爆破作业区A' },
+  { cx: 75, cy: 115, r: 16, severity: 0.9, label: '爆破作业区A' },
   { cx: 185, cy: 55, r: 14, severity: 0.85, label: '不稳定边坡' },
-  { cx: 135, cy: 85, r: 18, severity: 0.70, label: '设备交叉区' },
-  { cx: 55, cy: 55, r: 13, severity: 0.60, label: '积水区' },
-  { cx: 225, cy: 105, r: 15, severity: 0.80, label: '爆破作业区B' }
+  { cx: 135, cy: 85, r: 18, severity: 0.7, label: '设备交叉区' },
+  { cx: 55, cy: 55, r: 13, severity: 0.6, label: '积水区' },
+  { cx: 225, cy: 105, r: 15, severity: 0.8, label: '爆破作业区B' }
 ]
 
 /**
@@ -64,21 +64,24 @@ const HAZARD_ZONES = [
  * 三层叠加：基底起伏 + NW-SE主山脊 + 矿坑凹陷
  */
 function getElevation(x, y) {
-  const nx = x / 280, ny = y / 160
+  const nx = x / 280,
+    ny = y / 160
 
   // 基底起伏
-  const base = 50
-    + 12 * Math.sin(2 * Math.PI * x / 140) * Math.cos(2 * Math.PI * y / 80)
-    + 8 * Math.sin(2 * Math.PI * (x + y) / 100 + 0.7)
-    + 6 * Math.cos(2 * Math.PI * x / 90) * Math.sin(2 * Math.PI * y / 55)
+  const base =
+    50 +
+    12 * Math.sin((2 * Math.PI * x) / 140) * Math.cos((2 * Math.PI * y) / 80) +
+    8 * Math.sin((2 * Math.PI * (x + y)) / 100 + 0.7) +
+    6 * Math.cos((2 * Math.PI * x) / 90) * Math.sin((2 * Math.PI * y) / 55)
 
   // NW-SE 主山脊 (从左上到右下，贯穿对角线)
-  const ridgeNx = 0.30, ridgeNy = -1.0
+  const ridgeNx = 0.3,
+    ridgeNy = -1.0
   const ridgeLen = Math.sqrt(ridgeNx * ridgeNx + ridgeNy * ridgeNy)
   const distFromRidge = Math.abs(ridgeNx * nx + ridgeNy * (ny - 0.65)) / ridgeLen
-  const mainRidge = 70 * Math.exp(-distFromRidge * distFromRidge / 0.06)
-  const secRidge1 = 35 * Math.exp(-(distFromRidge - 0.12) * (distFromRidge - 0.12) / 0.015)
-  const secRidge2 = 35 * Math.exp(-(distFromRidge + 0.12) * (distFromRidge + 0.12) / 0.015)
+  const mainRidge = 70 * Math.exp((-distFromRidge * distFromRidge) / 0.06)
+  const secRidge1 = 35 * Math.exp((-(distFromRidge - 0.12) * (distFromRidge - 0.12)) / 0.015)
+  const secRidge2 = 35 * Math.exp((-(distFromRidge + 0.12) * (distFromRidge + 0.12)) / 0.015)
 
   // 矿坑凹陷
   const pit1 = -35 * Math.exp(-((x - 130) * (x - 130) + (y - 75) * (y - 75)) / 700)
@@ -112,7 +115,8 @@ function getSignedGradeAlongDirection(x, y, dirX, dirY) {
 function getHazardExposure(x, y) {
   let exp = 0
   for (const h of HAZARD_ZONES) {
-    const dx = x - h.cx, dy = y - h.cy
+    const dx = x - h.cx,
+      dy = y - h.cy
     const dist = Math.sqrt(dx * dx + dy * dy)
     if (dist < h.r) {
       exp += h.severity * (1 - dist / h.r) * (1 - dist / h.r)
@@ -127,14 +131,15 @@ function getHazardExposure(x, y) {
 /** 路面质量 (0~1)，坡度越大质量越低 */
 function getRoadQuality(x, y) {
   const grade = getGrade(x, y)
-  return Math.max(0.15, Math.min(1, 1 - grade / 0.20))
+  return Math.max(0.15, Math.min(1, 1 - grade / 0.2))
 }
 
 // ===================== 路径采样与几何 =====================
 
 /** 沿线段按子区间中点采样，返回高程/坡度/危险度/路面质量 */
 function sampleSegment(a, b, stepMeters = 50) {
-  const dx = b.x - a.x, dy = b.y - a.y
+  const dx = b.x - a.x,
+    dy = b.y - a.y
   const segLen = Math.sqrt(dx * dx + dy * dy)
   const segLenM = segLen * UNIT_TO_M
   const numIntervals = Math.max(1, Math.ceil(segLenM / stepMeters))
@@ -142,10 +147,12 @@ function sampleSegment(a, b, stepMeters = 50) {
   const subsegDist = segLenM / numIntervals
   for (let k = 0; k < numIntervals; k++) {
     const t = (k + 0.5) / numIntervals
-    const x = a.x + t * dx, y = a.y + t * dy
+    const x = a.x + t * dx,
+      y = a.y + t * dy
     const signedGrade = getSignedGradeAlongDirection(x, y, dx, dy)
     results.push({
-      x, y,
+      x,
+      y,
       elev: getElevation(x, y),
       grade: Math.abs(signedGrade),
       signedGrade,
@@ -163,18 +170,20 @@ function computeTurnRadius(prev, curr, next) {
   const b = Math.hypot(prev.x - curr.x, prev.y - curr.y)
   const c = Math.hypot(prev.x - next.x, prev.y - next.y)
   if (a * b === 0) return Infinity
-  const area = 0.5 * Math.abs((curr.x - prev.x) * (next.y - prev.y) - (curr.y - prev.y) * (next.x - prev.x))
+  const area =
+    0.5 * Math.abs((curr.x - prev.x) * (next.y - prev.y) - (curr.y - prev.y) * (next.x - prev.x))
   if (area === 0) return Infinity
   return (a * b * c) / (4 * area)
 }
 
 /** 计算约束违规量；排序阶段采用可行性优先，目标值仅保留为软惩罚辅助 */
 function computeConstraintViolations(waypoints, allSamples) {
-  let gradeExcess = 0, turnDeficit = 0
+  let gradeExcess = 0,
+    turnDeficit = 0
 
   for (const s of allSamples) {
     if (s.grade > MAX_GRADE) {
-      gradeExcess += (s.grade - MAX_GRADE) * s.subsegDist / 100
+      gradeExcess += ((s.grade - MAX_GRADE) * s.subsegDist) / 100
     }
   }
 
@@ -212,25 +221,31 @@ function evaluatePath(waypoints) {
   let totalDistM = 0
 
   for (let i = 0; i < waypoints.length - 1; i++) {
-    const a = waypoints[i], b = waypoints[i + 1]
+    const a = waypoints[i],
+      b = waypoints[i + 1]
     const segSamples = sampleSegment(a, b, 50)
     const segLen = Math.hypot(b.x - a.x, b.y - a.y)
     const segLenM = segLen * UNIT_TO_M
     totalDistM += segLenM
-    for (const s of segSamples) { s.segIdx = i }
+    for (const s of segSamples) {
+      s.segIdx = i
+    }
     allSamples.push(...segSamples)
   }
 
   const routeLenKm = totalDistM / 1000
 
   // ---- 2. 转弯属性 ----
-  let totalTurnAngle = 0, minTurnRadius = Infinity, sharpTurns = 0
+  let totalTurnAngle = 0,
+    minTurnRadius = Infinity,
+    sharpTurns = 0
   for (let i = 1; i < waypoints.length - 1; i++) {
     const dx1 = waypoints[i].x - waypoints[i - 1].x
     const dy1 = waypoints[i].y - waypoints[i - 1].y
     const dx2 = waypoints[i + 1].x - waypoints[i].x
     const dy2 = waypoints[i + 1].y - waypoints[i].y
-    const len1 = Math.hypot(dx1, dy1), len2 = Math.hypot(dx2, dy2)
+    const len1 = Math.hypot(dx1, dy1),
+      len2 = Math.hypot(dx2, dy2)
     if (len1 > 0 && len2 > 0) {
       const cosA = Math.max(-1, Math.min(1, (dx1 * dx2 + dy1 * dy2) / (len1 * len2)))
       const angle = Math.acos(cosA)
@@ -243,7 +258,11 @@ function evaluatePath(waypoints) {
   if (minTurnRadius === Infinity) minTurnRadius = 50
 
   // ---- 3. 聚合路径统计 ----
-  let maxGrade = 0, sumAbsGrade = 0, totalHazard = 0, sumQuality = 0, totalWeight = 0
+  let maxGrade = 0,
+    sumAbsGrade = 0,
+    totalHazard = 0,
+    sumQuality = 0,
+    totalWeight = 0
   for (const s of allSamples) {
     if (s.grade > maxGrade) maxGrade = s.grade
     sumAbsGrade += s.grade * s.subsegDist
@@ -270,18 +289,22 @@ function evaluatePath(waypoints) {
   let t = 0
   for (const s of allSamples) {
     const subKm = s.subsegDist / 1000
-    const gradeFactor = s.signedGrade >= 0
-      ? Math.max(0.14, 1 - s.signedGrade / 0.18)
-      : Math.min(1.12, 1 + Math.abs(s.signedGrade) * 0.35)
+    const gradeFactor =
+      s.signedGrade >= 0
+        ? Math.max(0.14, 1 - s.signedGrade / 0.18)
+        : Math.min(1.12, 1 + Math.abs(s.signedGrade) * 0.35)
     const qualityFactor = 0.8 + 0.2 * s.quality
     const speed = Math.max(5, 35 * gradeFactor * qualityFactor)
-    t += subKm / speed * 60
+    t += (subKm / speed) * 60
   }
   // 弯道减速：每个急弯(>20°)增加0.3~0.8分钟
   for (let i = 1; i < waypoints.length - 1; i++) {
-    const dx1 = waypoints[i].x - waypoints[i - 1].x, dy1 = waypoints[i].y - waypoints[i - 1].y
-    const dx2 = waypoints[i + 1].x - waypoints[i].x, dy2 = waypoints[i + 1].y - waypoints[i].y
-    const len1 = Math.hypot(dx1, dy1), len2 = Math.hypot(dx2, dy2)
+    const dx1 = waypoints[i].x - waypoints[i - 1].x,
+      dy1 = waypoints[i].y - waypoints[i - 1].y
+    const dx2 = waypoints[i + 1].x - waypoints[i].x,
+      dy2 = waypoints[i + 1].y - waypoints[i].y
+    const len1 = Math.hypot(dx1, dy1),
+      len2 = Math.hypot(dx2, dy2)
     if (len1 > 0 && len2 > 0) {
       const cosA = Math.max(-1, Math.min(1, (dx1 * dx2 + dy1 * dy2) / (len1 * len2)))
       const angle = Math.acos(cosA)
@@ -297,17 +320,19 @@ function evaluatePath(waypoints) {
   let f = 0
   for (const s of allSamples) {
     const subKm = s.subsegDist / 1000
-    const gradeFuel = s.signedGrade >= 0
-      ? 1 + s.signedGrade * 8
-      : Math.max(0.65, 1 + s.signedGrade * 2)
+    const gradeFuel =
+      s.signedGrade >= 0 ? 1 + s.signedGrade * 8 : Math.max(0.65, 1 + s.signedGrade * 2)
     const roadFuel = 1 + (1 - s.quality) * 0.4
     f += subKm * 7.5 * gradeFuel * roadFuel
   }
   // 弯道油耗：出弯加速额外消耗
   for (let i = 1; i < waypoints.length - 1; i++) {
-    const dx1 = waypoints[i].x - waypoints[i - 1].x, dy1 = waypoints[i].y - waypoints[i - 1].y
-    const dx2 = waypoints[i + 1].x - waypoints[i].x, dy2 = waypoints[i + 1].y - waypoints[i].y
-    const len1 = Math.hypot(dx1, dy1), len2 = Math.hypot(dx2, dy2)
+    const dx1 = waypoints[i].x - waypoints[i - 1].x,
+      dy1 = waypoints[i].y - waypoints[i - 1].y
+    const dx2 = waypoints[i + 1].x - waypoints[i].x,
+      dy2 = waypoints[i + 1].y - waypoints[i].y
+    const len1 = Math.hypot(dx1, dy1),
+      len2 = Math.hypot(dx2, dy2)
     if (len1 > 0 && len2 > 0) {
       const cosA = Math.max(-1, Math.min(1, (dx1 * dx2 + dy1 * dy2) / (len1 * len2)))
       f += (Math.acos(cosA) / Math.PI) * 0.6
@@ -320,9 +345,9 @@ function evaluatePath(waypoints) {
   // 50%危险回避 + 30%坡度安全 + 20%转弯安全
   // ================================================================
   const hazardScore = 100 * (1 - Math.min(1, avgHazard / 0.5))
-  const gradeScore = 100 * (1 - Math.min(1, maxGrade / 0.20))
+  const gradeScore = 100 * (1 - Math.min(1, maxGrade / 0.2))
   const radiusScore = 100 * Math.min(1, minTurnRadius / 15)
-  let s = 0.50 * hazardScore + 0.30 * gradeScore + 0.20 * radiusScore
+  let s = 0.5 * hazardScore + 0.3 * gradeScore + 0.2 * radiusScore
   s -= viol.gradeExcess * 4 + viol.turnDeficit * 3
   s = Math.max(1, Math.min(100, s))
 
@@ -333,7 +358,7 @@ function evaluatePath(waypoints) {
   const qualityScoreL = 100 * (0.3 + 0.7 * avgQuality)
   const gradeScoreL = 100 * (1 - Math.min(1, avgGrade / 0.12))
   const turnScoreL = 100 * Math.max(0, 1 - sharpTurns * 0.12)
-  let l = 0.40 * qualityScoreL + 0.40 * gradeScoreL + 0.20 * turnScoreL
+  let l = 0.4 * qualityScoreL + 0.4 * gradeScoreL + 0.2 * turnScoreL
   l -= viol.gradeExcess * 6 + viol.turnDeficit * 4
   l = Math.max(1, Math.min(100, l))
 
@@ -342,17 +367,21 @@ function evaluatePath(waypoints) {
   t = Math.max(0.5, t)
   f = Math.max(0.5, f)
 
-  const avgSpeedKmh = t > 0.01 ? routeLenKm / t * 60 : 35
+  const avgSpeedKmh = t > 0.01 ? (routeLenKm / t) * 60 : 35
 
   return {
-    d, t, f, s, l,
+    d,
+    t,
+    f,
+    s,
+    l,
     _constraint: viol,
     _params: {
       routeLen: routeLenKm,
       maxGrade: maxGrade * 100,
       avgGrade: avgGrade * 100,
       totalTurn: totalTurnAngle,
-      totalTurnDeg: totalTurnAngle * 180 / Math.PI,
+      totalTurnDeg: (totalTurnAngle * 180) / Math.PI,
       hazardExposure: avgHazard,
       avgSpeed: avgSpeedKmh,
       minTurnRadius,
@@ -401,12 +430,12 @@ function compareDominance(a, b) {
       else if (vb > va) bBetter = true
     }
 
-    if (aBetter && bBetter) return 0  // 互不支配
+    if (aBetter && bBetter) return 0 // 互不支配
   }
 
-  if (aBetter) return -1  // a支配b
-  if (bBetter) return 1   // b支配a
-  return 0                // 完全相同
+  if (aBetter) return -1 // a支配b
+  if (bBetter) return 1 // b支配a
+  return 0 // 完全相同
 }
 
 // ===================== 快速非支配排序 =====================
@@ -497,9 +526,7 @@ function normalizeReferencePoint(point) {
 
 function moveReferencePointToInterior(point, alpha) {
   const center = 1 / point.length
-  return normalizeReferencePoint(
-    point.map(value => (1 - alpha) * value + alpha * center)
-  )
+  return normalizeReferencePoint(point.map(value => (1 - alpha) * value + alpha * center))
 }
 
 function appendUniqueReferencePoints(target, candidates, seen) {
@@ -552,8 +579,8 @@ function fitReferencePoints(referencePoints, targetCount, divisions) {
   const shrinkFactors = [0.5, 0.25, 0.75]
   for (const alpha of shrinkFactors) {
     for (let div = Math.max(1, divisions - 1); div >= 1 && extended.length < targetCount; div--) {
-      const layer = generateReferencePoints(OBJECTIVES.length, div).map(
-        point => moveReferencePointToInterior(point, alpha)
+      const layer = generateReferencePoints(OBJECTIVES.length, div).map(point =>
+        moveReferencePointToInterior(point, alpha)
       )
       appendUniqueReferencePoints(extended, layer, seen)
     }
@@ -667,8 +694,14 @@ function sbxCrossover(parent1, parent2, etaC, crossoverProb) {
       const childY1 = 0.5 * ((1 + betaY) * y1 + (1 - betaY) * y2)
       const childY2 = 0.5 * ((1 - betaY) * y1 + (1 + betaY) * y2)
 
-      child1.waypoints.push({ x: Math.max(0, Math.min(280, childX1)), y: Math.max(0, Math.min(160, childY1)) })
-      child2.waypoints.push({ x: Math.max(0, Math.min(280, childX2)), y: Math.max(0, Math.min(160, childY2)) })
+      child1.waypoints.push({
+        x: Math.max(0, Math.min(280, childX1)),
+        y: Math.max(0, Math.min(160, childY1))
+      })
+      child2.waypoints.push({
+        x: Math.max(0, Math.min(280, childX2)),
+        y: Math.max(0, Math.min(160, childY2))
+      })
     } else {
       child1.waypoints.push({ x: x1, y: y1 })
       child2.waypoints.push({ x: x2, y: y2 })
@@ -694,21 +727,20 @@ function polynomialMutation(individual, etaM, mutationProb, bounds) {
     let x = individual.waypoints[i].x
     let y = individual.waypoints[i].y
 
-    if (i > 0 && i < individual.waypoints.length - 1) {  // 不变异起点和终点
+    if (i > 0 && i < individual.waypoints.length - 1) {
+      // 不变异起点和终点
       if (Math.random() < mutationProb) {
         const u = Math.random()
-        const deltaX = u < 0.5
-          ? Math.pow(2 * u, 1 / (etaM + 1)) - 1
-          : 1 - Math.pow(2 * (1 - u), 1 / (etaM + 1))
+        const deltaX =
+          u < 0.5 ? Math.pow(2 * u, 1 / (etaM + 1)) - 1 : 1 - Math.pow(2 * (1 - u), 1 / (etaM + 1))
         x = x + deltaX * (bounds.x.max - bounds.x.min) * 0.3
         x = Math.max(bounds.x.min, Math.min(bounds.x.max, x))
       }
 
       if (Math.random() < mutationProb) {
         const u = Math.random()
-        const deltaY = u < 0.5
-          ? Math.pow(2 * u, 1 / (etaM + 1)) - 1
-          : 1 - Math.pow(2 * (1 - u), 1 / (etaM + 1))
+        const deltaY =
+          u < 0.5 ? Math.pow(2 * u, 1 / (etaM + 1)) - 1 : 1 - Math.pow(2 * (1 - u), 1 / (etaM + 1))
         y = y + deltaY * (bounds.y.max - bounds.y.min) * 0.3
         y = Math.max(bounds.y.min, Math.min(bounds.y.max, y))
       }
@@ -791,7 +823,8 @@ function initializePopulation(size, bounds, numWaypoints) {
       // 全随机（带危险区回避偏置）
       getMid: () => {
         for (let attempt = 0; attempt < 10; attempt++) {
-          const x = Math.random() * bounds.x.max, y = Math.random() * bounds.y.max
+          const x = Math.random() * bounds.x.max,
+            y = Math.random() * bounds.y.max
           if (getHazardExposure(x, y) < 0.5) return { x, y }
         }
         return { x: Math.random() * bounds.x.max, y: Math.random() * bounds.y.max }
@@ -862,21 +895,11 @@ function createOffspringPopulation(population, cfg, bounds) {
   while (offspring.length < population.length) {
     const parent1 = randomSelect(matingPool)
     const parent2 = randomSelect(matingPool)
-    const [child1, child2] = sbxCrossover(
-      parent1,
-      parent2,
-      cfg.etaC,
-      cfg.crossoverProbability
-    )
+    const [child1, child2] = sbxCrossover(parent1, parent2, cfg.etaC, cfg.crossoverProbability)
 
     const candidates = [child1, child2]
     for (const candidate of candidates) {
-      const child = polynomialMutation(
-        candidate,
-        cfg.etaM,
-        cfg.mutationProbability,
-        bounds
-      )
+      const child = polynomialMutation(candidate, cfg.etaM, cfg.mutationProbability, bounds)
       child.objectives = evaluatePath(child.waypoints)
       child.rank = 0
       child.crowdingDistance = 0
@@ -888,7 +911,13 @@ function createOffspringPopulation(population, cfg, bounds) {
   return offspring
 }
 
-function selectByReferenceNiching(union, selectedIndices, splitFront, remainingSlots, referencePoints) {
+function selectByReferenceNiching(
+  union,
+  selectedIndices,
+  splitFront,
+  remainingSlots,
+  referencePoints
+) {
   const bounds = buildNormalizationBounds(union)
   const associations = new Map()
   const relevantIndices = [...selectedIndices, ...splitFront]

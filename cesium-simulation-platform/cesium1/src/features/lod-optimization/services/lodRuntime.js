@@ -3,22 +3,28 @@ import { warn } from '@/utils/errorHandler.js'
 
 // ---- 导出：十级 LOD 阶段定义（单一数据源） ----
 export const LOD_STAGE_DEFINITIONS = [
-  { key: 's0', label: 'S0 极粗', color: new Cesium.Color(0.88, 0.12, 0.10, 0.70), score: 0 },
-  { key: 's1', label: 'S1 超粗', color: new Cesium.Color(0.91, 0.30, 0.14, 0.67), score: 1 },
+  { key: 's0', label: 'S0 极粗', color: new Cesium.Color(0.88, 0.12, 0.1, 0.7), score: 0 },
+  { key: 's1', label: 'S1 超粗', color: new Cesium.Color(0.91, 0.3, 0.14, 0.67), score: 1 },
   { key: 's2', label: 'S2 粗略', color: new Cesium.Color(0.94, 0.48, 0.17, 0.64), score: 2 },
   { key: 's3', label: 'S3 较粗', color: new Cesium.Color(0.97, 0.64, 0.19, 0.61), score: 3 },
   { key: 's4', label: 'S4 过渡', color: new Cesium.Color(0.96, 0.76, 0.22, 0.58), score: 4 },
   { key: 's5', label: 'S5 中等', color: new Cesium.Color(0.62, 0.84, 0.28, 0.55), score: 5 },
-  { key: 's6', label: 'S6 较细', color: new Cesium.Color(0.30, 0.80, 0.36, 0.52), score: 6 },
-  { key: 's7', label: 'S7 精细', color: new Cesium.Color(0.18, 0.71, 0.90, 0.49), score: 7 },
+  { key: 's6', label: 'S6 较细', color: new Cesium.Color(0.3, 0.8, 0.36, 0.52), score: 6 },
+  { key: 's7', label: 'S7 精细', color: new Cesium.Color(0.18, 0.71, 0.9, 0.49), score: 7 },
   { key: 's8', label: 'S8 高精', color: new Cesium.Color(0.28, 0.48, 0.95, 0.46), score: 8 },
-  { key: 's9', label: 'S9 超精', color: new Cesium.Color(0.50, 0.30, 0.95, 0.43), score: 9 }
+  { key: 's9', label: 'S9 超精', color: new Cesium.Color(0.5, 0.3, 0.95, 0.43), score: 9 }
 ]
 
 export function cesiumColorToHex(color) {
-  const r = Math.round(color.red * 255).toString(16).padStart(2, '0')
-  const g = Math.round(color.green * 255).toString(16).padStart(2, '0')
-  const b = Math.round(color.blue * 255).toString(16).padStart(2, '0')
+  const r = Math.round(color.red * 255)
+    .toString(16)
+    .padStart(2, '0')
+  const g = Math.round(color.green * 255)
+    .toString(16)
+    .padStart(2, '0')
+  const b = Math.round(color.blue * 255)
+    .toString(16)
+    .padStart(2, '0')
   return `#${r}${g}${b}`
 }
 
@@ -107,14 +113,9 @@ function assignStagesForVisibleTiles(metrics, tileset) {
     const distanceNorm = maxDistance > 0 ? 1 - metric.distanceToCamera / maxDistance : 1
     const geometryNorm = 1 - clamp01(metric.geometricRatio)
     const sseNorm =
-      sseDenominator > 0
-        ? 1 - clamp01(Math.log2(metric.screenSpaceError + 1) / sseDenominator)
-        : 1
+      sseDenominator > 0 ? 1 - clamp01(Math.log2(metric.screenSpaceError + 1) / sseDenominator) : 1
     const score = clamp01(
-      depthNorm * 0.38 +
-        sseNorm * 0.34 +
-        geometryNorm * 0.18 +
-        distanceNorm * 0.10
+      depthNorm * 0.38 + sseNorm * 0.34 + geometryNorm * 0.18 + distanceNorm * 0.1
     )
     return {
       ...metric,
@@ -176,7 +177,9 @@ function clearTileDebugColor(tile) {
 }
 
 function normalizeVisualizationMode(mode) {
-  return ['off', 'stage_color', 'stage_wireframe', 'random_tiles', 'random_wireframe'].includes(mode)
+  return ['off', 'stage_color', 'stage_wireframe', 'random_tiles', 'random_wireframe'].includes(
+    mode
+  )
     ? mode
     : 'off'
 }
@@ -210,7 +213,8 @@ function buildStageSummary(stageCounts) {
       dominantKey = stage.key
     }
   }
-  const dominantStage = LOD_STAGE_DEFINITIONS.find(stage => stage.key === dominantKey) || LOD_STAGE_DEFINITIONS[0]
+  const dominantStage =
+    LOD_STAGE_DEFINITIONS.find(stage => stage.key === dominantKey) || LOD_STAGE_DEFINITIONS[0]
   const avgStageScore = total > 0 ? weightedScore / total : 0
   const maxScore = LOD_STAGE_DEFINITIONS.length - 1
   return {
@@ -275,7 +279,13 @@ function buildGeometricErrorDistribution(metrics, bucketCount = 10) {
   const min = Math.min(...errors)
   const max = Math.max(...errors)
   if (max <= min) {
-    return [{ rangeMin: Math.round(min * 100) / 100, rangeMax: Math.round(max * 100) / 100, count: errors.length }]
+    return [
+      {
+        rangeMin: Math.round(min * 100) / 100,
+        rangeMax: Math.round(max * 100) / 100,
+        count: errors.length
+      }
+    ]
   }
   const bucketWidth = (max - min) / bucketCount
   const buckets = Array.from({ length: bucketCount }, (_, i) => ({
@@ -330,12 +340,14 @@ function buildStageTransitionInfo(assignments) {
   const nearBoundaries = []
   for (const item of assignments) {
     const fracInStage = (item.combinedScore * stageCount) % 1
-    if (fracInStage < threshold || fracInStage > (1 - threshold)) {
+    if (fracInStage < threshold || fracInStage > 1 - threshold) {
       nearBoundaries.push({
-        tileId: item.tile?._debugId ? `tile_${item.tile._debugId}` : `tile_${nearBoundaries.length}`,
+        tileId: item.tile?._debugId
+          ? `tile_${item.tile._debugId}`
+          : `tile_${nearBoundaries.length}`,
         stageKey: item.stage?.key,
         combinedScore: Math.round(item.combinedScore * 1000) / 1000,
-        nearNextStage: fracInStage > (1 - threshold)
+        nearNextStage: fracInStage > 1 - threshold
       })
     }
   }
@@ -506,6 +518,7 @@ export function applyLodConfigToTileset(tileset, config, requestRender) {
         tileset[prop] = config[prop]
         changed = true
       } catch (e) {
+        // Ignore runtime-incompatible property assignments on older Cesium builds.
       }
     }
   })

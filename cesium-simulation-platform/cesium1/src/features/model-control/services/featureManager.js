@@ -98,6 +98,7 @@ export class FeatureManager {
         opacityValue
       )
     } catch (e) {
+      // Ignore stale feature references while replaying cached style state.
     }
   }
 
@@ -196,9 +197,7 @@ export class FeatureManager {
       if (feature) {
         const currentColor = feature.color || Cesium.Color.WHITE
         // 可见时：模型不透明度系数 × 全局不透明度系数；不可见时：完全透明
-        const opacityValue = model.visible
-          ? toAlpha(model.opacity) * toAlpha(globalOpacity)
-          : 0
+        const opacityValue = model.visible ? toAlpha(model.opacity) * toAlpha(globalOpacity) : 0
         feature.color = new Cesium.Color(
           currentColor.red,
           currentColor.green,
@@ -207,7 +206,10 @@ export class FeatureManager {
         )
         return { success: true, message: `${model.visible ? '显示' : '隐藏'}了模型: ${model.name}` }
       } else {
-        return { success: true, message: `${model.visible ? '显示' : '隐藏'}了模型: ${model.name} (待加载后生效)` }
+        return {
+          success: true,
+          message: `${model.visible ? '显示' : '隐藏'}了模型: ${model.name} (待加载后生效)`
+        }
       }
     } catch (error) {
       return { success: false, message: '切换显示状态失败' }
@@ -278,7 +280,7 @@ export class FeatureManager {
       const modelAlpha = toAlpha(model.opacity)
       const globalAlpha = toAlpha(globalOpacity)
       // 最终 alpha = 模型不透明度系数 * 全局不透明度系数；若模型不可见则强制为0
-      const finalOpacity = !!model.visible ? modelAlpha * globalAlpha : 0
+      const finalOpacity = model.visible ? modelAlpha * globalAlpha : 0
       const currentColor = feature.color || Cesium.Color.WHITE
       feature.color = new Cesium.Color(
         currentColor.red,
@@ -300,7 +302,7 @@ export class FeatureManager {
       const modelAlpha = toAlpha(model.opacity)
       const globalAlpha = toAlpha(globalOpacity)
       // 若模型不可见则强制透明，避免意外显示
-      const finalOpacity = !!model.visible ? modelAlpha * globalAlpha : 0
+      const finalOpacity = model.visible ? modelAlpha * globalAlpha : 0
       feature.color = new Cesium.Color(col.red, col.green, col.blue, finalOpacity)
       return { success: true, message: `更新了模型配色: ${model.name}` }
     } catch (e) {

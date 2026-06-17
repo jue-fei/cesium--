@@ -47,7 +47,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
     condition: (value, ctx) => value >= (ctx.thresholds?.safetyScoreCritical ?? 8.5),
     level: 'red',
     title: '综合安全评分 — 极高风险',
-    description: (result, _ctx) =>
+    description: result =>
       `综合安全评分 ${result.value.toFixed(2)}/10，已达极高风险等级，需立即检查`
   },
   {
@@ -58,7 +58,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
       value < (ctx.thresholds?.safetyScoreCritical ?? 8.5),
     level: 'orange',
     title: '综合安全评分 — 高风险',
-    description: (result, _ctx) =>
+    description: result =>
       `综合安全评分 ${result.value.toFixed(2)}/10，进入高风险区间，建议加密监测`
   },
   {
@@ -69,8 +69,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
       value < (ctx.thresholds?.safetyScoreHigh ?? 7.0),
     level: 'yellow',
     title: '综合安全评分 — 中风险',
-    description: (result, _ctx) =>
-      `综合安全评分 ${result.value.toFixed(2)}/10，中风险区间，保持常规监测`
+    description: result => `综合安全评分 ${result.value.toFixed(2)}/10，中风险区间，保持常规监测`
   },
 
   // ——— Hoek-Brown 破坏准则 (2018) ———
@@ -80,7 +79,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
     condition: value => value >= 0.95,
     level: 'red',
     title: 'Hoek-Brown 接近峰值强度',
-    description: (result, _ctx) =>
+    description: result =>
       `Hoek-Brown σ₁/σ₁_peak = ${(result.value * 100).toFixed(1)}% ≥ 95%，裂隙网络贯通，接近极限承载`
   },
   {
@@ -89,7 +88,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
     condition: value => value >= 0.75 && value < 0.95,
     level: 'orange',
     title: 'Hoek-Brown 进入屈服阶段',
-    description: (result, _ctx) =>
+    description: result =>
       `Hoek-Brown σ₁/σ₁_peak = ${(result.value * 100).toFixed(1)}%，塑性变形显著发展`
   },
 
@@ -100,7 +99,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
     condition: value => value >= 0.9,
     level: 'red',
     title: 'Mohr-Coulomb 剪切破坏临近',
-    description: (result, _ctx) =>
+    description: result =>
       `剪切利用率 ${(result.value * 100).toFixed(1)}%，τ_max → c + σₙ·tanφ，可能发生剪切滑移破坏`
   },
   {
@@ -109,7 +108,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
     condition: value => value >= 0.85,
     level: 'red',
     title: 'Mohr-Coulomb 拉伸破坏临近',
-    description: (result, _ctx) =>
+    description: result =>
       `拉应力利用率 ${(result.value * 100).toFixed(1)}%，接近抗拉截断值，可能发生张拉裂隙/剥离`
   },
 
@@ -129,7 +128,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
     condition: value => value >= 0.6 && value < 0.9,
     level: 'orange',
     title: '等效应力偏高',
-    description: (result, _ctx) =>
+    description: result =>
       `von Mises / 参考强度 = ${(result.value * 100).toFixed(1)}%，进入损伤-屈服阶段`
   },
 
@@ -140,7 +139,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
     condition: value => value >= 0.55,
     level: 'red',
     title: '强岩爆风险 (σ_θ/σ_c ≥ 0.55)',
-    description: (result, _ctx) =>
+    description: result =>
       `σ_θ/σ_c = ${result.value.toFixed(3)}，岩体可能弹射抛射，伴随巨响和冲击波`
   },
   {
@@ -149,7 +148,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
     condition: value => value >= 0.3 && value < 0.55,
     level: 'orange',
     title: '中等岩爆风险 (0.3 ≤ σ_θ/σ_c < 0.55)',
-    description: (result, _ctx) =>
+    description: result =>
       `σ_θ/σ_c = ${result.value.toFixed(3)}，可能出现片帮、弹射，伴随清脆爆裂声`
   },
   {
@@ -158,7 +157,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
     condition: value => value >= 0.2 && value < 0.3,
     level: 'yellow',
     title: '弱岩爆风险 (σ_θ/σ_c < 0.3)',
-    description: (result, _ctx) => `σ_θ/σ_c = ${result.value.toFixed(3)}，可能有轻微剥落或小片帮`
+    description: result => `σ_θ/σ_c = ${result.value.toFixed(3)}，可能有轻微剥落或小片帮`
   }
 ])
 
