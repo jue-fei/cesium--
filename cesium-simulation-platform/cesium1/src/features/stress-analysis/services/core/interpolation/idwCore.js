@@ -569,76 +569,100 @@ export function optimizeIDWParameters(points, values, options = {}) {
     }
   }
 
-  // 在大型点集上计算适应度可能非常昂贵；对优化使用子采样
-  const n = points.length
-  const maxFitnessSamples = Math.max(24, Math.min(n, Math.floor(config.maxFitnessSamples || 160)))
-  const subsetIdx =
-    n > maxFitnessSamples ? sampleWithoutReplacement(n, maxFitnessSamples, rng) : null
-  const fitPoints = subsetIdx ? subsetIdx.map(i => points[i]) : points
-  const fitValues = subsetIdx ? subsetIdx.map(i => values[i]) : values
-
+  const { fitPoints, fitValues } = resolveOptimizationFitnessDataset(points, values, config, rng)
   const bounds = PARAM_BOUNDS
-  const particles = []
-
-  for (let i = 0; i < config.particleCount; i++) {
-    particles.push(createParticle(bounds, rng))
-  }
-
-  let globalBest = {
-    position: { ...particles[0].position },
-    fitness: Number.POSITIVE_INFINITY
-  }
-
-  let previousBestFitness = Number.POSITIVE_INFINITY
-  let stagnationCount = 0
-
-  for (let iter = 0; iter < config.maxIterations; iter++) {
-    for (const particle of particles) {
-      const fitness = evaluateParticle(particle, fitPoints, fitValues, config, rng)
-
-      if (fitness < particle.bestFitness) {
-        particle.bestFitness = fitness
-        particle.bestPosition = { ...particle.position }
-      }
-
-      if (fitness < globalBest.fitness) {
-        globalBest.fitness = fitness
-        globalBest.position = { ...particle.position }
-      }
-    }
-
-    for (const particle of particles) {
-      updateParticle(particle, globalBest, bounds, config, rng)
-    }
-
-    if (Math.abs(previousBestFitness - globalBest.fitness) < config.convergenceThreshold) {
-      stagnationCount++
-      if (stagnationCount >= config.stagnationIterations) {
-        break
-      }
-    } else {
-      stagnationCount = 0
-    }
-
-    previousBestFitness = globalBest.fitness
-  }
+  const particles = Array.from({ length: config.particleCount }, () => createParticle(bounds, rng))
+  const globalBest = runOptimizationIterations({
+    particles,
+    fitPoints,
+    fitValues,
+    bounds,
+    config,
+    rng
+  })
 
   return {
     success: true,
-    optimalParams: {
-      ...decodeParticlePosition(globalBest.position),
-      adaptivePower: config.adaptivePower !== false,
-      adaptiveNeighborCount: Math.max(
-        3,
-        Math.min(16, Math.floor(Number(config.adaptiveNeighborCount) || 8))
-      )
-    },
+    optimalParams: buildOptimalIdwParams(globalBest, config),
     fitness: globalBest.fitness,
     iterations: config.maxIterations,
     particleCount: config.particleCount,
     neighborPolicy: config.neighborPolicy,
     sectorCount: config.sectorCount,
     objectiveWeights: config.objectiveWeights
+  }
+}
+
+function resolveOptimizationFitnessDataset(points, values, config, rng) {
+  const pointCount = points.length
+  const maxFitnessSamples = Math.max(
+    24,
+    Math.min(pointCount, Math.floor(config.maxFitnessSamples || 160))
+  )
+  const subsetIdx =
+    pointCount > maxFitnessSamples
+      ? sampleWithoutReplacement(pointCount, maxFitnessSamples, rng)
+      : null
+  return {
+    fitPoints: subsetIdx ? subsetIdx.map(index => points[index]) : points,
+    fitValues: subsetIdx ? subsetIdx.map(index => values[index]) : values
+  }
+}
+
+function updateParticleFitness(particle, fitPoints, fitValues, config, rng, globalBest) {
+  const fitness = evaluateParticle(particle, fitPoints, fitValues, config, rng)
+  if (fitness < particle.bestFitness) {
+    particle.bestFitness = fitness
+    particle.bestPosition = { ...particle.position }
+  }
+  if (fitness < globalBest.fitness) {
+    globalBest.fitness = fitness
+    globalBest.position = { ...particle.position }
+  }
+}
+
+function hasOptimizationConverged(previousBestFitness, globalBestFitness, config, stagnationCount) {
+  if (Math.abs(previousBestFitness - globalBestFitness) < config.convergenceThreshold) {
+    return stagnationCount + 1
+  }
+  return 0
+}
+
+function runOptimizationIterations({ particles, fitPoints, fitValues, bounds, config, rng }) {
+  const globalBest = {
+    position: { ...particles[0].position },
+    fitness: Number.POSITIVE_INFINITY
+  }
+  let previousBestFitness = Number.POSITIVE_INFINITY
+  let stagnationCount = 0
+
+  for (let iter = 0; iter < config.maxIterations; iter++) {
+    for (const particle of particles) {
+      updateParticleFitness(particle, fitPoints, fitValues, config, rng, globalBest)
+    }
+    for (const particle of particles) {
+      updateParticle(particle, globalBest, bounds, config, rng)
+    }
+    stagnationCount = hasOptimizationConverged(
+      previousBestFitness,
+      globalBest.fitness,
+      config,
+      stagnationCount
+    )
+    if (stagnationCount >= config.stagnationIterations) break
+    previousBestFitness = globalBest.fitness
+  }
+  return globalBest
+}
+
+function buildOptimalIdwParams(globalBest, config) {
+  return {
+    ...decodeParticlePosition(globalBest.position),
+    adaptivePower: config.adaptivePower !== false,
+    adaptiveNeighborCount: Math.max(
+      3,
+      Math.min(16, Math.floor(Number(config.adaptiveNeighborCount) || 8))
+    )
   }
 }
 
@@ -675,14 +699,7 @@ function computeSpatialDistanceScore(a, b, invSize) {
   return dx * dx + dy * dy + dz * dz
 }
 
-export function selectInterpolationPoints(
-  localPointsRaw,
-  allSeriesRaw,
-  size,
-  maxPoints,
-  options,
-  _method
-) {
+export function selectInterpolationPoints(localPointsRaw, allSeriesRaw, size, maxPoints, options) {
   if (maxPoints >= localPointsRaw.length) {
     return {
       localPoints: localPointsRaw,

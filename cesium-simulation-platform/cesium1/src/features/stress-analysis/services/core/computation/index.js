@@ -1,6 +1,7 @@
 import {
   buildStrainStressCoefficients,
-  stressFromStrainByCoefficients
+  stressFromStrainByCoefficients,
+  ensureArray
 } from '../shared/stressActionShared.js'
 import {
   SAFETY_SCORE_LABEL,
@@ -99,7 +100,125 @@ export function buildStressMetricOptions(includeOverlay = false) {
   ]
 }
 
-export function computeScalarField(ds, metric, direction, valueRangePolicy, extraContext = null) {
+function buildStressAtIndex(src, i, isStrain, strainCoefficients) {
+  const xx = src.xx[i]
+  const yy = src.yy[i]
+  const zz = src.zz[i]
+  const xy = src.xy[i]
+  const yz = src.yz[i]
+  const zx = src.zx[i]
+
+  if (isStrain) {
+    const converted = stressFromStrainByCoefficients({ xx, yy, zz, xy, yz, zx }, strainCoefficients)
+    return {
+      sxx: converted.sxx,
+      syy: converted.syy,
+      szz: converted.szz,
+      sxy: converted.sxy,
+      syz: converted.syz,
+      szx: converted.szx
+    }
+  }
+  return { sxx: xx, syy: yy, szz: zz, sxy: xy, syz: yz, szx: zx }
+}
+
+function computeOverlayScalarField(ds, direction, valueRangePolicy, extraContext, overlayItems) {
+  const items = ensureArray(overlayItems).filter(
+    it => it && typeof it === 'object' && it.metric && Number(it.weight) > 0
+  )
+  if (items.length < 1) {
+    return computeScalarField(ds, 'von_mises', direction, valueRangePolicy, extraContext, null)
+  }
+
+  const { width, height, depth } = ds.grid
+  const total = width * height * depth
+  const frameCount = ds.data.frames.length
+  const safetyContext = extraContext?.safetyContext || null
+  const isStrain = ds.data.type === '应变'
+  const strainCoefficients = isStrain ? buildStrainStressCoefficients(ds.material) : null
+
+  const frames = []
+  let min = Number.POSITIVE_INFINITY
+  let max = Number.NEGATIVE_INFINITY
+
+  const totalValues = total * frameCount
+  const maxSamples = 200000
+  const step = Math.max(1, Math.floor(totalValues / maxSamples))
+  const samples = []
+  let globalIndex = 0
+  let nextSampleIndex = 0
+
+  for (let fi = 0; fi < frameCount; fi++) {
+    const src = ds.data.frames[fi]
+
+    const itemFields = []
+    const itemMaxAbs = []
+    for (const it of items) {
+      const mk = String(it.metric)
+      const evaluator = buildScalarMetricEvaluator(mk, direction)
+      const useSafety = isSafetyMetric(mk)
+      const values = new Array(total)
+      let maxAbs = 0
+      for (let i = 0; i < total; i++) {
+        const stress = buildStressAtIndex(src, i, isStrain, strainCoefficients)
+        const v = useSafety
+          ? computeSafetyScoreFromStress(
+              stress,
+              safetyContext,
+              resolveGridLocalPos(i, width, height, depth)
+            )
+          : evaluator(stress)
+        values[i] = v
+        const av = Math.abs(v)
+        if (av > maxAbs) maxAbs = av
+      }
+      itemFields.push(values)
+      itemMaxAbs.push(maxAbs)
+    }
+
+    const out = new Array(total)
+    for (let i = 0; i < total; i++) {
+      let sumW = 0
+      let sumV = 0
+      for (let ii = 0; ii < items.length; ii++) {
+        const w = Number(items[ii].weight)
+        if (!(w > 0)) continue
+        const maxAbs = itemMaxAbs[ii]
+        if (maxAbs > 0) {
+          sumV += (Math.abs(itemFields[ii][i]) / maxAbs) * w
+        }
+        sumW += w
+      }
+      const v = sumW > 0 ? Math.max(0, sumV / sumW) : 0
+      out[i] = v
+      if (v < min) min = v
+      if (v > max) max = v
+      if (globalIndex === nextSampleIndex && samples.length < maxSamples) {
+        samples.push(v)
+        nextSampleIndex += step
+      }
+      globalIndex++
+    }
+    frames.push({ values: out })
+  }
+
+  const valueRange =
+    resolveMetricFixedRange('overlay') || computeValueRange({ min, max, samples }, valueRangePolicy)
+  return { frames, valueRange, timePoints: ds.time.timePoints }
+}
+
+export function computeScalarField(
+  ds,
+  metric,
+  direction,
+  valueRangePolicy,
+  extraContext = null,
+  overlayItems = null
+) {
+  if (metric === 'overlay') {
+    return computeOverlayScalarField(ds, direction, valueRangePolicy, extraContext, overlayItems)
+  }
+
   const { width, height, depth } = ds.grid
   const total = width * height * depth
   const frameCount = ds.data.frames.length
@@ -120,38 +239,12 @@ export function computeScalarField(ds, metric, direction, valueRangePolicy, extr
   const samples = []
   let globalIndex = 0
   let nextSampleIndex = 0
-  const stress = { sxx: 0, syy: 0, szz: 0, sxy: 0, syz: 0, szx: 0 }
 
   for (let fi = 0; fi < frameCount; fi++) {
     const src = ds.data.frames[fi]
     const out = new Array(total)
     for (let i = 0; i < total; i++) {
-      const xx = src.xx[i]
-      const yy = src.yy[i]
-      const zz = src.zz[i]
-      const xy = src.xy[i]
-      const yz = src.yz[i]
-      const zx = src.zx[i]
-
-      if (isStrain) {
-        const converted = stressFromStrainByCoefficients(
-          { xx, yy, zz, xy, yz, zx },
-          strainCoefficients
-        )
-        stress.sxx = converted.sxx
-        stress.syy = converted.syy
-        stress.szz = converted.szz
-        stress.sxy = converted.sxy
-        stress.syz = converted.syz
-        stress.szx = converted.szx
-      } else {
-        stress.sxx = xx
-        stress.syy = yy
-        stress.szz = zz
-        stress.sxy = xy
-        stress.syz = yz
-        stress.szx = zx
-      }
+      const stress = buildStressAtIndex(src, i, isStrain, strainCoefficients)
 
       const v = useSafetyMetric
         ? computeSafetyScoreFromStress(

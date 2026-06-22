@@ -537,11 +537,14 @@ export function createStressDataRebuildService(ctx) {
   const rebuildConfigFromDataset = async () => {
     const ds = getGridDataset()
     if (!ds) return
-    const cacheKey = buildCacheKey(
+    let cacheKey = buildCacheKey(
       ctx.metric.value,
       ctx.directionAzimuth.value,
       ctx.directionDip.value
     )
+    if (ctx.metric.value === 'overlay') {
+      cacheKey += ':' + buildOverlaySignature(ctx.overlayItems.value)
+    }
     let scalarField = ctx.cachedScalarFields.get(cacheKey)
     const cacheHit = Boolean(scalarField)
     if (!scalarField) {
@@ -550,7 +553,8 @@ export function createStressDataRebuildService(ctx) {
         ctx.metric.value,
         { azimuthDeg: ctx.directionAzimuth.value, dipDeg: ctx.directionDip.value },
         ds.render?.valueRange,
-        { safetyContext: ctx.safetyContext?.value || null }
+        { safetyContext: ctx.safetyContext?.value || null },
+        ctx.overlayItems.value
       )
       ctx.cachedScalarFields.set(cacheKey, scalarField)
     }

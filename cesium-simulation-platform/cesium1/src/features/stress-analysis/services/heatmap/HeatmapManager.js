@@ -43,6 +43,8 @@ export function stressDebugLog(scope, title, payload) {
     // eslint-disable-next-line no-console
     console.groupCollapsed(`[Stress:${scopeText}] ${titleText}`)
     // eslint-disable-next-line no-console
+    if (payload !== undefined) console.log(payload)
+    // eslint-disable-next-line no-console
     // eslint-disable-next-line no-console
     console.groupEnd()
   } catch (e) {
@@ -50,167 +52,147 @@ export function stressDebugLog(scope, title, payload) {
   }
 }
 
-export class HeatmapManager {
-  constructor(viewer) {
-    this.viewer = viewer
-    this.stressShaders = new Map()
-    this.emptyTexture = null
-    this.emptyColorLUTTexture = null
-    this.emptySourceTexture = null
-    this.debugState = new Map()
-  }
+function resolveAnchorContext(manager, model, config) {
+  let anchorToModel =
+    config?.style?.anchorToModel === undefined ? true : Boolean(config.style.anchorToModel)
+  const worldToLocal = anchorToModel ? manager.resolveModelWorldToLocal(model) : null
+  if (anchorToModel && !worldToLocal) anchorToModel = false
+  return { anchorToModel, worldToLocal }
+}
 
-  debugEnabled() {
-    return isStressDebugEnabled()
-  }
-
-  debugLog(title, payload) {
-    stressDebugLog('heatmap', title, payload)
-  }
-
-  applyStressConfig(model, config) {
-    if (!model || !config) return
-
-    let anchorToModel =
-      config?.style?.anchorToModel === undefined ? true : Boolean(config.style.anchorToModel)
-    const worldToLocal = anchorToModel ? this.resolveModelWorldToLocal(model) : null
-    if (anchorToModel && !worldToLocal) anchorToModel = false
-
-    const normalized = this.normalizeStressConfig(config)
-    const field = this.prepareField(config.field)
-    let fieldCenterMC = new Cesium.Cartesian3(0, 0, 0)
-    try {
-      if (anchorToModel && worldToLocal) {
-        const origin = config?.field?.data?.origin || config?.field?.origin || null
-        if (
-          Array.isArray(origin) &&
-          origin.length >= 2 &&
-          origin.slice(0, 3).every(Number.isFinite)
-        ) {
-          const originWC = Cesium.Cartesian3.fromDegrees(origin[0], origin[1], origin[2] || 0)
-          fieldCenterMC = Cesium.Matrix4.multiplyByPoint(
-            worldToLocal,
-            originWC,
-            new Cesium.Cartesian3()
-          )
-        }
-      }
-    } catch (e) {
-      warn('heatmap', 'HeatmapManager', e)
+function resolveFieldCenterMC(config, anchorToModel, worldToLocal) {
+  let fieldCenterMC = new Cesium.Cartesian3(0, 0, 0)
+  try {
+    if (!anchorToModel || !worldToLocal) return fieldCenterMC
+    const origin = config?.field?.data?.origin || config?.field?.origin || null
+    if (
+      !(Array.isArray(origin) && origin.length >= 2 && origin.slice(0, 3).every(Number.isFinite))
+    ) {
+      return fieldCenterMC
     }
-    const rawSources = Array.isArray(config.sources) ? config.sources.slice(0, 1000) : []
-    const resolveCenterMC = s => {
-      const idx = Number.isInteger(s?.idx) && s.idx >= 0 ? s.idx : null
-      const raw = idx !== null ? rawSources[idx] : null
-      const stored = raw?.centerMC ?? raw?.centerMc ?? raw?.center_model ?? null
-      if (
-        stored &&
-        typeof stored === 'object' &&
-        Number.isFinite(stored.x) &&
-        Number.isFinite(stored.y) &&
-        Number.isFinite(stored.z)
-      ) {
-        return new Cesium.Cartesian3(stored.x, stored.y, stored.z)
-      }
-      if (
-        Array.isArray(stored) &&
-        stored.length >= 3 &&
-        stored.slice(0, 3).every(Number.isFinite)
-      ) {
-        return new Cesium.Cartesian3(stored[0], stored[1], stored[2])
-      }
-      if (!worldToLocal) return new Cesium.Cartesian3(0, 0, 0)
-      const computed = Cesium.Matrix4.multiplyByPoint(
-        worldToLocal,
-        s?.center || new Cesium.Cartesian3(0, 0, 0),
-        new Cesium.Cartesian3()
-      )
-      if (raw && stored === null) {
-        raw.centerMC = { x: computed.x, y: computed.y, z: computed.z }
-      }
-      return computed
-    }
-    const useSourceTex = Boolean(normalized.sourceTex?.enabled)
-    const directSources =
-      !useSourceTex && Array.isArray(normalized.sourcesDirect) ? normalized.sourcesDirect : []
-    const sourceCentersMC = anchorToModel
-      ? directSources.map(resolveCenterMC)
-      : directSources.map(() => new Cesium.Cartesian3(0, 0, 0))
-    const sourceUniforms = useSourceTex
-      ? {}
-      : this.buildSourceUniforms(directSources, sourceCentersMC)
-    const sourceAccessor = this.buildSourceAccessorShader(directSources.length)
-    let sourceTex = this.getEmptySourceTexture()
-    if (useSourceTex) {
-      if (anchorToModel) {
-        sourceTex = this.prepareSourceTexture(
-          normalized.sources.map(s => ({ ...s, center: resolveCenterMC(s) }))
+    const originWC = Cesium.Cartesian3.fromDegrees(origin[0], origin[1], origin[2] || 0)
+    fieldCenterMC = Cesium.Matrix4.multiplyByPoint(worldToLocal, originWC, new Cesium.Cartesian3())
+  } catch (e) {
+    warn('heatmap', 'HeatmapManager', e)
+  }
+  return fieldCenterMC
+}
+
+function readStoredCenterMC(stored) {
+  if (
+    stored &&
+    typeof stored === 'object' &&
+    Number.isFinite(stored.x) &&
+    Number.isFinite(stored.y) &&
+    Number.isFinite(stored.z)
+  ) {
+    return new Cesium.Cartesian3(stored.x, stored.y, stored.z)
+  }
+  if (Array.isArray(stored) && stored.length >= 3 && stored.slice(0, 3).every(Number.isFinite)) {
+    return new Cesium.Cartesian3(stored[0], stored[1], stored[2])
+  }
+  return null
+}
+
+function computeCenterMC(raw, stored, worldToLocal, source) {
+  if (!worldToLocal) return new Cesium.Cartesian3(0, 0, 0)
+  const computed = Cesium.Matrix4.multiplyByPoint(
+    worldToLocal,
+    source?.center || new Cesium.Cartesian3(0, 0, 0),
+    new Cesium.Cartesian3()
+  )
+  if (raw && stored === null) raw.centerMC = { x: computed.x, y: computed.y, z: computed.z }
+  return computed
+}
+
+function createModelCenterResolver(rawSources, worldToLocal) {
+  return source => {
+    const idx = Number.isInteger(source?.idx) && source.idx >= 0 ? source.idx : null
+    const raw = idx !== null ? rawSources[idx] : null
+    const stored = raw?.centerMC ?? raw?.centerMc ?? raw?.center_model ?? null
+    return readStoredCenterMC(stored) || computeCenterMC(raw, stored, worldToLocal, source)
+  }
+}
+
+function prepareShaderSourceContext(manager, normalized, anchorToModel, resolveCenterMC) {
+  const useSourceTex = Boolean(normalized.sourceTex?.enabled)
+  const directSources =
+    !useSourceTex && Array.isArray(normalized.sourcesDirect) ? normalized.sourcesDirect : []
+  const sourceCentersMC = anchorToModel
+    ? directSources.map(resolveCenterMC)
+    : directSources.map(() => new Cesium.Cartesian3(0, 0, 0))
+  const sourceUniforms = useSourceTex
+    ? {}
+    : manager.buildSourceUniforms(directSources, sourceCentersMC)
+  const sourceAccessor = manager.buildSourceAccessorShader(directSources.length)
+  let sourceTex = manager.getEmptySourceTexture()
+  if (useSourceTex) {
+    sourceTex = anchorToModel
+      ? manager.prepareSourceTexture(
+          normalized.sources.map(source => ({ ...source, center: resolveCenterMC(source) }))
         )
-      } else {
-        sourceTex = normalized.sourceTex
-      }
-    }
-    const maxShaderSources = useSourceTex ? 1000 : Math.max(1, directSources.length)
-    this.debugLog('apply', {
-      sourceCount: normalized.sourceCount,
-      useSourceTex,
-      anchorToModel,
-      blendMode: normalized.blendMode,
-      cutoff: normalized.cutoff,
-      forceVisible: normalized.forceVisible,
-      lut: { enabled: Boolean(normalized.lut?.enabled), size: normalized.lut?.size },
-      field: {
-        enabled: Boolean(field.enabled),
-        combine: field.combine,
-        textureSize: field.textureSize,
-        gridSize: field.gridSize,
-        size: field.size
-      }
-    })
-    const shader = new Cesium.CustomShader({
-      uniforms: {
-        u_lutTexture: { type: Cesium.UniformType.SAMPLER_2D, value: normalized.lut.texture },
-        u_lutSize: { type: Cesium.UniformType.FLOAT, value: normalized.lut.size },
-        u_useSourceTex: { type: Cesium.UniformType.FLOAT, value: useSourceTex ? 1.0 : 0.0 },
-        u_sourceTex: { type: Cesium.UniformType.SAMPLER_2D, value: sourceTex.texture },
-        u_sourceTexSize: { type: Cesium.UniformType.VEC2, value: sourceTex.size },
-        u_cutoff: { type: Cesium.UniformType.FLOAT, value: normalized.cutoff },
-        u_fieldMaskMode: { type: Cesium.UniformType.FLOAT, value: normalized.fieldMaskMode },
-        u_fieldMaskPower: { type: Cesium.UniformType.FLOAT, value: normalized.fieldMaskPower },
-        u_markerEnabled: { type: Cesium.UniformType.FLOAT, value: normalized.markerEnabled },
-        u_markerRadius: { type: Cesium.UniformType.FLOAT, value: normalized.markerRadius },
-        u_contourEnabled: { type: Cesium.UniformType.FLOAT, value: normalized.contourEnabled },
-        u_contourLevels: { type: Cesium.UniformType.FLOAT, value: normalized.contourLevels },
-        u_contourWidth: { type: Cesium.UniformType.FLOAT, value: normalized.contourWidth },
-        u_glowEnabled: { type: Cesium.UniformType.FLOAT, value: normalized.glowEnabled },
-        u_glowThreshold: { type: Cesium.UniformType.FLOAT, value: normalized.glowThreshold },
-        u_glowStrength: { type: Cesium.UniformType.FLOAT, value: normalized.glowStrength },
-        u_anchorToModel: { type: Cesium.UniformType.FLOAT, value: anchorToModel ? 1.0 : 0.0 },
-        u_diffuseMix: { type: Cesium.UniformType.FLOAT, value: normalized.diffuseMix },
-        u_emissiveMix: { type: Cesium.UniformType.FLOAT, value: normalized.emissiveMix },
-        u_blendMode: { type: Cesium.UniformType.FLOAT, value: normalized.blendMode },
-        u_forceVisible: { type: Cesium.UniformType.FLOAT, value: normalized.forceVisible },
-        u_lowRangeOpacity: { type: Cesium.UniformType.FLOAT, value: normalized.lowRangeOpacity },
-        u_modelRadius: {
-          type: Cesium.UniformType.FLOAT,
-          value: Number(model?.boundingSphere?.radius) || 1.0
-        },
-        u_sourceCount: { type: Cesium.UniformType.FLOAT, value: normalized.sourceCount },
-        ...sourceUniforms,
-        u_fieldEnabled: { type: Cesium.UniformType.FLOAT, value: field.enabled ? 1.0 : 0.0 },
-        u_fieldCombine: { type: Cesium.UniformType.FLOAT, value: field.combine },
-        u_fieldTexture: { type: Cesium.UniformType.SAMPLER_2D, value: field.texture },
-        u_fieldTexSize: { type: Cesium.UniformType.VEC2, value: field.textureSize },
-        u_fieldGridSize: { type: Cesium.UniformType.VEC3, value: field.gridSize },
-        u_fieldEdgeFade: { type: Cesium.UniformType.FLOAT, value: normalized.fieldEdgeFade },
-        u_fieldSize: { type: Cesium.UniformType.VEC3, value: field.size },
-        u_fieldWorldToLocal: { type: Cesium.UniformType.MAT4, value: field.worldToLocal },
-        u_fieldCenter_mc: { type: Cesium.UniformType.VEC3, value: fieldCenterMC }
-      },
-      lightingModel: Cesium.LightingModel.PBR,
-      fragmentShaderText: `
-        const int MAX_SOURCES = ${maxShaderSources};
+      : normalized.sourceTex
+  }
+  return {
+    useSourceTex,
+    sourceUniforms,
+    sourceAccessor,
+    sourceTex,
+    maxShaderSources: useSourceTex ? 1000 : Math.max(1, directSources.length)
+  }
+}
 
+function buildStressShaderUniforms({
+  normalized,
+  sourceUniforms,
+  sourceTex,
+  model,
+  field,
+  anchorToModel,
+  fieldCenterMC
+}) {
+  return {
+    u_lutTexture: { type: Cesium.UniformType.SAMPLER_2D, value: normalized.lut.texture },
+    u_lutSize: { type: Cesium.UniformType.FLOAT, value: normalized.lut.size },
+    u_useSourceTex: { type: Cesium.UniformType.FLOAT, value: sourceTex.enabled ? 1.0 : 0.0 },
+    u_sourceTex: { type: Cesium.UniformType.SAMPLER_2D, value: sourceTex.texture },
+    u_sourceTexSize: { type: Cesium.UniformType.VEC2, value: sourceTex.size },
+    u_cutoff: { type: Cesium.UniformType.FLOAT, value: normalized.cutoff },
+    u_fieldMaskMode: { type: Cesium.UniformType.FLOAT, value: normalized.fieldMaskMode },
+    u_fieldMaskPower: { type: Cesium.UniformType.FLOAT, value: normalized.fieldMaskPower },
+    u_markerEnabled: { type: Cesium.UniformType.FLOAT, value: normalized.markerEnabled },
+    u_markerRadius: { type: Cesium.UniformType.FLOAT, value: normalized.markerRadius },
+    u_contourEnabled: { type: Cesium.UniformType.FLOAT, value: normalized.contourEnabled },
+    u_contourLevels: { type: Cesium.UniformType.FLOAT, value: normalized.contourLevels },
+    u_contourWidth: { type: Cesium.UniformType.FLOAT, value: normalized.contourWidth },
+    u_glowEnabled: { type: Cesium.UniformType.FLOAT, value: normalized.glowEnabled },
+    u_glowThreshold: { type: Cesium.UniformType.FLOAT, value: normalized.glowThreshold },
+    u_glowStrength: { type: Cesium.UniformType.FLOAT, value: normalized.glowStrength },
+    u_anchorToModel: { type: Cesium.UniformType.FLOAT, value: anchorToModel ? 1.0 : 0.0 },
+    u_diffuseMix: { type: Cesium.UniformType.FLOAT, value: normalized.diffuseMix },
+    u_emissiveMix: { type: Cesium.UniformType.FLOAT, value: normalized.emissiveMix },
+    u_blendMode: { type: Cesium.UniformType.FLOAT, value: normalized.blendMode },
+    u_forceVisible: { type: Cesium.UniformType.FLOAT, value: normalized.forceVisible },
+    u_lowRangeOpacity: { type: Cesium.UniformType.FLOAT, value: normalized.lowRangeOpacity },
+    u_modelRadius: {
+      type: Cesium.UniformType.FLOAT,
+      value: Number(model?.boundingSphere?.radius) || 1.0
+    },
+    u_sourceCount: { type: Cesium.UniformType.FLOAT, value: normalized.sourceCount },
+    ...sourceUniforms,
+    u_fieldEnabled: { type: Cesium.UniformType.FLOAT, value: field.enabled ? 1.0 : 0.0 },
+    u_fieldCombine: { type: Cesium.UniformType.FLOAT, value: field.combine },
+    u_fieldTexture: { type: Cesium.UniformType.SAMPLER_2D, value: field.texture },
+    u_fieldTexSize: { type: Cesium.UniformType.VEC2, value: field.textureSize },
+    u_fieldGridSize: { type: Cesium.UniformType.VEC3, value: field.gridSize },
+    u_fieldEdgeFade: { type: Cesium.UniformType.FLOAT, value: normalized.fieldEdgeFade },
+    u_fieldSize: { type: Cesium.UniformType.VEC3, value: field.size },
+    u_fieldWorldToLocal: { type: Cesium.UniformType.MAT4, value: field.worldToLocal },
+    u_fieldCenter_mc: { type: Cesium.UniformType.VEC3, value: fieldCenterMC }
+  }
+}
+
+const STRESS_FRAGMENT_SHADER_BODY = `
         float computeContribution(vec3 pos, vec3 center, float radius, float intensity) {
           float dist = distance(pos, center);
           float base = 1.0 - smoothstep(0.0, radius, dist);
@@ -234,8 +216,6 @@ export class HeatmapManager {
           return texture(u_lutTexture, vec2(u, 0.5)).rgb;
         }
 
-        ${sourceAccessor}
-
         vec4 sampleSourceRow(float index, float row) {
           vec2 size = max(vec2(1.0), u_sourceTexSize);
           float u = (index + 0.5) / size.x;
@@ -258,7 +238,6 @@ export class HeatmapManager {
 
           float texWidth = u_fieldTexSize.x;
           float texHeight = u_fieldTexSize.y;
-
           float sliceWidth = u_fieldGridSize.x;
           float x0 = g0.x;
           float y0 = g0.y;
@@ -364,7 +343,6 @@ export class HeatmapManager {
             acc = clamp(acc + fieldValue, 0.0, 1.0);
           }
 
-          // 应力值与颜色严格一一对应：displayW = colorW = acc（无 cutoff、无可视增强）
           float colorW = clamp(acc, 0.0, 1.0);
           float displayW = colorW;
 
@@ -395,6 +373,78 @@ export class HeatmapManager {
           }
         }
       `
+
+function buildStressFragmentShader(maxShaderSources, sourceAccessor) {
+  return `const int MAX_SOURCES = ${maxShaderSources};\n\n${sourceAccessor}\n${STRESS_FRAGMENT_SHADER_BODY}`
+}
+
+export class HeatmapManager {
+  constructor(viewer) {
+    this.viewer = viewer
+    this.stressShaders = new Map()
+    this.emptyTexture = null
+    this.emptyColorLUTTexture = null
+    this.emptySourceTexture = null
+    this.debugState = new Map()
+  }
+
+  debugEnabled() {
+    return isStressDebugEnabled()
+  }
+
+  debugLog(title, payload) {
+    stressDebugLog('heatmap', title, payload)
+  }
+
+  applyStressConfig(model, config) {
+    if (!model || !config) return
+    const { anchorToModel, worldToLocal } = resolveAnchorContext(this, model, config)
+    const normalized = this.normalizeStressConfig(config)
+    const field = this.prepareField(config.field)
+    const fieldCenterMC = resolveFieldCenterMC(config, anchorToModel, worldToLocal)
+    const rawSources = Array.isArray(config.sources) ? config.sources.slice(0, 1000) : []
+    const resolveCenterMC = createModelCenterResolver(rawSources, worldToLocal)
+    const sourceContext = prepareShaderSourceContext(
+      this,
+      normalized,
+      anchorToModel,
+      resolveCenterMC
+    )
+    this.debugLog('apply', {
+      sourceCount: normalized.sourceCount,
+      useSourceTex: sourceContext.useSourceTex,
+      anchorToModel,
+      blendMode: normalized.blendMode,
+      cutoff: normalized.cutoff,
+      forceVisible: normalized.forceVisible,
+      lut: { enabled: Boolean(normalized.lut?.enabled), size: normalized.lut?.size },
+      field: {
+        enabled: Boolean(field.enabled),
+        combine: field.combine,
+        textureSize: field.textureSize,
+        gridSize: field.gridSize,
+        size: field.size
+      }
+    })
+    const shader = new Cesium.CustomShader({
+      uniforms: buildStressShaderUniforms({
+        normalized,
+        sourceUniforms: sourceContext.sourceUniforms,
+        sourceTex: {
+          enabled: sourceContext.useSourceTex,
+          texture: sourceContext.sourceTex.texture,
+          size: sourceContext.sourceTex.size
+        },
+        model,
+        field,
+        anchorToModel,
+        fieldCenterMC
+      }),
+      lightingModel: Cesium.LightingModel.PBR,
+      fragmentShaderText: buildStressFragmentShader(
+        sourceContext.maxShaderSources,
+        sourceContext.sourceAccessor
+      )
     })
 
     model.customShader = shader

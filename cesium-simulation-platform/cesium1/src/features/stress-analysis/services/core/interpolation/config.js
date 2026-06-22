@@ -13,14 +13,11 @@ import {
 } from '../computation/index.js'
 import { stressFromStrainTensor } from '../shared/stressActionShared.js'
 import {
-  toNumberOrDefault,
   toFiniteNumber,
-  clamp,
   clampInt,
   clamp01,
   ensureArray,
-  parseSizeArray,
-  fract
+  parseSizeArray
 } from '../shared/stressMathUtils.js'
 
 export function createAnisotropyParams(scaleX, scaleY, scaleZ, angle) {
@@ -217,21 +214,28 @@ function getCesiumRef() {
   return typeof globalThis !== 'undefined' ? globalThis.Cesium : null
 }
 
+function isValidWorldPosition(positionWC) {
+  return Boolean(
+    positionWC &&
+    Number.isFinite(positionWC.x) &&
+    Number.isFinite(positionWC.y) &&
+    Number.isFinite(positionWC.z)
+  )
+}
+
+function resolveGridDimensions(grid) {
+  const width = Number(grid.width)
+  const height = Number(grid.height)
+  const depth = Number(grid.depth)
+  return width > 1 && height > 1 && depth > 1 ? { width, height, depth } : null
+}
+
 export function buildGridSampleContext(positionWC, grid, origin, size) {
   const Cesium = getCesiumRef()
   if (!Cesium) return null
-  const w = Number(grid.width)
-  const h = Number(grid.height)
-  const d = Number(grid.depth)
-  if (!(w > 1 && h > 1 && d > 1)) return null
-  if (
-    !positionWC ||
-    !Number.isFinite(positionWC.x) ||
-    !Number.isFinite(positionWC.y) ||
-    !Number.isFinite(positionWC.z)
-  ) {
-    return null
-  }
+  const dimensions = resolveGridDimensions(grid)
+  if (!dimensions || !isValidWorldPosition(positionWC)) return null
+  const { width: w, height: h, depth: d } = dimensions
   const position = Cesium.Cartesian3.fromDegrees(origin[0], origin[1], origin[2] || 0)
   const localToWorld = Cesium.Transforms.eastNorthUpToFixedFrame(position)
   const worldToLocal = Cesium.Matrix4.inverse(localToWorld, new Cesium.Matrix4())

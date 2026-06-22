@@ -13,6 +13,113 @@ import {
   resolveStressUnit
 } from './stressHeatmapPanelState.js'
 
+function createHeatmapPanelRefs() {
+  return {
+    heatmapContrast: ref(HEATMAP_PANEL_DEFAULTS.contrast),
+    heatmapGamma: ref(HEATMAP_PANEL_DEFAULTS.gamma),
+    heatmapCutoff: ref(HEATMAP_PANEL_DEFAULTS.cutoff),
+    heatmapLowRangeOpacity: ref(HEATMAP_PANEL_DEFAULTS.lowRangeOpacity),
+    heatmapForceVisible: ref(HEATMAP_PANEL_DEFAULTS.forceVisible),
+    heatmapDiffuseMix: ref(HEATMAP_PANEL_DEFAULTS.diffuseMix),
+    heatmapEmissiveMix: ref(HEATMAP_PANEL_DEFAULTS.emissiveMix),
+    heatmapAnchorToModel: ref(HEATMAP_PANEL_DEFAULTS.anchorToModel),
+    heatmapBlendMode: ref(HEATMAP_PANEL_DEFAULTS.blendMode),
+    heatmapMaskMode: ref(HEATMAP_PANEL_DEFAULTS.maskMode),
+    heatmapEnableContour: ref(false),
+    heatmapContourLevels: ref(HEATMAP_PANEL_DEFAULTS.contourLevels),
+    heatmapContourWidth: ref(HEATMAP_PANEL_DEFAULTS.contourWidth),
+    heatmapEnableGlow: ref(false),
+    heatmapEnableMarker: ref(false),
+    heatmapColormapPreset: ref(HEATMAP_PANEL_DEFAULTS.colormapPreset),
+    heatmapTuningExpanded: ref(false)
+  }
+}
+
+function assignHeatmapPanelState(refs, nextState) {
+  refs.heatmapContrast.value = nextState.contrast
+  refs.heatmapGamma.value = nextState.gamma
+  refs.heatmapCutoff.value = nextState.cutoff
+  refs.heatmapLowRangeOpacity.value = nextState.lowRangeOpacity
+  refs.heatmapForceVisible.value = nextState.forceVisible
+  refs.heatmapDiffuseMix.value = nextState.diffuseMix
+  refs.heatmapEmissiveMix.value = nextState.emissiveMix
+  refs.heatmapAnchorToModel.value = nextState.anchorToModel
+  refs.heatmapBlendMode.value = nextState.blendMode
+  refs.heatmapMaskMode.value = nextState.maskMode
+  refs.heatmapEnableContour.value = nextState.enableContour
+  refs.heatmapContourLevels.value = nextState.contourLevels
+  refs.heatmapContourWidth.value = nextState.contourWidth
+  refs.heatmapEnableGlow.value = nextState.enableGlow
+  refs.heatmapEnableMarker.value = nextState.enableMarker
+  if (nextState.colormapPreset) refs.heatmapColormapPreset.value = nextState.colormapPreset
+}
+
+function createHeatmapComputedState({ config, metricUnit, refs, getCurrentValueRange }) {
+  const resolveCurrentGradientRangeState = () =>
+    resolveGradientRangeState(getCurrentValueRange(), refs.heatmapCutoff.value)
+
+  return {
+    gradientScaleRangeText: computed(() => {
+      const range = getCurrentValueRange()
+      const unit = resolveStressUnit(config.value?.field?.data?.unitStress, metricUnit.value)
+      return formatGradientScaleRangeText(range, unit)
+    }),
+    gradientUnitLabel: computed(() => {
+      const unit = resolveStressUnit(config.value?.field?.data?.unitStress, metricUnit.value)
+      return unit || '相对值'
+    }),
+    gradientCutoffText: computed(() =>
+      formatGradientCutoffText(resolveCurrentGradientRangeState())
+    ),
+    gradientLegendCss: computed(() =>
+      buildGradientLegendCss(config.value?.colorRamp, refs.heatmapCutoff.value)
+    ),
+    gradientValueTickRows: computed(() =>
+      buildGradientValueTickRows(resolveCurrentGradientRangeState())
+    ),
+    contourValueRows: computed(() => {
+      if (!refs.heatmapEnableContour.value) return []
+      return buildContourValueRows(
+        resolveCurrentGradientRangeState(),
+        refs.heatmapContourLevels.value
+      )
+    })
+  }
+}
+
+function createHeatmapPanelActions(refs, setHeatmapDisplay) {
+  const applyHeatmapPanelTuning = () => {
+    setHeatmapDisplay(
+      buildHeatmapDisplayPayload({
+        contrast: refs.heatmapContrast.value,
+        gamma: refs.heatmapGamma.value,
+        cutoff: refs.heatmapCutoff.value,
+        lowRangeOpacity: refs.heatmapLowRangeOpacity.value,
+        forceVisible: refs.heatmapForceVisible.value,
+        diffuseMix: refs.heatmapDiffuseMix.value,
+        emissiveMix: refs.heatmapEmissiveMix.value,
+        anchorToModel: refs.heatmapAnchorToModel.value,
+        blendMode: refs.heatmapBlendMode.value,
+        maskMode: refs.heatmapMaskMode.value,
+        enableContour: refs.heatmapEnableContour.value,
+        contourLevels: refs.heatmapContourLevels.value,
+        contourWidth: refs.heatmapContourWidth.value,
+        enableGlow: refs.heatmapEnableGlow.value,
+        enableMarker: refs.heatmapEnableMarker.value,
+        colormapPreset: refs.heatmapColormapPreset.value
+      })
+    )
+  }
+
+  return {
+    applyHeatmapPanelTuning,
+    applyHeatmapPreset(mode) {
+      assignHeatmapPanelState(refs, resolveHeatmapPresetState(mode))
+      applyHeatmapPanelTuning()
+    }
+  }
+}
+
 export function useStressPanelHeatmap({
   config,
   metricUnit,
@@ -20,139 +127,33 @@ export function useStressPanelHeatmap({
   getCurrentValueRange,
   setHeatmapDisplay
 }) {
-  const heatmapContrast = ref(HEATMAP_PANEL_DEFAULTS.contrast)
-  const heatmapGamma = ref(HEATMAP_PANEL_DEFAULTS.gamma)
-  const heatmapCutoff = ref(HEATMAP_PANEL_DEFAULTS.cutoff)
-  const heatmapLowRangeOpacity = ref(HEATMAP_PANEL_DEFAULTS.lowRangeOpacity)
-  const heatmapForceVisible = ref(HEATMAP_PANEL_DEFAULTS.forceVisible)
-  const heatmapDiffuseMix = ref(HEATMAP_PANEL_DEFAULTS.diffuseMix)
-  const heatmapEmissiveMix = ref(HEATMAP_PANEL_DEFAULTS.emissiveMix)
-  const heatmapAnchorToModel = ref(HEATMAP_PANEL_DEFAULTS.anchorToModel)
-  const heatmapBlendMode = ref(HEATMAP_PANEL_DEFAULTS.blendMode)
-  const heatmapMaskMode = ref(HEATMAP_PANEL_DEFAULTS.maskMode)
-  const heatmapEnableContour = ref(false)
-  const heatmapContourLevels = ref(HEATMAP_PANEL_DEFAULTS.contourLevels)
-  const heatmapContourWidth = ref(HEATMAP_PANEL_DEFAULTS.contourWidth)
-  const heatmapEnableGlow = ref(false)
-  const heatmapEnableMarker = ref(false)
-  const heatmapColormapPreset = ref(HEATMAP_PANEL_DEFAULTS.colormapPreset)
-  const heatmapTuningExpanded = ref(false)
-
-  const gradientScaleRangeText = computed(() => {
-    const range = getCurrentValueRange()
-    const unit = resolveStressUnit(config.value?.field?.data?.unitStress, metricUnit.value)
-    return formatGradientScaleRangeText(range, unit)
+  const refs = createHeatmapPanelRefs()
+  const computedState = createHeatmapComputedState({
+    config,
+    metricUnit,
+    refs,
+    getCurrentValueRange
   })
-
-  const gradientUnitLabel = computed(() => {
-    const unit = resolveStressUnit(config.value?.field?.data?.unitStress, metricUnit.value)
-    return unit || '相对值'
-  })
-
-  const gradientCutoffText = computed(() => {
-    return formatGradientCutoffText(resolveCurrentGradientRangeState())
-  })
-
-  const gradientLegendCss = computed(() => {
-    return buildGradientLegendCss(config.value?.colorRamp, heatmapCutoff.value)
-  })
-
-  const gradientValueTickRows = computed(() => {
-    return buildGradientValueTickRows(resolveCurrentGradientRangeState())
-  })
-
-  const contourValueRows = computed(() => {
-    if (!heatmapEnableContour.value) return []
-    return buildContourValueRows(resolveCurrentGradientRangeState(), heatmapContourLevels.value)
-  })
-
-  const applyHeatmapPanelTuning = () => {
-    setHeatmapDisplay(
-      buildHeatmapDisplayPayload({
-        contrast: heatmapContrast.value,
-        gamma: heatmapGamma.value,
-        cutoff: heatmapCutoff.value,
-        lowRangeOpacity: heatmapLowRangeOpacity.value,
-        forceVisible: heatmapForceVisible.value,
-        diffuseMix: heatmapDiffuseMix.value,
-        emissiveMix: heatmapEmissiveMix.value,
-        anchorToModel: heatmapAnchorToModel.value,
-        blendMode: heatmapBlendMode.value,
-        maskMode: heatmapMaskMode.value,
-        enableContour: heatmapEnableContour.value,
-        contourLevels: heatmapContourLevels.value,
-        contourWidth: heatmapContourWidth.value,
-        enableGlow: heatmapEnableGlow.value,
-        enableMarker: heatmapEnableMarker.value,
-        colormapPreset: heatmapColormapPreset.value
-      })
-    )
-  }
-
-  const applyHeatmapPreset = mode => {
-    assignHeatmapPanelState(resolveHeatmapPresetState(mode))
-    applyHeatmapPanelTuning()
-  }
+  const actions = createHeatmapPanelActions(refs, setHeatmapDisplay)
 
   watch(
     heatmapDisplay,
     next => {
       if (!next) return
-      assignHeatmapPanelState(resolveHeatmapPanelState(next))
+      assignHeatmapPanelState(refs, resolveHeatmapPanelState(next))
     },
     { immediate: true, deep: true }
   )
 
   return {
-    heatmapTuningExpanded,
-    heatmapContrast,
-    heatmapGamma,
-    heatmapCutoff,
-    heatmapLowRangeOpacity,
-    heatmapForceVisible,
-    heatmapDiffuseMix,
-    heatmapEmissiveMix,
-    heatmapAnchorToModel,
-    heatmapBlendMode,
-    heatmapMaskMode,
-    heatmapEnableContour,
-    heatmapContourLevels,
-    heatmapContourWidth,
-    heatmapEnableGlow,
-    heatmapEnableMarker,
-    heatmapColormapPreset,
-    contourValueRows,
-    applyHeatmapPanelTuning,
-    applyHeatmapPreset,
-    gradientScaleRangeText,
-    gradientCutoffText,
-    gradientLegendCss,
-    gradientValueTickRows,
-    gradientUnitLabel
-  }
-
-  function resolveCurrentGradientRangeState() {
-    return resolveGradientRangeState(getCurrentValueRange(), heatmapCutoff.value)
-  }
-
-  function assignHeatmapPanelState(nextState) {
-    heatmapContrast.value = nextState.contrast
-    heatmapGamma.value = nextState.gamma
-    heatmapCutoff.value = nextState.cutoff
-    heatmapLowRangeOpacity.value = nextState.lowRangeOpacity
-    heatmapForceVisible.value = nextState.forceVisible
-    heatmapDiffuseMix.value = nextState.diffuseMix
-    heatmapEmissiveMix.value = nextState.emissiveMix
-    heatmapAnchorToModel.value = nextState.anchorToModel
-    heatmapBlendMode.value = nextState.blendMode
-    heatmapMaskMode.value = nextState.maskMode
-    heatmapEnableContour.value = nextState.enableContour
-    heatmapContourLevels.value = nextState.contourLevels
-    heatmapContourWidth.value = nextState.contourWidth
-    heatmapEnableGlow.value = nextState.enableGlow
-    heatmapEnableMarker.value = nextState.enableMarker
-    if (nextState.colormapPreset) {
-      heatmapColormapPreset.value = nextState.colormapPreset
-    }
+    ...refs,
+    contourValueRows: computedState.contourValueRows,
+    applyHeatmapPanelTuning: actions.applyHeatmapPanelTuning,
+    applyHeatmapPreset: actions.applyHeatmapPreset,
+    gradientScaleRangeText: computedState.gradientScaleRangeText,
+    gradientCutoffText: computedState.gradientCutoffText,
+    gradientLegendCss: computedState.gradientLegendCss,
+    gradientValueTickRows: computedState.gradientValueTickRows,
+    gradientUnitLabel: computedState.gradientUnitLabel
   }
 }

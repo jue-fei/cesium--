@@ -247,7 +247,7 @@ export function useStressPanel() {
     timeLabel,
     metricOptions,
     chartMetricOptions,
-    valueRangeText,
+    valueRangeText: panelEvaluation.valueRangeText,
     pointRender,
     heatmapUi,
     chart,

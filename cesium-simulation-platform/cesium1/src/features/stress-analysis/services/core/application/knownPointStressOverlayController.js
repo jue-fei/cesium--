@@ -31,32 +31,7 @@ function formatKnownPointValue(value) {
   return value.toFixed(3)
 }
 
-export function createKnownPointStressOverlayController(deps) {
-  const {
-    viewer,
-    tileset,
-    config,
-    stressSource,
-    metric,
-    directionAzimuth,
-    directionDip,
-    overlayItems,
-    currentTime,
-    metricUnit,
-    unitStress,
-    heatmapDisplay,
-    knownPointStressVisible,
-    samplingActions,
-    resolveTilesetCenterInfo,
-    resolvePointCenterCartesian,
-    getPointMetricSeriesValues,
-    sampleGridScalarAt,
-    runtime
-  } = deps
-
-  const getPointSource = () =>
-    stressSource.value.kind === 'points' ? stressSource.value.data : null
-
+function createRenderableFieldSampler(config, sampleGridScalarAt) {
   const getRenderableFieldFrame = timeIndex => {
     const fieldData = config.value?.field?.data
     const grid = fieldData?.grid
@@ -70,38 +45,40 @@ export function createKnownPointStressOverlayController(deps) {
     return { grid, origin, size, values }
   }
 
-  const sampleRenderableFieldValue = (position, timeIndex) => {
+  return (position, timeIndex) => {
     const field = getRenderableFieldFrame(timeIndex)
     if (!field || !position) return Number.NaN
     const sampled = sampleGridScalarAt(position, field.values, field.grid, field.origin, field.size)
     return Number.isFinite(sampled) ? Number(sampled) : Number.NaN
   }
+}
 
-  const sampleRampColor = (ramp, t) => {
-    const list = Array.isArray(ramp) ? ramp : []
-    if (list.length < 1) return Cesium.Color.WHITE
-    const stops = list
-      .map((row, idx) => ({
-        value: Number.isFinite(Number(row?.value))
-          ? Number(row.value)
-          : idx / Math.max(1, list.length - 1),
-        color: Cesium.Color.fromCssColorString(String(row?.color || '#ffffff'))
-      }))
-      .sort((a, b) => a.value - b.value)
-    const x = Math.max(0, Math.min(1, Number(t) || 0))
-    if (x <= stops[0].value) return stops[0].color.clone()
-    for (let i = 1; i < stops.length; i++) {
-      const left = stops[i - 1]
-      const right = stops[i]
-      if (x <= right.value) {
-        const localT = (x - left.value) / Math.max(1e-6, right.value - left.value)
-        return Cesium.Color.lerp(left.color, right.color, localT, new Cesium.Color())
-      }
+function sampleRampColor(ramp, t) {
+  const list = Array.isArray(ramp) ? ramp : []
+  if (list.length < 1) return Cesium.Color.WHITE
+  const stops = list
+    .map((row, idx) => ({
+      value: Number.isFinite(Number(row?.value))
+        ? Number(row.value)
+        : idx / Math.max(1, list.length - 1),
+      color: Cesium.Color.fromCssColorString(String(row?.color || '#ffffff'))
+    }))
+    .sort((a, b) => a.value - b.value)
+  const x = Math.max(0, Math.min(1, Number(t) || 0))
+  if (x <= stops[0].value) return stops[0].color.clone()
+  for (let i = 1; i < stops.length; i += 1) {
+    const left = stops[i - 1]
+    const right = stops[i]
+    if (x <= right.value) {
+      const localT = (x - left.value) / Math.max(1e-6, right.value - left.value)
+      return Cesium.Color.lerp(left.color, right.color, localT, new Cesium.Color())
     }
-    return stops[stops.length - 1].color.clone()
   }
+  return stops[stops.length - 1].color.clone()
+}
 
-  const resolveKnownPointColor = value => {
+function createKnownPointColorResolver(config, heatmapDisplay, samplingActions) {
+  return value => {
     const rangeCandidate =
       Array.isArray(config.value?.field?.data?.valueRange) &&
       config.value.field.data.valueRange.length === 2
@@ -124,45 +101,168 @@ export function createKnownPointStressOverlayController(deps) {
         : Math.max(0, Math.min(1, (normalized - cutoff) / Math.max(1e-6, 1 - cutoff)))
     return sampleRampColor(config.value?.colorRamp, colorW)
   }
+}
 
-  const ensureKnownPointStressDataSource = () => {
-    reportKnownPointStressDebug(
-      'A',
-      'knownPointStressOverlayController.js:ensureKnownPointStressDataSource:enter',
-      'ensure known point datasource',
-      {
-        hasViewer: Boolean(viewer.value),
-        hasDataSource: Boolean(runtime.dataSource),
-        attachedFlag: Boolean(runtime.attached),
-        attached: Boolean(
-          viewer.value &&
-          runtime.dataSource &&
-          viewer.value.dataSources?.contains?.(runtime.dataSource)
-        )
-      }
-    )
-    if (!viewer.value) return null
-    if (!runtime.dataSource) {
-      runtime.dataSource = new Cesium.CustomDataSource('stress-known-points')
+function buildKnownPointOverlayContext({
+  ds,
+  currentTime,
+  directionAzimuth,
+  directionDip,
+  metricUnit,
+  unitStress
+}) {
+  return {
+    direction: {
+      azimuthDeg: Number(directionAzimuth.value) || 0,
+      dipDeg: Number(directionDip.value) || 0
+    },
+    unit: metricUnit.value || ds.unitStress || unitStress.value || '',
+    currentIndex: Math.max(0, Number(currentTime.value) || 0),
+    origin: Array.isArray(ds.origin) ? ds.origin : null,
+    size: Array.isArray(ds.size) ? ds.size : null
+  }
+}
+
+function buildKnownPointEntity({
+  point,
+  position,
+  ds,
+  metric,
+  overlayItems,
+  resolveKnownPointColor,
+  sampleRenderableFieldValue,
+  getPointMetricSeriesValues,
+  context
+}) {
+  const series = getPointMetricSeriesValues(
+    point,
+    ds,
+    metric.value,
+    context.direction,
+    overlayItems.value
+  )
+  const rawValue = Array.isArray(series) ? series[context.currentIndex] : null
+  const rawValueNumber = rawValue === null || rawValue === undefined ? Number.NaN : Number(rawValue)
+  const sampledFieldValue = sampleRenderableFieldValue(position, context.currentIndex)
+  const value = Number.isFinite(sampledFieldValue) ? sampledFieldValue : rawValueNumber
+  const color = resolveKnownPointColor(value)
+  const title = String(point.name || point.id || '已知点')
+  const rawDifferent =
+    Number.isFinite(rawValueNumber) &&
+    Number.isFinite(value) &&
+    Math.abs(rawValueNumber - value) > Math.max(1e-4, Math.abs(rawValueNumber) * 0.001)
+  const valueText = Number.isFinite(value)
+    ? rawDifferent
+      ? `${formatKnownPointValue(value)} ${context.unit} (原 ${formatKnownPointValue(rawValueNumber)})`.trim()
+      : `${formatKnownPointValue(value)} ${context.unit}`.trim()
+    : '—'
+  return {
+    id: `stress-known-point-${point.id || title}`,
+    position,
+    point: {
+      pixelSize: 11,
+      color,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 2,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      scaleByDistance: KNOWN_POINT_SCALE_BY_DISTANCE
+    },
+    label: {
+      text: `${title}\n${valueText}`,
+      font: 'bold 13px sans-serif',
+      fillColor: color,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      showBackground: true,
+      backgroundColor: Cesium.Color.BLACK.withAlpha(0.72),
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      pixelOffset: new Cesium.Cartesian2(0, -24),
+      pixelOffsetScaleByDistance: KNOWN_POINT_PIXEL_OFFSET_SCALE,
+      scaleByDistance: KNOWN_POINT_SCALE_BY_DISTANCE,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+      verticalOrigin: Cesium.VerticalOrigin.BOTTOM
     }
-    if (!runtime.attached) {
-      viewer.value.dataSources.add(runtime.dataSource)
-      runtime.attached = true
-      reportKnownPointStressDebug(
-        'A',
-        'knownPointStressOverlayController.js:ensureKnownPointStressDataSource:created',
-        'created and added known point datasource',
-        {
-          containsAfterAdd: Boolean(viewer.value.dataSources?.contains?.(runtime.dataSource)),
-          attachedFlag: Boolean(runtime.attached),
-          dataSourceName: runtime.dataSource?.name || ''
-        }
+  }
+}
+
+function renderKnownPointEntities({
+  entities,
+  points,
+  context,
+  tileset,
+  resolveTilesetCenterInfo,
+  resolvePointCenterCartesian,
+  resolveKnownPointColor,
+  sampleRenderableFieldValue,
+  getPointMetricSeriesValues,
+  ds,
+  metric,
+  overlayItems
+}) {
+  for (const point of points) {
+    if (!point || typeof point !== 'object') continue
+    const position = resolvePointCenterCartesian(
+      point,
+      context.origin,
+      context.size,
+      tileset.value,
+      resolveTilesetCenterInfo
+    )
+    if (!position) continue
+    entities.add(
+      buildKnownPointEntity({
+        point,
+        position,
+        ds,
+        metric,
+        overlayItems,
+        resolveKnownPointColor,
+        sampleRenderableFieldValue,
+        getPointMetricSeriesValues,
+        context
+      })
+    )
+  }
+}
+
+function ensureKnownPointStressDataSource(viewer, runtime) {
+  reportKnownPointStressDebug(
+    'A',
+    'knownPointStressOverlayController.js:ensureKnownPointStressDataSource:enter',
+    'ensure known point datasource',
+    {
+      hasViewer: Boolean(viewer.value),
+      hasDataSource: Boolean(runtime.dataSource),
+      attachedFlag: Boolean(runtime.attached),
+      attached: Boolean(
+        viewer.value &&
+        runtime.dataSource &&
+        viewer.value.dataSources?.contains?.(runtime.dataSource)
       )
     }
-    return runtime.dataSource
+  )
+  if (!viewer.value) return null
+  if (!runtime.dataSource) runtime.dataSource = new Cesium.CustomDataSource('stress-known-points')
+  if (!runtime.attached) {
+    viewer.value.dataSources.add(runtime.dataSource)
+    runtime.attached = true
+    reportKnownPointStressDebug(
+      'A',
+      'knownPointStressOverlayController.js:ensureKnownPointStressDataSource:created',
+      'created and added known point datasource',
+      {
+        containsAfterAdd: Boolean(viewer.value.dataSources?.contains?.(runtime.dataSource)),
+        attachedFlag: Boolean(runtime.attached),
+        dataSourceName: runtime.dataSource?.name || ''
+      }
+    )
   }
+  return runtime.dataSource
+}
 
-  const clearKnownPointStressOverlay = () => {
+function clearKnownPointStressOverlayFactory({ viewer, runtime, knownPointStressVisible }) {
+  return () => {
     reportKnownPointStressDebug(
       'B',
       'knownPointStressOverlayController.js:clearKnownPointStressOverlay',
@@ -178,8 +278,34 @@ export function createKnownPointStressOverlayController(deps) {
     if (runtime.dataSource) runtime.dataSource.entities.removeAll()
     if (viewer.value?.scene?.requestRender) viewer.value.scene.requestRender()
   }
+}
 
-  const updateKnownPointStressOverlay = () => {
+function createKnownPointOverlayUpdater(deps) {
+  const {
+    viewer,
+    tileset,
+    stressSource,
+    knownPointStressVisible,
+    currentTime,
+    directionAzimuth,
+    directionDip,
+    metricUnit,
+    unitStress,
+    resolveTilesetCenterInfo,
+    resolvePointCenterCartesian,
+    getPointMetricSeriesValues,
+    metric,
+    overlayItems,
+    runtime,
+    clearKnownPointStressOverlay,
+    sampleRenderableFieldValue,
+    resolveKnownPointColor
+  } = deps
+
+  const getPointSource = () =>
+    stressSource.value.kind === 'points' ? stressSource.value.data : null
+
+  return () => {
     const ds = getPointSource()
     const points = Array.isArray(ds?.knownPoints) ? ds.knownPoints : []
     reportKnownPointStressDebug(
@@ -196,10 +322,7 @@ export function createKnownPointStressOverlayController(deps) {
         timeIndex: Math.max(0, Number(currentTime.value) || 0)
       }
     )
-    if (!viewer.value || !knownPointStressVisible.value) {
-      clearKnownPointStressOverlay()
-      return
-    }
+    if (!viewer.value || !knownPointStressVisible.value) return clearKnownPointStressOverlay()
     if (!ds || points.length < 1) {
       reportKnownPointStressDebug(
         'D',
@@ -211,88 +334,34 @@ export function createKnownPointStressOverlayController(deps) {
           visible: Boolean(knownPointStressVisible.value)
         }
       )
-      clearKnownPointStressOverlay()
-      return
+      return clearKnownPointStressOverlay()
     }
 
-    const dataSource = ensureKnownPointStressDataSource()
+    const dataSource = ensureKnownPointStressDataSource(viewer, runtime)
     if (!dataSource) return
-
     const entities = dataSource.entities
     entities.removeAll()
-
-    const direction = {
-      azimuthDeg: Number(directionAzimuth.value) || 0,
-      dipDeg: Number(directionDip.value) || 0
-    }
-    const unit = metricUnit.value || ds.unitStress || unitStress.value || ''
-    const currentIndex = Math.max(0, Number(currentTime.value) || 0)
-    const origin = Array.isArray(ds.origin) ? ds.origin : null
-    const size = Array.isArray(ds.size) ? ds.size : null
-
-    for (const point of points) {
-      if (!point || typeof point !== 'object') continue
-      const position = resolvePointCenterCartesian(
-        point,
-        origin,
-        size,
-        tileset.value,
-        resolveTilesetCenterInfo
-      )
-      if (!position) continue
-      const series = getPointMetricSeriesValues(
-        point,
+    renderKnownPointEntities({
+      entities,
+      points,
+      context: buildKnownPointOverlayContext({
         ds,
-        metric.value,
-        direction,
-        overlayItems.value
-      )
-      const rawValue = Array.isArray(series) ? series[currentIndex] : null
-      const rawValueNumber =
-        rawValue === null || rawValue === undefined ? Number.NaN : Number(rawValue)
-      const sampledFieldValue = sampleRenderableFieldValue(position, currentIndex)
-      const value = Number.isFinite(sampledFieldValue) ? sampledFieldValue : rawValueNumber
-      const color = resolveKnownPointColor(value)
-      const title = String(point.name || point.id || '已知点')
-      const rawDifferent =
-        Number.isFinite(rawValueNumber) &&
-        Number.isFinite(value) &&
-        Math.abs(rawValueNumber - value) > Math.max(1e-4, Math.abs(rawValueNumber) * 0.001)
-      const valueText = Number.isFinite(value)
-        ? rawDifferent
-          ? `${formatKnownPointValue(value)} ${unit} (原 ${formatKnownPointValue(rawValueNumber)})`.trim()
-          : `${formatKnownPointValue(value)} ${unit}`.trim()
-        : '—'
-      entities.add({
-        id: `stress-known-point-${point.id || title}`,
-        position,
-        point: {
-          pixelSize: 11,
-          color,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 2,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          scaleByDistance: KNOWN_POINT_SCALE_BY_DISTANCE
-        },
-        label: {
-          text: `${title}\n${valueText}`,
-          font: 'bold 13px sans-serif',
-          fillColor: color,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 3,
-          showBackground: true,
-          backgroundColor: Cesium.Color.BLACK.withAlpha(0.72),
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          pixelOffset: new Cesium.Cartesian2(0, -24),
-          pixelOffsetScaleByDistance: KNOWN_POINT_PIXEL_OFFSET_SCALE,
-          scaleByDistance: KNOWN_POINT_SCALE_BY_DISTANCE,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM
-        }
-      })
-    }
-
+        currentTime,
+        directionAzimuth,
+        directionDip,
+        metricUnit,
+        unitStress
+      }),
+      tileset,
+      resolveTilesetCenterInfo,
+      resolvePointCenterCartesian,
+      resolveKnownPointColor,
+      sampleRenderableFieldValue,
+      getPointMetricSeriesValues,
+      ds,
+      metric,
+      overlayItems
+    })
     reportKnownPointStressDebug(
       'E',
       'knownPointStressOverlayController.js:updateKnownPointStressOverlay:finish',
@@ -305,22 +374,15 @@ export function createKnownPointStressOverlayController(deps) {
     )
     if (viewer.value?.scene?.requestRender) viewer.value.scene.requestRender()
   }
+}
 
-  const setKnownPointStressVisible = visible => {
-    reportKnownPointStressDebug(
-      'C',
-      'knownPointStressOverlayController.js:setKnownPointStressVisible',
-      'toggle known point stress visibility',
-      {
-        previousVisible: Boolean(knownPointStressVisible.value),
-        nextVisible: Boolean(visible)
-      }
-    )
-    knownPointStressVisible.value = Boolean(visible)
-    updateKnownPointStressOverlay()
-  }
-
-  const destroyKnownPointStressOverlay = () => {
+function createKnownPointOverlayDestroyer({
+  viewer,
+  runtime,
+  knownPointStressVisible,
+  clearKnownPointStressOverlay
+}) {
+  return () => {
     reportKnownPointStressDebug(
       'F',
       'knownPointStressOverlayController.js:destroy',
@@ -365,7 +427,56 @@ export function createKnownPointStressOverlayController(deps) {
     runtime.attached = false
     runtime.dataSource = null
   }
+}
 
+export function createKnownPointStressOverlayController(deps) {
+  const {
+    viewer,
+    config,
+    heatmapDisplay,
+    samplingActions,
+    sampleGridScalarAt,
+    knownPointStressVisible,
+    runtime
+  } = deps
+
+  const sampleRenderableFieldValue = createRenderableFieldSampler(config, sampleGridScalarAt)
+  const resolveKnownPointColor = createKnownPointColorResolver(
+    config,
+    heatmapDisplay,
+    samplingActions
+  )
+  const clearKnownPointStressOverlay = clearKnownPointStressOverlayFactory({
+    viewer,
+    runtime,
+    knownPointStressVisible
+  })
+  const updateKnownPointStressOverlay = createKnownPointOverlayUpdater({
+    ...deps,
+    runtime,
+    clearKnownPointStressOverlay,
+    sampleRenderableFieldValue,
+    resolveKnownPointColor
+  })
+  const destroyKnownPointStressOverlay = createKnownPointOverlayDestroyer({
+    viewer,
+    runtime,
+    knownPointStressVisible,
+    clearKnownPointStressOverlay
+  })
+  const setKnownPointStressVisible = visible => {
+    reportKnownPointStressDebug(
+      'C',
+      'knownPointStressOverlayController.js:setKnownPointStressVisible',
+      'toggle known point stress visibility',
+      {
+        previousVisible: Boolean(knownPointStressVisible.value),
+        nextVisible: Boolean(visible)
+      }
+    )
+    knownPointStressVisible.value = Boolean(visible)
+    updateKnownPointStressOverlay()
+  }
   return {
     updateKnownPointStressOverlay,
     clearKnownPointStressOverlay,

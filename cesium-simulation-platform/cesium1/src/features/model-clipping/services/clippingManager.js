@@ -439,71 +439,64 @@ class ClippingManager {
   /**
    * 更新切割面参数
    */
+  updatePlaneDistance(index, planeConfig, distance) {
+    if (distance === undefined) return
+    planeConfig.distance = Number(distance)
+    planeConfig.plane.distance = Number(distance)
+  }
+
+  updatePlaneRotation(index, planeConfig, params) {
+    if (
+      params.rotationX === undefined &&
+      params.rotationY === undefined &&
+      params.rotationZ === undefined
+    ) {
+      return
+    }
+    const rotationX = Number(
+      params.rotationX !== undefined ? params.rotationX : planeConfig.rotation?.x || 0
+    )
+    const rotationY = Number(
+      params.rotationY !== undefined ? params.rotationY : planeConfig.rotation?.y || 0
+    )
+    const rotationZ = Number(
+      params.rotationZ !== undefined ? params.rotationZ : planeConfig.rotation?.z || 0
+    )
+    this.rotatePlane(index, rotationX, rotationY, rotationZ)
+  }
+
+  updatePlaneAppearance(planeConfig, params) {
+    if (params.color !== undefined) planeConfig.color = params.color
+    if (params.opacity !== undefined) planeConfig.opacity = params.opacity
+  }
+
+  updatePlaneAxisDirection(planeConfig, params) {
+    let needsNormalUpdate = false
+    if (params.axis !== undefined) {
+      planeConfig.axis = params.axis
+      needsNormalUpdate = true
+    }
+    if (params.direction !== undefined) {
+      planeConfig.direction = params.direction
+      needsNormalUpdate = true
+    }
+    return needsNormalUpdate
+  }
+
   updateClippingPlane(index, params) {
     if (index < 0 || index >= this.clippingPlanes.length) {
       return this.createResult(false, '切割面索引无效')
     }
 
     const planeConfig = this.clippingPlanes[index]
-    let needsNormalUpdate = false
-
-    // 更新距离
-    if (params.distance !== undefined) {
-      planeConfig.distance = Number(params.distance)
-      // 关键：直接更新ClippingPlane对象的distance属性
-      planeConfig.plane.distance = Number(params.distance)
-    }
-
-    // 更新法向量（通过旋转角度）
-    if (
-      params.rotationX !== undefined ||
-      params.rotationY !== undefined ||
-      params.rotationZ !== undefined
-    ) {
-      const rotationX = Number(
-        params.rotationX !== undefined ? params.rotationX : planeConfig.rotation?.x || 0
-      )
-      const rotationY = Number(
-        params.rotationY !== undefined ? params.rotationY : planeConfig.rotation?.y || 0
-      )
-      const rotationZ = Number(
-        params.rotationZ !== undefined ? params.rotationZ : planeConfig.rotation?.z || 0
-      )
-
-      // 使用rotatePlane方法处理旋转
-      this.rotatePlane(index, rotationX, rotationY, rotationZ)
-    }
-
-    // 更新颜色
-    if (params.color !== undefined) {
-      planeConfig.color = params.color
-    }
-
-    // 更新透明度
-    if (params.opacity !== undefined) {
-      planeConfig.opacity = params.opacity
-    }
-
-    // 更新轴
-    if (params.axis !== undefined) {
-      planeConfig.axis = params.axis
-      needsNormalUpdate = true
-    }
-
-    // 更新方向
-    if (params.direction !== undefined) {
-      planeConfig.direction = params.direction
-      needsNormalUpdate = true
-    }
-
-    // 如果轴或方向发生变化，重新计算法向量
-    if (needsNormalUpdate) {
+    this.updatePlaneDistance(index, planeConfig, params.distance)
+    this.updatePlaneRotation(index, planeConfig, params)
+    this.updatePlaneAppearance(planeConfig, params)
+    if (this.updatePlaneAxisDirection(planeConfig, params)) {
       this.updatePlaneNormalFromAxisAndDirection(index)
     }
 
-    // 更新可视化（颜色和透明度）
     this.updatePlaneVisualization(index)
-
     return this.createResult(true, `切割面 ${index + 1} 已更新`)
   }
 
@@ -1302,7 +1295,7 @@ class ClippingManager {
 
   removeViewerEntity(entity, options = {}) {
     if (!entity || !this.isViewerAlive()) return false
-    const { beforeRemove, errorMessage = 'Failed to remove entity' } = options
+    const { beforeRemove } = options
     try {
       if (typeof beforeRemove === 'function') beforeRemove(entity)
       this.viewer.entities.remove(entity)

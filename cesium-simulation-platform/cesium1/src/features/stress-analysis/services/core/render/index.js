@@ -223,7 +223,6 @@ function lab2xyz(L, a, b) {
   const fx = a / 500 + fy
   const fz = fy - b / 200
   const k = 6 / 29
-  const k3 = k * k * k
   const g = v => (v > k ? v * v * v : 3 * k * k * (v - 4 / 29))
   return [g(fx) * D65_X * 100, g(fy) * D65_Y * 100, g(fz) * D65_Z * 100]
 }
