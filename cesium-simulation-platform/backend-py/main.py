@@ -2,7 +2,8 @@ import os
 from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import orebodies, models, trucks, boreholes, monitoring, geology, truck_routes
+from app.routes import orebodies, models, trucks, boreholes, monitoring, geology, truck_routes, blasting
+from app.routes import ws_blasting
 
 
 def _parse_bool_env(name: str, default: bool) -> bool:
@@ -52,6 +53,8 @@ app.include_router(boreholes.router)
 app.include_router(monitoring.router)
 app.include_router(geology.router)
 app.include_router(truck_routes.router)
+app.include_router(blasting.router)
+app.include_router(ws_blasting.router)
 
 
 @app.get("/api/health")

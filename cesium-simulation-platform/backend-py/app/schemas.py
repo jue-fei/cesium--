@@ -146,3 +146,64 @@ class TruckRouteUpdate(BaseModel):
     name: Optional[str] = None
     points: Optional[list] = None
     is_default: Optional[int] = None
+
+
+# ---- 爆破事件 ----
+
+class BlastingEventCreate(BaseModel):
+    event_id: str = Field(..., description="事件编号")
+    name: str = Field(..., description="事件名称")
+    center_lon: float = Field(..., description="爆心经度")
+    center_lat: float = Field(..., description="爆心纬度")
+    center_height: Optional[float] = 0
+    charge_kg: float = Field(..., description="总装药量(kg)")
+    explosive_type: Optional[str] = "emulsion"
+    detonation_method: Optional[str] = "electric"
+    blast_time: Optional[str] = None
+    rock_type: Optional[str] = "granite"
+    weather: Optional[str] = "clear"
+    temperature: Optional[float] = 20
+    wind_speed: Optional[float] = 0
+    wind_direction: Optional[float] = 0
+    status: Optional[str] = "planned"
+    description: Optional[str] = None
+
+
+class BlastingEventUpdate(BaseModel):
+    name: Optional[str] = None
+    center_lon: Optional[float] = None
+    center_lat: Optional[float] = None
+    center_height: Optional[float] = None
+    charge_kg: Optional[float] = None
+    explosive_type: Optional[str] = None
+    detonation_method: Optional[str] = None
+    blast_time: Optional[str] = None
+    rock_type: Optional[str] = None
+    weather: Optional[str] = None
+    temperature: Optional[float] = None
+    wind_speed: Optional[float] = None
+    wind_direction: Optional[float] = None
+    status: Optional[str] = None
+    description: Optional[str] = None
+
+
+class BlastingHoleCreate(BaseModel):
+    event_id: str = Field(..., description="关联事件")
+    hole_id: str = Field(..., description="炮孔编号")
+    row: Optional[int] = 1
+    column: Optional[int] = 1
+    collar_lon: float
+    collar_lat: float
+    collar_height: Optional[float] = 0
+    toe_lon: float
+    toe_lat: float
+    toe_height: Optional[float] = 0
+    diameter: Optional[float] = 0.09
+    depth: Optional[float] = 10
+    charge_kg: Optional[float] = 0
+    delay_ms: Optional[int] = 0
+    hole_type: Optional[str] = "production"
+    burden: Optional[float] = 2.0
+    spacing: Optional[float] = 2.5
+    subdrill: Optional[float] = 0.5
+    stemming: Optional[float] = 1.0

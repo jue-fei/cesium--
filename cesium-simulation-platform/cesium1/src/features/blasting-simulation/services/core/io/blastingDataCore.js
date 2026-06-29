@@ -1,4 +1,7 @@
 import { generateBlastingFrames } from '../computation/blastingTrajectoryCore.js'
+import { BlastingParticleSystem } from '../computation/particleSystemCore.js'
+import { VibrationField } from '../computation/vibrationFieldCore.js'
+import { StressEvolutionAnalyzer } from '../computation/stressEvolutionCore.js'
 
 export const DEFAULT_FRAGMENT_MODEL_URI =
   'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/DamagedHelmet/glTF-Binary/DamagedHelmet.glb'
@@ -9,10 +12,14 @@ export const DEFAULT_BLASTING_SUMMARY = {
   durationSec: 0,
   maxWaveRadius: 0,
   holeCount: 0,
-  rockBlockCount: 0
+  rockBlockCount: 0,
+  particleCount: 0,
+  peakVibration: 0,
+  peakStress: 0,
+  minSafetyFactor: 99
 }
 
-export const DEFAULT_PLAYBACK_SPEED_MS = 120
+export const DEFAULT_PLAYBACK_SPEED_MS = 50
 
 function normalizeCenter(input) {
   const center = input && typeof input === 'object' ? input : {}
@@ -181,7 +188,7 @@ function deriveSimulationConfig(raw, normalizedDesign, normalizedEvent) {
   const totalCharge = Math.max(0, eventCharge + holeCharge)
   const faceDeltaArea = Math.abs(
     Number(faceAfter.width || 0) * Number(faceAfter.height || 0) -
-      Number(faceBefore.width || 0) * Number(faceBefore.height || 0)
+    Number(faceBefore.width || 0) * Number(faceBefore.height || 0)
   )
 
   const designWeight =
@@ -239,17 +246,40 @@ function buildSummary(dataset) {
   const frameCount = dataset.frames.length
   const fragmentIds = new Set()
   let maxWaveRadius = 0
+  let particleCount = 0
+  let peakVibration = 0
+  let peakStress = 0
+  let minSafetyFactor = 99
+
   dataset.frames.forEach(frame => {
     maxWaveRadius = Math.max(maxWaveRadius, frame.waveRadius)
+    if (frame.stats) {
+      particleCount = Math.max(particleCount, frame.stats.aliveCount || 0)
+      peakVibration = Math.max(peakVibration, frame.stats.maxSpeed || 0)
+    }
+    if (frame.vibrationField) {
+      peakVibration = Math.max(peakVibration, frame.vibrationField.maxIntensity || 0)
+    }
+    if (frame.stresses) {
+      for (const s of frame.stresses) {
+        peakStress = Math.max(peakStress, s.mises || 0)
+        minSafetyFactor = Math.min(minSafetyFactor, s.safetyFactor ?? 99)
+      }
+    }
     frame.fragments.forEach(fragment => fragmentIds.add(fragment.id))
   })
+
   return {
     frameCount,
     fragmentCount: fragmentIds.size,
     durationSec: dataset.frames[frameCount - 1].t,
     maxWaveRadius: Number(maxWaveRadius.toFixed(2)),
     holeCount: dataset?.design?.holes?.length || 0,
-    rockBlockCount: dataset?.design?.rockBlocks?.length || 0
+    rockBlockCount: dataset?.design?.rockBlocks?.length || 0,
+    particleCount,
+    peakVibration: Number(peakVibration.toFixed(2)),
+    peakStress: Number(peakStress.toFixed(2)),
+    minSafetyFactor: Number(minSafetyFactor.toFixed(3))
   }
 }
 
@@ -259,14 +289,99 @@ export function buildExampleBlastingDataset() {
     lat: 39.9015,
     height: 0
   }
-  const frames = generateBlastingFrames({
-    center,
-    fragmentCount: 20,
-    frameCount: 90,
-    timeStep: 0.1,
+  const chargeKg = 320
+  const frameCount = 120
+  const timeStep = 0.05
+  const fragmentCount = 200
+
+  const holes = Array.from({ length: 6 }, (_, i) => {
+    const row = Math.floor(i / 3) + 1
+    const column = (i % 3) + 1
+    return {
+      id: `H${i + 1}`,
+      row,
+      column,
+      diameter: 0.09,
+      chargeKg: 45 + i * 3,
+      delayMs: i * 25,
+      collar: {
+        lon: center.lon + (column - 2) * 0.00002,
+        lat: center.lat + (row - 1) * 0.000015,
+        height: 1.8
+      },
+      toe: {
+        lon: center.lon + (column - 2) * 0.00002 + 0.000005,
+        lat: center.lat + (row - 1) * 0.000015 + 0.000006,
+        height: 0.2
+      }
+    }
+  })
+
+  // ── 1. 粒子系统模拟 ──
+  const particleSystem = new BlastingParticleSystem({
     gravity: 9.8,
+    airDrag: 0.04,
+    restitution: 0.35,
+    friction: 0.6,
+    timeStep,
+    collisionEnabled: true,
+    maxParticles: 5000,
     seed: 20260309
   })
+
+  const frames = particleSystem.simulate(
+    {
+      centerLon: center.lon,
+      centerLat: center.lat,
+      centerHeight: center.height,
+      chargeKg,
+      fragmentCount,
+      frameCount,
+      timeStep,
+      holes
+    },
+    frameCount,
+    timeStep
+  )
+
+  // ── 2. 振动场计算 ──
+  const vibrationField = new VibrationField({
+    gridResolution: 48,
+    maxRadius: 200,
+    sampleHeight: 0
+  })
+  for (const hole of holes) {
+    vibrationField.addSource({
+      x: 0,
+      y: 0,
+      z: center.height,
+      chargeKg: hole.chargeKg,
+      delayMs: hole.delayMs
+    })
+  }
+  for (let i = 0; i < frames.length; i++) {
+    const field = vibrationField.generateField(frames[i].t, 0, 0)
+    frames[i].vibrationField = field
+  }
+
+  // ── 3. 应力演化分析 ──
+  const stressAnalyzer = new StressEvolutionAnalyzer({})
+  stressAnalyzer.setBlastSources(
+    holes.map(h => ({
+      x: 0,
+      y: 0,
+      z: center.height,
+      chargeKg: h.chargeKg,
+      delayMs: h.delayMs
+    }))
+  )
+  stressAnalyzer.autoGenerateMonitorPoints(0, 0, center.height, holes)
+  const duration = frameCount * timeStep
+  const stressSeries = stressAnalyzer.generateEvolutionSeries(duration, frameCount)
+  for (let i = 0; i < frames.length; i++) {
+    frames[i].stresses = stressSeries.frames[i]?.stresses || []
+  }
+
   const dataset = {
     meta: {
       coordinateSystem: 'WGS84',
@@ -277,7 +392,7 @@ export function buildExampleBlastingDataset() {
       id: 'BLAST-DEMO-001',
       name: '示例爆破事件',
       center,
-      chargeKg: 320
+      chargeKg
     },
     design: {
       faceBefore: {
@@ -294,28 +409,7 @@ export function buildExampleBlastingDataset() {
         thickness: 0.8,
         headingDeg: 15
       },
-      holes: Array.from({ length: 6 }, (_, i) => {
-        const row = Math.floor(i / 3) + 1
-        const column = (i % 3) + 1
-        return {
-          id: `H${i + 1}`,
-          row,
-          column,
-          diameter: 0.09,
-          chargeKg: 45 + i * 3,
-          delayMs: i * 25,
-          collar: {
-            lon: center.lon + (column - 2) * 0.00002,
-            lat: center.lat + (row - 1) * 0.000015,
-            height: 1.8
-          },
-          toe: {
-            lon: center.lon + (column - 2) * 0.00002 + 0.000005,
-            lat: center.lat + (row - 1) * 0.000015 + 0.000006,
-            height: 0.2
-          }
-        }
-      }),
+      holes,
       rockBlocks: [
         { id: 'RB1', size: 0.35, weightKg: 60 },
         { id: 'RB2', size: 0.52, weightKg: 125 },
@@ -323,11 +417,19 @@ export function buildExampleBlastingDataset() {
       ]
     },
     visual: normalizeVisual({
-      fragmentRenderMode: 'model',
-      fragmentModelUri: DEFAULT_FRAGMENT_MODEL_URI,
-      waveRings: 2,
-      trailWidth: 2.4
+      fragmentRenderMode: 'point',
+      waveRings: 3,
+      trailWidth: 2.0
     }),
+    monitorPoints: stressAnalyzer.monitorPoints.map(p => ({
+      id: p.id,
+      label: p.label,
+      zoneType: p.zoneType,
+      x: p.x,
+      y: p.y,
+      z: p.z
+    })),
+    stressSummary: stressSeries.points,
     frames
   }
   return {
@@ -348,18 +450,61 @@ export function normalizeBlastingDataset(input) {
     chargeKg: Number(raw?.event?.chargeKg ?? 0)
   }
   const simulationConfig = deriveSimulationConfig(raw, normalizedDesign, normalizedEvent)
+  const holes = normalizedDesign?.holes || []
 
   let framesRes = normalizeFrames(raw.frames)
   if (!framesRes.ok) {
-    const generated = generateBlastingFrames({
-      center: centerRes.value,
-      fragmentCount: simulationConfig.fragmentCount,
-      frameCount: simulationConfig.frameCount,
-      timeStep: simulationConfig.timeStep,
+    // 使用粒子系统生成模拟帧
+    const ps = new BlastingParticleSystem({
       gravity: simulationConfig.gravity,
+      timeStep: simulationConfig.timeStep,
+      collisionEnabled: true,
+      maxParticles: 5000,
       seed: simulationConfig.seed
     })
-    framesRes = normalizeFrames(generated)
+    const psFrames = ps.simulate(
+      {
+        centerLon: centerRes.value.lon,
+        centerLat: centerRes.value.lat,
+        centerHeight: centerRes.value.height,
+        chargeKg: normalizedEvent.chargeKg || 100,
+        fragmentCount: simulationConfig.fragmentCount,
+        frameCount: simulationConfig.frameCount,
+        timeStep: simulationConfig.timeStep,
+        holes
+      },
+      simulationConfig.frameCount,
+      simulationConfig.timeStep
+    )
+
+    // 附加振动场数据
+    const vibField = new VibrationField({ gridResolution: 48, maxRadius: 200 })
+    for (const hole of holes) {
+      vibField.addSource({
+        x: 0, y: 0, z: centerRes.value.height,
+        chargeKg: hole.chargeKg,
+        delayMs: hole.delayMs
+      })
+    }
+    // 附加应力演化数据
+    const stressAnalyzer = new StressEvolutionAnalyzer({})
+    stressAnalyzer.setBlastSources(
+      holes.map(h => ({
+        x: 0, y: 0, z: centerRes.value.height,
+        chargeKg: h.chargeKg,
+        delayMs: h.delayMs
+      }))
+    )
+    stressAnalyzer.autoGenerateMonitorPoints(0, 0, centerRes.value.height, holes)
+    const duration = simulationConfig.frameCount * simulationConfig.timeStep
+    const stressSeries = stressAnalyzer.generateEvolutionSeries(duration, simulationConfig.frameCount)
+
+    for (let i = 0; i < psFrames.length; i++) {
+      psFrames[i].vibrationField = vibField.generateField(psFrames[i].t, 0, 0)
+      psFrames[i].stresses = stressSeries.frames[i]?.stresses || []
+    }
+
+    framesRes = normalizeFrames(psFrames)
     if (!framesRes.ok) return framesRes
   }
 
