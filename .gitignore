@@ -8,3 +8,10 @@ node_modules/
 .env
 __pycache__/
 *.pyc
+
+# TRAE spec/plan documents (local only)
+.trae/
+
+# Root-level markdown documents (local only)
+爆破模块优化方案V2.md
+地下金属矿开采多程序多要素融合数字孪生三维可视化研究.md

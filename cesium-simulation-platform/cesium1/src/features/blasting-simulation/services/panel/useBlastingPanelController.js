@@ -1,33 +1,40 @@
 import { computed, ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import useBlasting from '../useBlasting.js'
-import { fetchRenderConfigs } from '../blastingApi.js'
+import useUI from '@/composables/useUI.js'
+import useModel from '@/features/model-control/services/useModel.js'
+import { fetchBlastingResults } from '../blastingApi.js'
 
 export function useBlastingPanelController() {
   const fileInput = ref(null)
   const activeTab = ref('playback')
+  const { closeTool } = useUI()
+  const { resetView } = useModel()
 
   const {
     dataset,
-    importStatus,
     isPlaying,
     currentFrame,
     maxFrame,
     playbackSpeedMs,
-    summary,
-    stressSummary,
-    monitorPoints,
-    currentStresses,
-    streamStatus,
-    streamStatusLabel,
-    streamMode,
-    wsUrl,
-    showHeatmap,
-    showMonitorPoints,
-    showStressChart,
-    selectedMonitorPoint,
+    // B1 回放增强
+    playbackRate,
+    isLooping,
+    abLoop,
+    cyclePlaybackRate,
+    stepFrame,
+    toggleLoop,
+    markAbLoopPoint,
+    clearAbLoop,
+    toggleAbLoop,
+    // B7 加载进度
+    loadProgress,
     // three.js 渲染
     threeStats,
     replayBlast,
+    // KCO 模型参数（碎块尺寸分布）
+    kcoParams,
+    resetKcoParams,
     // 图层可见性与爆破设计
     LAYER_DEFS,
     layerVisibility,
@@ -38,143 +45,134 @@ export function useBlastingPanelController() {
     dbEvents,
     dbLoading,
     currentEventId,
-    renderConfigs,
-    currentRenderConfig,
     loadDbEvents,
     loadDbEvent,
-    applyRenderConfig,
+    // SubTask 6.7：模拟结果保存
+    saveSimulationResult,
     flyToCenter,
-    importFromText,
-    loadExample,
     setFrame,
     togglePlayback,
     clearSimulation,
-    startStream,
-    stopStream,
-    toggleStream,
-    setStreamMode,
-    setWsUrl,
-    toggleHeatmap,
-    toggleMonitorPoints,
-    selectMonitorPoint
+    // 爆破效果评价：数据获取 + 联动高亮
+    getDamageZones,
+    highlightDamageZone,
+    highlightBlockClass,
+    getBlastEffectStats,
+    getPPVFieldStats,
+    setSafetyStandard,
+    loadPPVField,
+    flyToFarthestFragment
   } = useBlasting()
 
   const eventName = computed(() => dataset.value?.event?.name || '-')
 
-  // 选中的渲染配置名称
-  const selectedRenderConfig = ref('realistic')
-
-  // 加载渲染配置列表
-  const loadRenderConfigs = async () => {
-    try {
-      const configs = await fetchRenderConfigs()
-      renderConfigs.value = configs
-    } catch (e) {
-      // 忽略错误，使用默认配置
-    }
-  }
-
-  // 组件挂载时加载事件列表与渲染配置
+  // 组件挂载时加载事件列表
   onMounted(() => {
     loadDbEvents()
-    loadRenderConfigs()
   })
-
-  // 当前帧统计
-  const currentStats = computed(() => {
-    const frame = dataset.value?.frames?.[currentFrame.value]
-    return frame?.stats || null
-  })
-
-  // 当前帧应力列表
-  const currentStressList = computed(() => {
-    return currentStresses.value.map(s => ({
-      ...s,
-      safetyLabel: _safetyLabel(s.safetyLevel)
-    }))
-  })
-
-  // 应力汇总表
-  const stressSummaryList = computed(() => {
-    return stressSummary.value.map(s => ({
-      ...s,
-      safetyLabel: _safetyLabel(s.safetyLevel)
-    }))
-  })
-
-  // 选中监测点的应力历史
-  const selectedPointHistory = computed(() => {
-    if (!selectedMonitorPoint.value || !dataset.value) return []
-    const history = []
-    for (const frame of dataset.value.frames) {
-      const stress = frame.stresses?.find(s => s.pointId === selectedMonitorPoint.value)
-      if (stress) history.push(stress)
-    }
-    return history
-  })
-
-  function _safetyLabel(level) {
-    const labels = {
-      safe: '安全',
-      watch: '关注',
-      warning: '预警',
-      danger: '危险',
-      critical: '临界'
-    }
-    return labels[level] || level
-  }
-
-  const onFileChange = async event => {
-    const file = event?.target?.files?.[0]
-    if (!file) return
-    const text = await file.text()
-    importFromText(text)
-    if (event.target) event.target.value = ''
-  }
 
   // 加载数据库事件
   const onDbEventChange = async eventId => {
     if (!eventId) return
-    await loadDbEvent(eventId, {
-      autoPlay: true,
-      renderConfigName: selectedRenderConfig.value
-    })
+    await loadDbEvent(eventId, { autoPlay: true })
   }
 
-  // 切换渲染配置
-  const onRenderConfigChange = configName => {
-    selectedRenderConfig.value = configName
-    applyRenderConfig(configName)
+  // 退出爆破板块：清理场景 + 重置视角到模型 + 关闭面板
+  const exitBlasting = () => {
+    clearSimulation()
+    resetView?.()
+    closeTool()
   }
+
+  // 保存模拟结果回写到数据库
+  const saveResult = () => {
+    saveSimulationResult()
+  }
+
+  // ─── SubTask 11：历史对比 ────────────────────────────
+  const compareEventIds = ref([])
+  const comparisonData = ref([])
+  const comparing = ref(false)
+
+  const compareEvents = async () => {
+    if (compareEventIds.value.length < 2) {
+      ElMessage.warning('请至少选择 2 个事件进行对比')
+      return
+    }
+    comparing.value = true
+    try {
+      const rows = await fetchBlastingResults(compareEventIds.value)
+      comparisonData.value = Array.isArray(rows) ? rows : []
+      if (comparisonData.value.length === 0) {
+        ElMessage.warning('所选事件暂无爆破结果数据')
+      } else {
+        ElMessage.success(`已加载 ${comparisonData.value.length} 条对比数据`)
+      }
+    } catch (e) {
+      ElMessage.error('对比数据加载失败：' + (e?.message || e))
+      comparisonData.value = []
+    } finally {
+      comparing.value = false
+    }
+  }
+
+  // 将 comparisonData 转换为图表就绪数据（按指标归一化：每条柱宽 = value/max*100%）
+  const comparisonCharts = computed(() => {
+    if (!comparisonData.value.length) return []
+    // 事件ID → 名称映射（dbEvents 来自 list_events，字段为 camelCase）
+    const nameMap = {}
+    for (const ev of dbEvents.value) {
+      nameMap[ev.eventId] = ev.name
+    }
+    const metrics = [
+      { key: 'fragmentX50', label: '碎块中位粒径', unit: 'm' },
+      { key: 'throwDistanceMax', label: '最大抛掷距离', unit: 'm' },
+      { key: 'vibrationPeak', label: '振动峰值', unit: '' }
+    ]
+    return metrics.map(m => {
+      const items = comparisonData.value.map(r => ({
+        name: nameMap[r.eventId] || r.eventId || '-',
+        value: Number(r[m.key]) || 0
+      }))
+      const max = Math.max(...items.map(i => i.value), 0)
+      return {
+        label: m.label,
+        unit: m.unit,
+        max,
+        items: items.map(i => ({
+          ...i,
+          percent: max > 0 ? (i.value / max) * 100 : 0
+        }))
+      }
+    })
+  })
 
   return {
     fileInput,
     activeTab,
     dataset,
-    importStatus,
     isPlaying,
     currentFrame,
     maxFrame,
     playbackSpeedMs,
-    summary,
-    stressSummary,
-    stressSummaryList,
-    monitorPoints,
-    currentStats,
-    currentStressList,
-    streamStatus,
-    streamStatusLabel,
-    streamMode,
-    wsUrl,
-    showHeatmap,
-    showMonitorPoints,
-    showStressChart,
-    selectedMonitorPoint,
-    selectedPointHistory,
-    eventName,
+    // B1 回放增强
+    playbackRate,
+    isLooping,
+    abLoop,
+    cyclePlaybackRate,
+    stepFrame,
+    toggleLoop,
+    markAbLoopPoint,
+    clearAbLoop,
+    toggleAbLoop,
+    // B7 加载进度
+    loadProgress,
     // three.js 渲染
     threeStats,
     replayBlast,
+    // KCO 模型参数（碎块尺寸分布）
+    kcoParams,
+    resetKcoParams,
     // 图层可见性与爆破设计
     LAYER_DEFS,
     layerVisibility,
@@ -185,28 +183,33 @@ export function useBlastingPanelController() {
     dbEvents,
     dbLoading,
     currentEventId,
-    renderConfigs,
-    currentRenderConfig,
-    selectedRenderConfig,
     loadDbEvents,
     loadDbEvent,
-    applyRenderConfig,
     flyToCenter,
+    eventName,
     onDbEventChange,
-    onRenderConfigChange,
-    loadExample,
+    saveResult,
     togglePlayback,
     clearSimulation,
-    onFileChange,
+    exitBlasting,
     onFrameChange: setFrame,
     onSpeedChange: v => {
       playbackSpeedMs.value = Number(v || 50)
     },
-    onStreamModeChange: setStreamMode,
-    onWsUrlChange: setWsUrl,
-    toggleStream,
-    toggleHeatmap,
-    toggleMonitorPoints,
-    selectMonitorPoint
+    // SubTask 11：历史对比
+    compareEventIds,
+    comparisonData,
+    comparisonCharts,
+    comparing,
+    compareEvents,
+    // 爆破效果评价
+    getDamageZones,
+    highlightDamageZone,
+    highlightBlockClass,
+    getBlastEffectStats,
+    getPPVFieldStats,
+    setSafetyStandard,
+    loadPPVField,
+    flyToFarthestFragment
   }
 }

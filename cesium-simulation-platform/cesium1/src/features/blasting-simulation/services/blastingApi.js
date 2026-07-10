@@ -1,6 +1,17 @@
 /**
  * 爆破模拟 API — 对接后端 MySQL 数据
- * 提供事件列表、完整数据集、岩体参数、渲染配置等接口
+ * 提供事件 CRUD、爆破设计、爆破效果等接口
+ *
+ * 数据约定：本模块对外接收 camelCase 参数（UI 层约定），发送 POST/PUT 前
+ * 内部将 camelCase 转为 snake_case 提交后端（后端再以 snake_case 存入 DB）；
+ * GET 响应由后端将 DB 的 snake_case 转为 camelCase 返回，本模块直接透传。
+ */
+
+/**
+ * V1 兼容字段已废弃：
+ * 后端 _build_design 返回的 design 对象中，V1_ONLY 字段（expectedX50/expectedXmax/
+ * expectedThrowDistance/expectedOverbreak/minSafetyDistance/maxVibrationVelocity 等）
+ * 已标记 "_deprecated": true。前端应逐步迁移到 V2 字段，避免依赖 V1 兼容字段。
  */
 
 const API_BASE = '/api/blasting'
@@ -18,6 +29,33 @@ async function request(url, options = {}) {
 }
 
 /**
+ * 将单个 camelCase 字符串转换为 snake_case
+ * 例如：tunnelWidth → tunnel_width，expectedX50 → expected_x50
+ * @param {string} s
+ * @returns {string}
+ */
+function _camelToSnake(s) {
+  return s.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`)
+}
+
+/**
+ * 将对象的所有 key 从 camelCase 转换为 snake_case
+ * 若 key 本身即为 snake_case（无大写字母），则保持不变（即对 snake_case 输入是幂等的）
+ * @param {Object|null|undefined} obj
+ * @returns {Object}
+ */
+function _objCamelToSnake(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj || {}
+  const out = {}
+  for (const k of Object.keys(obj)) {
+    out[_camelToSnake(k)] = obj[k]
+  }
+  return out
+}
+
+// ─── 爆破事件 CRUD ─────────────────────────────────────
+
+/**
  * 获取所有爆破事件列表
  * @param {string} [status] - 可选状态过滤
  * @returns {Promise<Array>}
@@ -28,7 +66,7 @@ export function fetchBlastingEvents(status = null) {
 }
 
 /**
- * 获取单个爆破事件详情（含炮孔）
+ * 获取单个爆破事件详情
  * @param {string} eventId
  * @returns {Promise<Object>}
  */
@@ -37,96 +75,8 @@ export function fetchBlastingEvent(eventId) {
 }
 
 /**
- * 获取完整爆破模拟数据集（事件+炮孔+帧+粒子+振动+应力）
- * @param {string} eventId
- * @param {Object} [opts]
- * @param {number} [opts.frameStart=0]
- * @param {number} [opts.frameEnd]
- * @returns {Promise<Object>}
- */
-export function fetchBlastingDataset(eventId, opts = {}) {
-  const params = new URLSearchParams()
-  if (opts.frameStart != null) params.set('frame_start', opts.frameStart)
-  if (opts.frameEnd != null) params.set('frame_end', opts.frameEnd)
-  const qs = params.toString()
-  const url = `${API_BASE}/events/${encodeURIComponent(eventId)}/dataset${qs ? '?' + qs : ''}`
-  return request(url).then(r => r.data)
-}
-
-/**
- * 获取所有岩体参数
- * @returns {Promise<Array>}
- */
-export function fetchRockParams() {
-  return request(`${API_BASE}/rock-params`).then(r => r.data || [])
-}
-
-/**
- * 获取指定岩石类型的岩体参数
- * @param {string} rockType
- * @returns {Promise<Object>}
- */
-export function fetchRockParamsByType(rockType) {
-  return request(`${API_BASE}/rock-params/${encodeURIComponent(rockType)}`).then(r => r.data)
-}
-
-/**
- * 获取所有渲染配置
- * @returns {Promise<Array>}
- */
-export function fetchRenderConfigs() {
-  return request(`${API_BASE}/render-configs`).then(r => r.data || [])
-}
-
-/**
- * 获取指定渲染配置
- * @param {string} configName
- * @returns {Promise<Object>}
- */
-export function fetchRenderConfig(configName) {
-  return request(`${API_BASE}/render-configs/${encodeURIComponent(configName)}`).then(r => r.data)
-}
-
-/**
- * 获取事件帧统计列表
- * @param {string} eventId
- * @returns {Promise<Array>}
- */
-export function fetchBlastingFrames(eventId) {
-  return request(`${API_BASE}/events/${encodeURIComponent(eventId)}/frames`).then(r => r.data || [])
-}
-
-/**
- * 获取指定帧的粒子数据
- * @param {string} eventId
- * @param {number} frameIndex
- * @param {string} [particleType]
- * @returns {Promise<Array>}
- */
-export function fetchBlastingParticles(eventId, frameIndex, particleType = null) {
-  const params = new URLSearchParams({ frame_index: frameIndex })
-  if (particleType) params.set('particle_type', particleType)
-  return request(
-    `${API_BASE}/events/${encodeURIComponent(eventId)}/particles?${params.toString()}`
-  ).then(r => r.data || [])
-}
-
-/**
- * 获取应力时程数据
- * @param {string} eventId
- * @param {string} [pointId]
- * @returns {Promise<Array>}
- */
-export function fetchBlastingStress(eventId, pointId = null) {
-  const url = pointId
-    ? `${API_BASE}/events/${encodeURIComponent(eventId)}/stress?point_id=${encodeURIComponent(pointId)}`
-    : `${API_BASE}/events/${encodeURIComponent(eventId)}/stress`
-  return request(url).then(r => r.data || [])
-}
-
-/**
  * 创建爆破事件
- * @param {Object} data
+ * @param {Object} data - BlastingEventCreate 字段（snake_case，如 event_id/name/center_lon 等）
  * @returns {Promise<Object>}
  */
 export function createBlastingEvent(data) {
@@ -139,7 +89,7 @@ export function createBlastingEvent(data) {
 /**
  * 更新爆破事件
  * @param {string} eventId
- * @param {Object} data
+ * @param {Object} data - BlastingEventUpdate 字段（snake_case）
  * @returns {Promise<Object>}
  */
 export function updateBlastingEvent(eventId, data) {
@@ -160,51 +110,140 @@ export function deleteBlastingEvent(eventId) {
   })
 }
 
+// ─── 爆破设计（隧道断面+掏槽+起爆+装药+效果预期+安全+炮孔） ─
+
 /**
- * 创建炮孔
+ * 获取爆破设计（含炮孔列表）
+ * 后端返回 { code:0, data:{ design:{camelCase}, holes:[{camelCase}] } }
+ * @param {string} eventId
+ * @returns {Promise<{design: Object|null, holes: Array}>}
+ */
+export function fetchBlastingDesign(eventId) {
+  return request(`${API_BASE}/events/${encodeURIComponent(eventId)}/design`).then(r => r.data)
+}
+
+/**
+ * 保存爆破设计（upsert design + 批量替换 holes）
+ * 接收 camelCase 对象，内部转换为 snake_case 后提交以匹配 BlastingDesignCreate schema
+ * @param {string} eventId
  * @param {Object} data
+ * @param {Object} [data.design] - 设计参数（camelCase，如 tunnelShape/tunnelWidth/expectedX50 等）
+ * @param {Array} [data.holes] - 炮孔列表（camelCase，如 posX/posY/holeType/chargeKg 等）
  * @returns {Promise<Object>}
  */
-export function createBlastingHole(data) {
-  return request(`${API_BASE}/holes/`, {
+export function saveBlastingDesign(eventId, data = {}) {
+  const design = data.design || {}
+  const holes = data.holes || []
+  const payload = {
+    ..._objCamelToSnake(design),
+    event_id: eventId,
+    holes: holes.map(h => _objCamelToSnake(h))
+  }
+  return request(`${API_BASE}/events/${encodeURIComponent(eventId)}/design`, {
     method: 'POST',
-    body: JSON.stringify(data)
+    body: JSON.stringify(payload)
+  })
+}
+
+// ─── 爆破效果结果 ───────────────────────────────────────
+
+/**
+ * 获取爆破效果数据
+ * 后端返回 { code:0, data:{camelCase} }（如 craterDepth/fragmentX50/throwDistanceMax 等）
+ * @param {string} eventId
+ * @returns {Promise<Object>}
+ */
+export function fetchBlastingResult(eventId) {
+  return request(`${API_BASE}/events/${encodeURIComponent(eventId)}/result`).then(r => r.data)
+}
+
+/**
+ * 创建或更新爆破效果（upsert）
+ * 接收 camelCase 对象，内部转换为 snake_case 后提交以匹配 BlastingResultCreate schema
+ * @param {string} eventId
+ * @param {Object} data - 爆破效果字段（camelCase，如 craterDepth/fragmentX50/vibrationPeak 等）
+ * @returns {Promise<Object>}
+ */
+export function saveBlastingResult(eventId, data = {}) {
+  const payload = {
+    ..._objCamelToSnake(data),
+    event_id: eventId
+  }
+  return request(`${API_BASE}/events/${encodeURIComponent(eventId)}/result`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
   })
 }
 
 /**
- * 删除炮孔
- * @param {string} eventId
- * @param {string} holeId
- * @returns {Promise<Object>}
+ * 批量获取多事件爆破效果用于历史对比
+ * 后端返回 { code:0, data:{ results:[...], comparison:{...} } }
+ * @param {string[]} eventIds - 事件ID列表
+ * @returns {Promise<Array>} 各事件的爆破效果数组（camelCase，含 eventId）
  */
-export function deleteBlastingHole(eventId, holeId) {
-  return request(
-    `${API_BASE}/holes/${encodeURIComponent(eventId)}/${encodeURIComponent(holeId)}`,
-    { method: 'DELETE' }
-  )
+export function fetchBlastingResults(eventIds) {
+  return request(`${API_BASE}/results/compare`, {
+    method: 'POST',
+    body: JSON.stringify({ event_ids: eventIds })
+  }).then(r => (r.data && r.data.results) || [])
+}
+
+// ─── 阶段五：PPV 振动速度场 / 损伤区 / JWL 曲线 ──────────
+
+/**
+ * 计算二维 PPV 振动速度场
+ * 后端返回 base64 编码的 float32 二进制（ppv_b64），前端解码为 Float32Array
+ * @param {Object} params - { chargeKg, time, xMin, xMax, yMin, yMax, nx, ny, explosiveType, pWaveSpeed, attenuationP, rockUcs }
+ * @returns {Promise<{nx:number, ny:number, gridX:number[], gridY:number[], ppv:Float32Array, maxPpv:number, meanPpv:number}>}
+ */
+export async function fetchPPVField(params) {
+  const res = await fetch(`${API_BASE}/ppv-field`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `HTTP ${res.status}`)
+  }
+  const data = await res.json()
+  // base64 → ArrayBuffer → Float32Array
+  const binary = atob(data.ppv_b64)
+  const buf = new ArrayBuffer(binary.length)
+  const view = new Uint8Array(buf)
+  for (let i = 0; i < binary.length; i++) view[i] = binary.charCodeAt(i)
+  const ppv = new Float32Array(buf)
+  return {
+    nx: data.nx,
+    ny: data.ny,
+    gridX: data.grid_x,
+    gridY: data.grid_y,
+    ppv,  // Float32Array, length = nx*ny
+    maxPpv: data.max_ppv,
+    meanPpv: data.mean_ppv
+  }
 }
 
 /**
- * 将后端渲染配置转换为前端 BlastingManager 渲染参数
- * @param {Object} config - 后端 blasting_render_config 记录
- * @returns {Object}
+ * 计算爆破损伤区半径（粉碎区 / 裂隙区 / 弹性区）
+ * @param {Object} params - { chargeKg, explosiveDensity, VoD, rockUcs, rockTensile }
+ * @returns {Promise<{chargeRadius:number, detonationPressure:number, crushedRadius:number, fracturedRadius:number, elasticZoneStart:number}>}
  */
-export function parseRenderConfig(config) {
-  if (!config) return {}
-  return {
-    particleMode: config.particle_mode || 'point_primitive',
-    fireballEnabled: !!config.fireball_enabled,
-    smokeColumnEnabled: !!config.smoke_column_enabled,
-    fragmentTrailEnabled: !!config.fragment_trail_enabled,
-    glowEffect: !!config.glow_effect,
-    maxVisibleParticles: config.max_visible_particles || 2000,
-    smokeColumnHeight: config.smoke_column_height || 80,
-    smokeColumnRadius: config.smoke_column_radius || 15,
-    fireballRadius: config.fireball_radius || 12,
-    fireballDuration: config.fireball_duration || 1.5,
-    fragmentOutline: config.fragment_outline !== 0,
-    transparencyEnabled: config.transparency_enabled !== 0,
-    lodDistance: config.lod_distance || 500
-  }
+export function fetchDamageZones(params) {
+  return request(`${API_BASE}/damage-zones`, {
+    method: 'POST',
+    body: JSON.stringify(params)
+  })
+}
+
+/**
+ * 计算 JWL 等熵膨胀曲线（P-V 关系）
+ * @param {Object} params - { explosiveType }
+ * @returns {Promise<{relativeVolume:number[], pressurePa:number[]}>}
+ */
+export function fetchJWLCurve(params) {
+  return request(`${API_BASE}/jwl-curve`, {
+    method: 'POST',
+    body: JSON.stringify(params)
+  })
 }

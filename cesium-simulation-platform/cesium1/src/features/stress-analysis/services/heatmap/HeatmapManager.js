@@ -173,6 +173,7 @@ function buildStressShaderUniforms({
     u_emissiveMix: { type: Cesium.UniformType.FLOAT, value: normalized.emissiveMix },
     u_blendMode: { type: Cesium.UniformType.FLOAT, value: normalized.blendMode },
     u_forceVisible: { type: Cesium.UniformType.FLOAT, value: normalized.forceVisible },
+    u_whiteModel: { type: Cesium.UniformType.FLOAT, value: 0.0 },
     u_lowRangeOpacity: { type: Cesium.UniformType.FLOAT, value: normalized.lowRangeOpacity },
     u_modelRadius: {
       type: Cesium.UniformType.FLOAT,
@@ -285,6 +286,29 @@ const STRESS_FRAGMENT_SHADER_BODY = `
         }
 
         void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+          // ---- 渲染增强：法线导数光照（与 renderEnhancementManager 保持一致）----
+          // 白模开关通过 u_whiteModel 控制，开启时基础色替换为白色
+          vec3 posEC_re = fsInput.attributes.positionEC;
+          vec3 flatNormal_re = normalize(cross(dFdx(posEC_re), dFdy(posEC_re)));
+          if (dot(flatNormal_re, vec3(0.0, 0.0, 1.0)) < 0.0) {
+            flatNormal_re = -flatNormal_re;
+          }
+          vec3 originalColor_re = material.diffuse;
+          vec3 baseColor = mix(originalColor_re, vec3(1.0), u_whiteModel);
+          vec3 lightDir_re = normalize(vec3(0.5, 0.6, 0.6));
+          float diffuse_re = max(dot(flatNormal_re, lightDir_re), 0.0);
+          float lighting_re = 0.55 + diffuse_re * 0.45;
+          material.diffuse = baseColor * lighting_re;
+          float spec_re = pow(diffuse_re, 12.0) * 0.15;
+          material.diffuse += baseColor * spec_re;
+          float rim_re = 1.0 - max(dot(flatNormal_re, vec3(0.0, 0.0, 1.0)), 0.0);
+          rim_re = pow(rim_re, 2.5) * 0.35;
+          material.diffuse += baseColor * rim_re;
+          vec3 lightDir2_re = normalize(vec3(-0.4, -0.3, 0.5));
+          float diffuse2_re = max(dot(flatNormal_re, lightDir2_re), 0.0);
+          material.diffuse += baseColor * diffuse2_re * 0.12;
+          // ---- 渲染增强结束 ----
+
           vec3 positionWC = fsInput.attributes.positionWC;
           vec3 positionMC = fsInput.attributes.positionMC;
           float sourcesAcc = 0.0;
@@ -386,6 +410,7 @@ export class HeatmapManager {
     this.emptyColorLUTTexture = null
     this.emptySourceTexture = null
     this.debugState = new Map()
+    this.whiteModelEnabled = false
   }
 
   debugEnabled() {
@@ -448,6 +473,9 @@ export class HeatmapManager {
     })
 
     model.customShader = shader
+    if (this.whiteModelEnabled) {
+      shader.setUniform('u_whiteModel', 1.0)
+    }
     this.stressShaders.set(model, {
       shader,
       config: normalized,
@@ -738,6 +766,21 @@ export class HeatmapManager {
     if (this.viewer?.scene?.requestRender) {
       this.viewer.scene.requestRender()
     }
+  }
+
+  setWhiteModel(model, enabled) {
+    this.whiteModelEnabled = !!enabled
+    const entry = this.stressShaders.get(model)
+    if (entry?.shader) {
+      entry.shader.setUniform('u_whiteModel', this.whiteModelEnabled ? 1.0 : 0.0)
+    }
+    if (this.viewer?.scene?.requestRender) {
+      this.viewer.scene.requestRender()
+    }
+  }
+
+  getWhiteModel() {
+    return this.whiteModelEnabled
   }
 
   destroyTextureUniform(textureUniform) {

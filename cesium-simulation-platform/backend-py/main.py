@@ -3,7 +3,6 @@ from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import orebodies, models, trucks, boreholes, monitoring, geology, truck_routes, blasting
-from app.routes import ws_blasting
 
 
 def _parse_bool_env(name: str, default: bool) -> bool:
@@ -21,6 +20,8 @@ def _get_cors_origins() -> list[str]:
         origins = [
             "http://localhost:3000",
             "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
             "http://localhost:4173",
             "http://127.0.0.1:4173",
         ]
@@ -54,7 +55,6 @@ app.include_router(monitoring.router)
 app.include_router(geology.router)
 app.include_router(truck_routes.router)
 app.include_router(blasting.router)
-app.include_router(ws_blasting.router)
 
 
 @app.get("/api/health")

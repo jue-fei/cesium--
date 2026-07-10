@@ -52,3 +52,6 @@ export {
 
 // ---- toolRegistry（工具注册表：侧边栏工具列表）----
 export { TOOL_REGISTRY, getApiToolRegistry, onToolsReady } from '../toolRegistry.js'
+
+// ---- fusion（模块间数据联动：FusionBus 事件总线）----
+export { fusionBus, CHANNELS } from '@/services/fusion/FusionBus.js'

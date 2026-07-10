@@ -3,6 +3,7 @@ import useModel from '@/features/model-control/services/useModel.js'
 import useMessage from '@/composables/useMessage.js'
 import { PRESETS } from '@/config/constants/modelConfig.js'
 import { LOD_STAGE_DEFINITIONS, cesiumColorToHex } from '../lodRuntime.js'
+import { getRenderEnhancementManager } from '../renderEnhancementManager.js'
 
 // ---- 从单一数据源派生阶段常量（模块级，非响应式）----
 export const STAGE_KEYS = LOD_STAGE_DEFINITIONS.map(d => d.key)
@@ -27,6 +28,10 @@ export function useLodPanelController() {
     applyLodVisualizationMode
   } = useModel()
   const { showMessage } = useMessage()
+
+  // 渲染增强管理器（AO / 太阳光照 / 阴影）
+  const renderEnhancement = getRenderEnhancementManager()
+  const renderEnhancementState = renderEnhancement.state
 
   const local = ref({})
   const modelLoaded = computed(() => !!tilesetRef.value)
@@ -703,6 +708,35 @@ export function useLodPanelController() {
     showMessage('已重置为默认配置', 'info')
   }
 
+  // ---- 渲染增强（AO / 太阳光照 / 阴影）----
+  const setRenderEnhancementEnabled = enabled => {
+    renderEnhancement.setEnabled(enabled)
+    showMessage(
+      enabled ? '已开启渲染增强' : '已关闭渲染增强',
+      enabled ? 'success' : 'info'
+    )
+  }
+
+  const setRenderEffectEnabled = (effectKey, enabled) => {
+    renderEnhancement.setEffectEnabled(effectKey, enabled)
+    const labelMap = {
+      ambientOcclusion: '环境光遮蔽',
+      lighting: '太阳光照',
+      shadow: '阴影'
+    }
+    const label = labelMap[effectKey] || effectKey
+    showMessage(`${label} 已${enabled ? '开启' : '关闭'}`, 'info')
+  }
+
+  const setRenderEffectParam = (effectKey, paramKey, value) => {
+    renderEnhancement.setEffectParam(effectKey, paramKey, value)
+  }
+
+  const resetRenderEnhancement = () => {
+    renderEnhancement.reset()
+    showMessage('渲染增强已重置为默认', 'info')
+  }
+
   watch(
     lodConfig,
     v => {
@@ -805,6 +839,12 @@ export function useLodPanelController() {
     setFieldBoolean,
     apply,
     rollback,
-    reset
+    reset,
+    // 渲染增强
+    renderEnhancementState,
+    setRenderEnhancementEnabled,
+    setRenderEffectEnabled,
+    setRenderEffectParam,
+    resetRenderEnhancement
   }
 }

@@ -88,17 +88,9 @@ export class CesiumThreeBridge {
     this.threeRenderer.initBlast(params)
     this._active = true
 
-    const stats = this.threeRenderer.getStats()
-    console.log('[CesiumThreeBridge] 爆破效果已启动', {
-      center: { lon: this.centerLon, lat: this.centerLat, height: this.centerHeight },
-      chargeKg: params.chargeKg,
-      particleCount: stats?.total
-    })
-
     // 注册到 Cesium 的 preRender 事件，每帧同步
     if (!this._removeListener) {
       this._removeListener = this.viewer.scene.preRender.addEventListener(this._syncBound)
-      console.log('[CesiumThreeBridge] preRender 监听已注册')
     }
   }
 
@@ -121,14 +113,15 @@ export class CesiumThreeBridge {
     if (!this._active || !this.originMatrix) return
 
     try {
-      // 调整 three.js 画布大小
+      // 调整 three.js 画布大小（完整同步 renderer/camera.aspect/bloomComposer）
       const canvas = this.viewer.canvas
       const width = Math.max(1, canvas.clientWidth || 0)
       const height = Math.max(1, canvas.clientHeight || 0)
       if (width !== this._lastViewportWidth || height !== this._lastViewportHeight) {
         this._lastViewportWidth = width
         this._lastViewportHeight = height
-        this.threeRenderer.renderer.setSize(width, height)
+        // 使用 resizeTo 而非 renderer.setSize，确保 camera.aspect 和 bloomComposer 同步更新
+        this.threeRenderer.resizeTo(width, height)
       }
 
       // 获取 Cesium 相机参数
@@ -137,16 +130,7 @@ export class CesiumThreeBridge {
       const cameraDirectionWorld = cesiumCamera.directionWC || cesiumCamera.direction
       const cameraUpWorld = cesiumCamera.upWC || cesiumCamera.up
 
-      // 计算 Cesium 相机视场角（弧度）
-      const frustum = cesiumCamera.frustum
-      let fov
-      if (frustum instanceof Cesium.PerspectiveFrustum) {
-        fov = Cesium.Math.toDegrees(frustum.fovy)
-      } else {
-        fov = 60 // 默认值
-      }
-
-      // 将世界坐标转换到 ENU 局部坐标
+      // 先将世界坐标转换到 ENU 局部坐标（正交 FOV 反算需要相机到爆心的距离）
       const cameraPositionLocal = Cesium.Matrix4.multiplyByPoint(
         this.originMatrixInverse,
         cameraPositionWorld,
@@ -162,6 +146,23 @@ export class CesiumThreeBridge {
         cameraUpWorld,
         new Cesium.Cartesian3()
       )
+
+      // 计算 Cesium 相机视场角（度）
+      // - 透视投影：直接读取 fovy
+      // - 正交投影：通过"视高 / 相机到爆心距离"反算等效 FOV
+      //   修正：原用 Cesium.Cartesian3.magnitude(cameraPositionWorld) 计算的是到地心距离（≈6.4e6m），
+      //   导致 fov≈0；改用相机在 ENU 局部坐标系下的位置长度（即到爆心的距离）
+      const frustum = cesiumCamera.frustum
+      let fov
+      if (frustum instanceof Cesium.PerspectiveFrustum) {
+        fov = Cesium.Math.toDegrees(frustum.fovy)
+      } else if (frustum instanceof Cesium.OrthographicFrustum) {
+        const orthoHeight = Math.abs(frustum.top - frustum.bottom)
+        const camDist = Cesium.Cartesian3.magnitude(cameraPositionLocal)
+        fov = Cesium.Math.toDegrees(2 * Math.atan(Math.max(1, orthoHeight) / (2 * Math.max(1, camDist))))
+      } else {
+        fov = 60 // 未知投影类型，回退默认值
+      }
 
       // 转换到 three.js 坐标系
       // Cesium ENU: X=东, Y=北, Z=上（右手）
@@ -200,30 +201,19 @@ export class CesiumThreeBridge {
         Math.min(50000, far)
       )
 
-      // 一次性调试日志（验证同步是否工作）
-      if (!this._debugLogged) {
-        this._debugLogged = true
-        const stats = this.threeRenderer.getStats()
-        console.log('[CesiumThreeBridge] 首次相机同步', {
-          cameraPos: {
-            x: threePosition.x.toFixed(1),
-            y: threePosition.y.toFixed(1),
-            z: threePosition.z.toFixed(1)
-          },
-          distance: threePosition.length().toFixed(1),
-          fov,
-          aspect,
-          near,
-          far: Math.min(50000, far),
-          particles: stats?.total
-        })
-      }
-
       // 仅渲染场景（粒子模拟由时间轴通过 seekTo 驱动，不再使用真实 deltaTime）
       this.threeRenderer.renderFrame()
     } catch (err) {
-      console.error('[CesiumThreeBridge] 同步相机失败:', err)
-      this._active = false
+      // 修正：原实现单帧异常即永久停用（this._active=false），导致偶发错误后整个爆破效果失效
+      // 改为连续错误计数，超过阈值才停用，避免单次异常造成永久失效
+      this._syncErrorCount = (this._syncErrorCount || 0) + 1
+      if (this._syncErrorCount <= 3) {
+        console.error('[CesiumThreeBridge] 同步相机失败:', err)
+      }
+      if (this._syncErrorCount >= 60) {
+        console.error('[CesiumThreeBridge] 连续 60 帧同步失败，停用桥接器')
+        this._active = false
+      }
     }
   }
 
@@ -241,6 +231,28 @@ export class CesiumThreeBridge {
    */
   getThreeRenderer() {
     return this.threeRenderer
+  }
+
+  /**
+   * 将 three.js 局部坐标（ENU 空间：X=东, Y=上, Z=北）转换为 Cesium 世界坐标
+   * 用于将 three.js 内的对象位置（如最远碎片）映射回 Cesium 相机飞行目标
+   * @param {{x:number,y:number,z:number}} localPos - three.js 局部坐标
+   * @returns {Cesium.Cartesian3|null}
+   */
+  localToWorld(localPos) {
+    if (!this.originMatrix || !localPos) return null
+    // three.js Y-up 与 ENU 的逆映射（与 _syncCamera 正向映射 three=(enu.x, enu.z, -enu.y) 互逆）：
+    // three.x → enu.east, -three.z → enu.north, three.y → enu.up
+    const enuOffset = new Cesium.Cartesian3(
+      Number(localPos.x || 0),        // east  ← three.x
+      Number(-(localPos.z || 0)),     // north ← -three.z
+      Number(localPos.y || 0)         // up    ← three.y
+    )
+    return Cesium.Matrix4.multiplyByPoint(
+      this.originMatrix,
+      enuOffset,
+      new Cesium.Cartesian3()
+    )
   }
 
   /**

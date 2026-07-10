@@ -100,6 +100,7 @@ export function useStressPanelController() {
     setDirection: actions.setDirection,
     togglePlayback: actions.togglePlayback,
     setKnownPointStressVisible: actions.setKnownPointStressVisible,
+    setWhiteModel: actions.setWhiteModel,
     onFileChange,
     importExample,
     onPickPoint,

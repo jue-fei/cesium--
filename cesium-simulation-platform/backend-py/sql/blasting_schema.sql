@@ -1,261 +1,223 @@
 -- ============================================================
--- 爆破模拟数据库 Schema
--- 包含全部爆破渲染显示参数，支持真实爆破效果模拟
+-- 爆破模拟数据库 Schema（关系型版：4 业务表 + 1 字典表）
+--
+-- 设计目标：表格数量固定（5 张），事件数无上限（INSERT 即增）
+--   - blasting_events        事件主表（每事件 1 行）
+--   - blasting_design        设计表（与事件 1:1）
+--   - blasting_design_holes  炮孔表（与事件 1:N，每孔 1 行）
+--   - blasting_result        效果表（与事件 1:1）
+--   - rock_params            岩体参数字典表（独立于事件）
+--
+-- 旧设计（blasting_event_001~005 扁平表）已废弃，表数与事件数解耦
 -- ============================================================
 
 SET FOREIGN_KEY_CHECKS = 0;
 
--- ─── 1. 爆破事件表 ───────────────────────────────────
+-- ─── 删除旧的关系型表（重建）──────────────────────────────
+DROP TABLE IF EXISTS `blasting_result`;
+DROP TABLE IF EXISTS `blasting_design_holes`;
+DROP TABLE IF EXISTS `blasting_design`;
 DROP TABLE IF EXISTS `blasting_events`;
+DROP TABLE IF EXISTS `rock_params`;
+
+-- ─── 删除旧的扁平表（已废弃）──────────────────────────────
+DROP TABLE IF EXISTS `blasting_event_001`;
+DROP TABLE IF EXISTS `blasting_event_002`;
+DROP TABLE IF EXISTS `blasting_event_003`;
+DROP TABLE IF EXISTS `blasting_event_004`;
+DROP TABLE IF EXISTS `blasting_event_005`;
+
+-- ─── 删除可能残留的旧表 ──────────────────────────────────
+DROP TABLE IF EXISTS `blasting_holes`;
+DROP TABLE IF EXISTS `blasting_frames`;
+DROP TABLE IF EXISTS `blasting_particles`;
+DROP TABLE IF EXISTS `blasting_vibration`;
+DROP TABLE IF EXISTS `blasting_stress`;
+DROP TABLE IF EXISTS `blasting_monitor_points`;
+DROP TABLE IF EXISTS `blasting_kco_params`;
+DROP TABLE IF EXISTS `blasting_blastface_design`;
+DROP TABLE IF EXISTS `blasting_blast_effect`;
+DROP TABLE IF EXISTS `blasting_blast_effect`;
+DROP TABLE IF EXISTS `blasting_rock_params`;
+DROP TABLE IF EXISTS `blasting_render_config`;
+DROP TABLE IF EXISTS `blasting_tunnel_sections`;
+DROP TABLE IF EXISTS `blasting_design_params`;
+DROP TABLE IF EXISTS `blasting_delay_series`;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================
+-- 1. blasting_events 事件主表（每事件 1 行，无上限）
+-- ============================================================
 CREATE TABLE `blasting_events` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `event_id` VARCHAR(32) NOT NULL UNIQUE COMMENT '事件编号',
+  `event_id` VARCHAR(32) NOT NULL COMMENT '事件编号',
   `name` VARCHAR(128) NOT NULL COMMENT '事件名称',
   `center_lon` DOUBLE NOT NULL COMMENT '爆心经度',
   `center_lat` DOUBLE NOT NULL COMMENT '爆心纬度',
-  `center_height` DOUBLE DEFAULT 0 COMMENT '爆心高度(m)',
+  `center_height` DOUBLE NOT NULL DEFAULT 0 COMMENT '爆心高程(m)',
   `charge_kg` DOUBLE NOT NULL COMMENT '总装药量(kg)',
-  `explosive_type` VARCHAR(32) DEFAULT 'emulsion' COMMENT '炸药类型: emulsion/anfo/dynamite',
-  `detonation_method` VARCHAR(32) DEFAULT 'electric' COMMENT '起爆方式: electric/nonel/electronic',
-  `blast_time` DATETIME COMMENT '爆破时间',
-  `rock_type` VARCHAR(64) DEFAULT 'granite' COMMENT '岩体类型',
-  `weather` VARCHAR(32) DEFAULT 'clear' COMMENT '天气: clear/cloudy/rain',
-  `temperature` DOUBLE DEFAULT 20 COMMENT '温度(°C)',
-  `wind_speed` DOUBLE DEFAULT 0 COMMENT '风速(m/s)',
-  `wind_direction` DOUBLE DEFAULT 0 COMMENT '风向(°)',
-  `status` VARCHAR(16) DEFAULT 'planned' COMMENT '状态: planned/active/completed',
+  `explosive_type` VARCHAR(32) NOT NULL DEFAULT 'emulsion' COMMENT '炸药类型: emulsion/anfo/dynamite',
+  `detonation_method` VARCHAR(64) COMMENT '起爆方式: electric/nonel/electronic',
+  `blast_time` DATETIME NOT NULL COMMENT '爆破时间',
+  `rock_type` VARCHAR(32) NOT NULL COMMENT '岩体类型（关联 rock_params.rock_type）',
+  `weather` VARCHAR(32) COMMENT '天气: clear/cloudy/rain',
+  `temperature` DOUBLE COMMENT '温度(°C)',
+  `wind_speed` DOUBLE COMMENT '风速(m/s)',
+  `wind_direction` DOUBLE COMMENT '风向(°)',
+  `status` VARCHAR(16) NOT NULL DEFAULT 'planned' COMMENT 'planned/executed/aborted',
   `description` TEXT,
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX `idx_status` (`status`),
-  INDEX `idx_blast_time` (`blast_time`)
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_event_id` (`event_id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_blast_time` (`blast_time`),
+  KEY `idx_rock_type` (`rock_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='爆破事件主表';
 
--- ─── 2. 炮孔设计表 ───────────────────────────────────
-DROP TABLE IF EXISTS `blasting_holes`;
-CREATE TABLE `blasting_holes` (
+-- ============================================================
+-- 2. blasting_design 设计表（与事件 1:1）
+-- ============================================================
+CREATE TABLE `blasting_design` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `event_id` VARCHAR(32) NOT NULL COMMENT '关联事件',
-  `hole_id` VARCHAR(32) NOT NULL COMMENT '炮孔编号',
-  `row` INT DEFAULT 1 COMMENT '排号',
-  `column` INT DEFAULT 1 COMMENT '列号',
-  `collar_lon` DOUBLE NOT NULL COMMENT '孔口经度',
-  `collar_lat` DOUBLE NOT NULL COMMENT '孔口纬度',
-  `collar_height` DOUBLE DEFAULT 0 COMMENT '孔口高度(m)',
-  `toe_lon` DOUBLE NOT NULL COMMENT '孔底经度',
-  `toe_lat` DOUBLE NOT NULL COMMENT '孔底纬度',
-  `toe_height` DOUBLE DEFAULT 0 COMMENT '孔底高度(m)',
-  `diameter` DOUBLE DEFAULT 0.09 COMMENT '孔径(m)',
-  `depth` DOUBLE DEFAULT 10 COMMENT '孔深(m)',
-  `charge_kg` DOUBLE DEFAULT 0 COMMENT '单孔装药量(kg)',
-  `delay_ms` INT DEFAULT 0 COMMENT '延时(ms)',
-  `hole_type` VARCHAR(16) DEFAULT 'production' COMMENT '孔类型: production/cut/easing/perimeter',
-  `burden` DOUBLE DEFAULT 2.0 COMMENT '抵抗线(m)',
-  `spacing` DOUBLE DEFAULT 2.5 COMMENT '孔距(m)',
-  `subdrill` DOUBLE DEFAULT 0.5 COMMENT '超深(m)',
-  `stemming` DOUBLE DEFAULT 1.0 COMMENT '堵塞长度(m)',
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX `idx_event` (`event_id`),
-  INDEX `idx_hole` (`hole_id`),
+  `event_id` VARCHAR(32) NOT NULL,
+  -- 隧道断面
+  `tunnel_shape` VARCHAR(16) NOT NULL DEFAULT 'horseshoe' COMMENT 'horseshoe/circular/rectangular',
+  `tunnel_width` DOUBLE NOT NULL DEFAULT 18 COMMENT '断面宽度(m)',
+  `tunnel_wall_height` DOUBLE NOT NULL DEFAULT 6 COMMENT '直墙高度(m)',
+  `tunnel_arch_radius` DOUBLE NOT NULL DEFAULT 9 COMMENT '拱部半径(m)',
+  `tunnel_total_height` DOUBLE NOT NULL DEFAULT 15 COMMENT '断面总高度(m)',
+  `tunnel_length` DOUBLE NOT NULL DEFAULT 80 COMMENT '已开挖隧道长度(m)',
+  `face_thickness` DOUBLE NOT NULL DEFAULT 2 COMMENT '掌子面厚度(m)',
+  `face_offset` DOUBLE NOT NULL DEFAULT 3 COMMENT '掌子面距爆心前方距离(m)',
+  -- 掏槽与起爆
+  `cut_pattern` VARCHAR(32) NOT NULL DEFAULT 'four_section' COMMENT 'four_section/single_spiral/double_spiral/wedge/burn',
+  `cut_angle` DOUBLE DEFAULT 0 COMMENT '楔形掏槽倾斜角(°)',
+  `cut_hole_count` INT DEFAULT 4 COMMENT '装药掏槽孔数',
+  `empty_hole_count` INT DEFAULT 1 COMMENT '空孔数',
+  `initiation_network` VARCHAR(32) COMMENT 'electric/nonel/electronic/detonating_cord',
+  `delay_interval_ms` INT DEFAULT 25 COMMENT '段间延时间隔(ms)',
+  -- 装药参数
+  `charge_density_cut` DOUBLE DEFAULT 1.2 COMMENT '掏槽孔线装药密度(kg/m)',
+  `charge_density_aux` DOUBLE DEFAULT 1.0 COMMENT '辅助孔线装药密度(kg/m)',
+  `charge_density_perim` DOUBLE DEFAULT 0.7 COMMENT '周边孔线装药密度(kg/m)',
+  `stemming_length` DOUBLE DEFAULT 0.5 COMMENT '堵塞长度(m)',
+  -- 钻孔参数
+  `hole_depth` DOUBLE NOT NULL DEFAULT 2.5 COMMENT '钻孔深度(m)',
+  `hole_diameter` DOUBLE NOT NULL DEFAULT 0.04 COMMENT '钻孔直径(m)',
+  `utilization` DOUBLE NOT NULL DEFAULT 0.85 COMMENT '炮孔利用率',
+  `advance_length` DOUBLE COMMENT '单循环进尺(m), 由 hole_depth*utilization 计算',
+  -- 预期效果
+  `expected_x50` DOUBLE COMMENT '预期中位块度(m)',
+  `expected_xmax` DOUBLE COMMENT '预期最大块度(m)',
+  `expected_throw_distance` DOUBLE COMMENT '预期抛掷距离(m)',
+  `expected_overbreak` DOUBLE COMMENT '预期超挖(m)',
+  -- 安全
+  `min_safety_distance` DOUBLE DEFAULT 100 COMMENT '最小安全距离(m)',
+  `max_vibration_velocity` DOUBLE DEFAULT 5.0 COMMENT '最大质点振动速度(cm/s)',
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_event_id` (`event_id`),
+  CONSTRAINT `fk_design_event` FOREIGN KEY (`event_id`) REFERENCES `blasting_events`(`event_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='爆破设计表';
+
+-- ============================================================
+-- 3. blasting_design_holes 炮孔表（与事件 1:N，每孔 1 行）
+-- 废弃 holes_json TEXT 存储，支持独立查询与索引
+-- ============================================================
+CREATE TABLE `blasting_design_holes` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `event_id` VARCHAR(32) NOT NULL,
+  `hole_index` INT NOT NULL COMMENT '孔序号',
+  `pos_x` DOUBLE NOT NULL COMMENT '断面内 X 坐标(m), 相对断面中心',
+  `pos_y` DOUBLE NOT NULL COMMENT '断面内 Y 坐标(m), 相对底板',
+  `pos_z` DOUBLE NOT NULL DEFAULT 0 COMMENT '断面内 Z 坐标(m), 一般为 0',
+  `hole_type` VARCHAR(16) NOT NULL COMMENT 'cut/auxiliary/perimeter/empty',
+  `diameter` DOUBLE NOT NULL DEFAULT 0.04 COMMENT '孔径(m)',
+  `depth` DOUBLE NOT NULL DEFAULT 2.5 COMMENT '孔深(m)',
+  `inclination_angle` DOUBLE NOT NULL DEFAULT 0 COMMENT '倾角(度)',
+  `inclination_azimuth` DOUBLE NOT NULL DEFAULT 0 COMMENT '方位角(度)',
+  `charge_kg` DOUBLE NOT NULL DEFAULT 0 COMMENT '单孔装药量(kg)',
+  `charge_length` DOUBLE DEFAULT 0 COMMENT '装药长度(m)',
+  `explosive_type` VARCHAR(32) DEFAULT 'emulsion' COMMENT '炸药类型',
+  `detonator_series` INT DEFAULT 1 COMMENT '雷管段别',
+  `delay_ms` INT DEFAULT 0 COMMENT '延期时间(ms)',
+  `is_empty_hole` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否空孔: 0=装药孔, 1=空孔',
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_event_hole` (`event_id`, `hole_index`),
+  KEY `idx_event_type` (`event_id`, `hole_type`),
   CONSTRAINT `fk_holes_event` FOREIGN KEY (`event_id`) REFERENCES `blasting_events`(`event_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='炮孔设计参数';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='爆破炮孔表';
 
--- ─── 3. 岩体力学参数表 ───────────────────────────────
-DROP TABLE IF EXISTS `blasting_rock_params`;
-CREATE TABLE `blasting_rock_params` (
-  `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `rock_type` VARCHAR(64) NOT NULL UNIQUE COMMENT '岩体类型',
-  `density` DOUBLE DEFAULT 2650 COMMENT '密度(kg/m³)',
-  `youngs_modulus` DOUBLE DEFAULT 30e9 COMMENT '弹性模量(Pa)',
-  `poissons_ratio` DOUBLE DEFAULT 0.25 COMMENT '泊松比',
-  `compressive_strength` DOUBLE DEFAULT 80e6 COMMENT '抗压强度(Pa)',
-  `tensile_strength` DOUBLE DEFAULT 8e6 COMMENT '抗拉强度(Pa)',
-  `shear_strength` DOUBLE DEFAULT 15e6 COMMENT '抗剪强度(Pa)',
-  `p_wave_speed` DOUBLE DEFAULT 4500 COMMENT 'P波速度(m/s)',
-  `s_wave_speed` DOUBLE DEFAULT 2600 COMMENT 'S波速度(m/s)',
-  `attenuation_p` DOUBLE DEFAULT 0.012 COMMENT 'P波衰减系数',
-  `attenuation_s` DOUBLE DEFAULT 0.018 COMMENT 'S波衰减系数',
-  `attenuation_rayleigh` DOUBLE DEFAULT 0.006 COMMENT '瑞利波衰减系数',
-  `color_r` DOUBLE DEFAULT 0.45 COMMENT '岩体颜色R',
-  `color_g` DOUBLE DEFAULT 0.35 COMMENT '岩体颜色G',
-  `color_b` DOUBLE DEFAULT 0.25 COMMENT '岩体颜色B',
-  `friction_angle` DOUBLE DEFAULT 35 COMMENT '内摩擦角(°)',
-  `cohesion` DOUBLE DEFAULT 5e6 COMMENT '粘聚力(Pa)',
-  `description` TEXT,
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='岩体力学参数库';
-
--- ─── 4. 渲染配置表（全部爆破渲染显示参数） ──────────
-DROP TABLE IF EXISTS `blasting_render_config`;
-CREATE TABLE `blasting_render_config` (
-  `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `config_name` VARCHAR(64) NOT NULL UNIQUE COMMENT '配置名称',
-  `fragment_render_mode` VARCHAR(16) DEFAULT 'point' COMMENT '碎片渲染: point/model/particle',
-  `max_particles` INT DEFAULT 5000 COMMENT '最大粒子数',
-  `particle_size_shock` DOUBLE DEFAULT 6 COMMENT '冲击波粒子大小',
-  `particle_size_fragment` DOUBLE DEFAULT 5 COMMENT '碎片粒子大小',
-  `particle_size_dust` DOUBLE DEFAULT 3 COMMENT '粉尘粒子大小',
-  `particle_size_spall` DOUBLE DEFAULT 4 COMMENT '剥落粒子大小',
-  `particle_size_fire` DOUBLE DEFAULT 8 COMMENT '火焰粒子大小',
-  `particle_size_smoke` DOUBLE DEFAULT 10 COMMENT '烟雾粒子大小',
-  `color_shock_r` DOUBLE DEFAULT 1.0 COMMENT '冲击波颜色R',
-  `color_shock_g` DOUBLE DEFAULT 0.78 COMMENT '冲击波颜色G',
-  `color_shock_b` DOUBLE DEFAULT 0.2 COMMENT '冲击波颜色B',
-  `color_shock_a` DOUBLE DEFAULT 0.8 COMMENT '冲击波透明度',
-  `color_fragment_r` DOUBLE DEFAULT 0.86 COMMENT '碎片颜色R',
-  `color_fragment_g` DOUBLE DEFAULT 0.63 COMMENT '碎片颜色G',
-  `color_fragment_b` DOUBLE DEFAULT 0.31 COMMENT '碎片颜色B',
-  `color_fragment_a` DOUBLE DEFAULT 0.9 COMMENT '碎片透明度',
-  `color_dust_r` DOUBLE DEFAULT 0.71 COMMENT '粉尘颜色R',
-  `color_dust_g` DOUBLE DEFAULT 0.67 COMMENT '粉尘颜色G',
-  `color_dust_b` DOUBLE DEFAULT 0.63 COMMENT '粉尘颜色B',
-  `color_dust_a` DOUBLE DEFAULT 0.4 COMMENT '粉尘透明度',
-  `color_fire_r` DOUBLE DEFAULT 1.0 COMMENT '火焰颜色R',
-  `color_fire_g` DOUBLE DEFAULT 0.4 COMMENT '火焰颜色G',
-  `color_fire_b` DOUBLE DEFAULT 0.05 COMMENT '火焰颜色B',
-  `color_fire_a` DOUBLE DEFAULT 0.85 COMMENT '火焰透明度',
-  `color_smoke_r` DOUBLE DEFAULT 0.2 COMMENT '烟雾颜色R',
-  `color_smoke_g` DOUBLE DEFAULT 0.2 COMMENT '烟雾颜色G',
-  `color_smoke_b` DOUBLE DEFAULT 0.2 COMMENT '烟雾颜色B',
-  `color_smoke_a` DOUBLE DEFAULT 0.5 COMMENT '烟雾透明度',
-  `wave_rings` INT DEFAULT 3 COMMENT '冲击波环数',
-  `wave_ring_opacity` DOUBLE DEFAULT 0.26 COMMENT '波环透明度',
-  `trail_width` DOUBLE DEFAULT 2.0 COMMENT '轨迹宽度',
-  `trail_glow_power` DOUBLE DEFAULT 0.22 COMMENT '轨迹辉光强度',
-  `trail_color_r` DOUBLE DEFAULT 1.0 COMMENT '轨迹颜色R',
-  `trail_color_g` DOUBLE DEFAULT 0.85 COMMENT '轨迹颜色G',
-  `trail_color_b` DOUBLE DEFAULT 0.2 COMMENT '轨迹颜色B',
-  `trail_color_a` DOUBLE DEFAULT 0.45 COMMENT '轨迹透明度',
-  `heatmap_resolution` INT DEFAULT 48 COMMENT '热力图分辨率',
-  `heatmap_max_radius` DOUBLE DEFAULT 200 COMMENT '热力图最大半径(m)',
-  `heatmap_opacity` DOUBLE DEFAULT 0.6 COMMENT '热力图透明度',
-  `fireball_duration` DOUBLE DEFAULT 1.5 COMMENT '火球持续时间(s)',
-  `fireball_max_radius` DOUBLE DEFAULT 15 COMMENT '火球最大半径(m)',
-  `smoke_duration` DOUBLE DEFAULT 8.0 COMMENT '烟雾持续时间(s)',
-  `smoke_rise_speed` DOUBLE DEFAULT 2.0 COMMENT '烟雾上升速度(m/s)',
-  `dust_duration` DOUBLE DEFAULT 8.0 COMMENT '粉尘持续时间(s)',
-  `shockwave_speed` DOUBLE DEFAULT 5.0 COMMENT '冲击波传播系数',
-  `fragment_min_size` DOUBLE DEFAULT 0.15 COMMENT '碎片最小尺寸(m)',
-  `fragment_max_size` DOUBLE DEFAULT 2.0 COMMENT '碎片最大尺寸(m)',
-  `fragment_count_base` INT DEFAULT 200 COMMENT '基础碎片数',
-  `gravity` DOUBLE DEFAULT 9.8 COMMENT '重力加速度(m/s²)',
-  `air_drag` DOUBLE DEFAULT 0.04 COMMENT '空气阻力系数',
-  `restitution` DOUBLE DEFAULT 0.35 COMMENT '弹性恢复系数',
-  `friction` DOUBLE DEFAULT 0.6 COMMENT '摩擦系数',
-  `time_step` DOUBLE DEFAULT 0.05 COMMENT '模拟时间步长(s)',
-  `frame_count` INT DEFAULT 120 COMMENT '帧数',
-  `enable_collision` TINYINT DEFAULT 1 COMMENT '启用碰撞检测',
-  `enable_heatmap` TINYINT DEFAULT 1 COMMENT '启用热力图',
-  `enable_monitor_points` TINYINT DEFAULT 1 COMMENT '启用监测点',
-  `enable_smoke` TINYINT DEFAULT 1 COMMENT '启用烟雾',
-  `enable_fireball` TINYINT DEFAULT 1 COMMENT '启用火球',
-  `enable_dust` TINYINT DEFAULT 1 COMMENT '启用粉尘',
-  `enable_trails` TINYINT DEFAULT 1 COMMENT '启用轨迹',
-  `description` TEXT,
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='爆破渲染配置参数';
-
--- ─── 5. 模拟帧数据表 ─────────────────────────────────
-DROP TABLE IF EXISTS `blasting_frames`;
-CREATE TABLE `blasting_frames` (
+-- ============================================================
+-- 4. blasting_result 效果表（与事件 1:1）
+-- 岩体参数通过 JOIN rock_params 获取，不再冗余存储
+-- ============================================================
+CREATE TABLE `blasting_result` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `event_id` VARCHAR(32) NOT NULL,
-  `frame_index` INT NOT NULL COMMENT '帧序号',
-  `time_sec` DOUBLE NOT NULL COMMENT '时间(s)',
-  `wave_radius` DOUBLE COMMENT '冲击波半径(m)',
-  `alive_count` INT COMMENT '活跃粒子数',
-  `landed_count` INT COMMENT '落地粒子数',
-  `max_distance` DOUBLE COMMENT '最大飞溅距离(m)',
-  `max_speed` DOUBLE COMMENT '最大速度(m/s)',
-  `total_energy` DOUBLE COMMENT '系统总能量(J)',
-  `vibration_max` DOUBLE COMMENT '峰值振动强度',
-  `stress_max` DOUBLE COMMENT '峰值应力(MPa)',
+  -- 模拟控制
+  `random_seed` INT DEFAULT 42 COMMENT '随机数种子（保证回放可复现）',
+  `simulation_duration_s` DOUBLE DEFAULT 8.0 COMMENT '模拟总时长(s)',
+  `time_step_s` DOUBLE DEFAULT 0.016 COMMENT '模拟时间步长(s)',
+  -- 漏斗
+  `crater_depth` DOUBLE COMMENT '漏斗深度(m)',
+  `crater_radius` DOUBLE COMMENT '漏斗开口半径(m)',
+  `crater_center_offset_y` DOUBLE DEFAULT 0 COMMENT '漏斗中心高度偏移(相对断面)',
+  -- 超挖
+  `overbreak_max` DOUBLE COMMENT '最大超挖(m)',
+  `overbreak_min` DOUBLE COMMENT '最小超挖(m)',
+  `half_barrel_ratio` DOUBLE COMMENT '半孔率(0-1, 光面爆破质量)',
+  -- 碎块（KCO 输出）
+  `fragment_count` INT COMMENT '碎片总数',
+  `fragment_x50` DOUBLE COMMENT '中位块度(m, KCO模型输出)',
+  `fragment_x80` DOUBLE COMMENT '80%通过块度(m)',
+  `fragment_xmax` DOUBLE COMMENT '最大块度(m)',
+  `fragment_b` DOUBLE COMMENT 'Swebrec 弯曲参数',
+  `fragment_n` DOUBLE COMMENT 'Cunningham 均匀性指数',
+  -- 抛掷
+  `throw_distance_max` DOUBLE COMMENT '最大抛掷距离(m)',
+  `throw_distance_avg` DOUBLE COMMENT '平均抛掷距离(m)',
+  `spread_angle` DOUBLE DEFAULT 45 COMMENT '抛掷扩散角(°)',
+  -- 振动
+  `vibration_peak` DOUBLE COMMENT '峰值振动强度(Kine)',
+  `vibration_velocity_max` DOUBLE COMMENT '最大质点振动速度(cm/s)',
+  `stress_peak_mpa` DOUBLE COMMENT '峰值应力(MPa)',
+  -- 安全
   `min_safety_factor` DOUBLE COMMENT '最小安全系数',
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY `uk_event_frame` (`event_id`, `frame_index`),
-  INDEX `idx_event` (`event_id`),
-  CONSTRAINT `fk_frames_event` FOREIGN KEY (`event_id`) REFERENCES `blasting_events`(`event_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='模拟帧统计';
+  -- 视觉强度
+  `smoke_intensity` DOUBLE DEFAULT 0.6 COMMENT '烟雾强度(0-1)',
+  `dust_intensity` DOUBLE DEFAULT 0.5 COMMENT '粉尘强度(0-1)',
+  `fire_intensity` DOUBLE DEFAULT 0.8 COMMENT '火球强度(0-1)',
+  `spark_intensity` DOUBLE DEFAULT 0.7 COMMENT '火花强度(0-1)',
+  `shockwave_speed_factor` DOUBLE DEFAULT 1.0 COMMENT '冲击波速度系数',
+  -- 岩体参数通过 JOIN rock_params 获取，不再冗余存储
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_event_id` (`event_id`),
+  CONSTRAINT `fk_result_event` FOREIGN KEY (`event_id`) REFERENCES `blasting_events`(`event_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='爆破效果表';
 
--- ─── 6. 粒子数据表 ───────────────────────────────────
-DROP TABLE IF EXISTS `blasting_particles`;
-CREATE TABLE `blasting_particles` (
-  `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `event_id` VARCHAR(32) NOT NULL,
-  `particle_id` VARCHAR(32) NOT NULL COMMENT '粒子编号',
-  `particle_type` VARCHAR(16) NOT NULL COMMENT '类型: shock_wave/rock_fragment/dust/spall/fire/smoke',
-  `frame_index` INT NOT NULL COMMENT '帧序号',
-  `pos_x` DOUBLE COMMENT 'X坐标(m)',
-  `pos_y` DOUBLE COMMENT 'Y坐标(m)',
-  `pos_z` DOUBLE COMMENT 'Z坐标(m)',
-  `vel_x` DOUBLE COMMENT 'X速度(m/s)',
-  `vel_y` DOUBLE COMMENT 'Y速度(m/s)',
-  `vel_z` DOUBLE COMMENT 'Z速度(m/s)',
-  `size` DOUBLE COMMENT '尺寸(m)',
-  `speed` DOUBLE COMMENT '合速度(m/s)',
-  `age` DOUBLE COMMENT '年龄(s)',
-  `landed` TINYINT DEFAULT 0 COMMENT '是否落地',
-  `energy` DOUBLE COMMENT '能量(J)',
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX `idx_event_frame` (`event_id`, `frame_index`),
-  INDEX `idx_type` (`particle_type`),
-  CONSTRAINT `fk_particles_event` FOREIGN KEY (`event_id`) REFERENCES `blasting_events`(`event_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='粒子轨迹数据';
+-- ============================================================
+-- 5. rock_params 岩体参数字典表（独立于事件，消除冗余）
+-- ============================================================
+CREATE TABLE `rock_params` (
+  `rock_type` VARCHAR(32) PRIMARY KEY,
+  `density` DOUBLE NOT NULL COMMENT '密度(kg/m³)',
+  `youngs_modulus` DOUBLE NOT NULL COMMENT '弹性模量(Pa)',
+  `compressive_strength` DOUBLE NOT NULL COMMENT '抗压强度(Pa)',
+  `p_wave_speed` DOUBLE NOT NULL COMMENT 'P波速度(m/s)',
+  `s_wave_speed` DOUBLE NOT NULL COMMENT 'S波速度(m/s)',
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='岩体力学参数字典表';
 
--- ─── 7. 振动场数据表 ─────────────────────────────────
-DROP TABLE IF EXISTS `blasting_vibration`;
-CREATE TABLE `blasting_vibration` (
-  `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `event_id` VARCHAR(32) NOT NULL,
-  `frame_index` INT NOT NULL,
-  `grid_resolution` INT DEFAULT 48,
-  `max_radius` DOUBLE DEFAULT 200,
-  `max_intensity` DOUBLE COMMENT '峰值强度',
-  `field_data` LONGTEXT COMMENT '网格数据JSON',
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY `uk_vib_event_frame` (`event_id`, `frame_index`),
-  INDEX `idx_event` (`event_id`),
-  CONSTRAINT `fk_vib_event` FOREIGN KEY (`event_id`) REFERENCES `blasting_events`(`event_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='振动场网格数据';
-
--- ─── 8. 应力监测点表 ─────────────────────────────────
-DROP TABLE IF EXISTS `blasting_monitor_points`;
-CREATE TABLE `blasting_monitor_points` (
-  `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `event_id` VARCHAR(32) NOT NULL,
-  `point_id` VARCHAR(32) NOT NULL COMMENT '监测点编号',
-  `label` VARCHAR(64) COMMENT '标签',
-  `zone_type` VARCHAR(16) COMMENT '区域: near_field/free_face/mid_field/far_field/borehole',
-  `pos_x` DOUBLE COMMENT 'X(m)',
-  `pos_y` DOUBLE COMMENT 'Y(m)',
-  `pos_z` DOUBLE COMMENT 'Z(m)',
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY `uk_mp_event_point` (`event_id`, `point_id`),
-  INDEX `idx_event` (`event_id`),
-  CONSTRAINT `fk_mp_event` FOREIGN KEY (`event_id`) REFERENCES `blasting_events`(`event_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='应力监测点';
-
--- ─── 9. 应力时程数据表 ───────────────────────────────
-DROP TABLE IF EXISTS `blasting_stress`;
-CREATE TABLE `blasting_stress` (
-  `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `event_id` VARCHAR(32) NOT NULL,
-  `point_id` VARCHAR(32) NOT NULL,
-  `frame_index` INT NOT NULL,
-  `time_sec` DOUBLE,
-  `intensity` DOUBLE COMMENT '振动强度',
-  `vibration_velocity` DOUBLE COMMENT '振动速度(m/s)',
-  `sigma1` DOUBLE COMMENT '最大主应力(MPa)',
-  `sigma2` DOUBLE COMMENT '中间主应力(MPa)',
-  `sigma3` DOUBLE COMMENT '最小主应力(MPa)',
-  `mises` DOUBLE COMMENT 'Mises等效应力(MPa)',
-  `safety_factor` DOUBLE COMMENT '安全系数',
-  `safety_level` VARCHAR(16) COMMENT '安全等级',
-  `max_tensile` DOUBLE COMMENT '最大拉应力(MPa)',
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX `idx_event_frame` (`event_id`, `frame_index`),
-  INDEX `idx_point` (`point_id`),
-  CONSTRAINT `fk_stress_event` FOREIGN KEY (`event_id`) REFERENCES `blasting_events`(`event_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='应力时程数据';
-
-SET FOREIGN_KEY_CHECKS = 1;
+-- ─── 预填常见岩体参数 ──────────────────────────────────────
+INSERT INTO `rock_params` (`rock_type`, `density`, `youngs_modulus`, `compressive_strength`, `p_wave_speed`, `s_wave_speed`) VALUES
+  ('granite',      2650, 50e9, 120e6, 4500, 2600),
+  ('limestone',    2400, 40e9, 80e6,  3800, 2200),
+  ('sandstone',    2300, 25e9, 60e6,  3200, 1900),
+  ('marble',       2700, 55e9, 100e6, 4300, 2500),
+  ('basalt',       2850, 60e9, 150e6, 5000, 2900),
+  ('schist',       2750, 35e9, 70e6,  3500, 2100),
+  ('andesite',     2550, 45e9, 110e6, 4200, 2450),
+  ('diorite',      2780, 52e9, 130e6, 4600, 2700);

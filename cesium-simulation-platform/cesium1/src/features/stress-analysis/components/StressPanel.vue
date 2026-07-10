@@ -89,6 +89,20 @@
             <div class="text-sm text-text-muted w-[92px] shrink-0">值域</div>
             <div class="text-sm font-mono text-text-primary">{{ valueRangeText }}</div>
           </div>
+          <div
+            class="flex items-center justify-between gap-3 rounded-md border border-border-primary/60 px-3 py-2"
+          >
+            <div class="flex flex-col gap-1">
+              <div class="text-sm text-text-primary">白模显示</div>
+              <div class="text-[11px] text-text-muted">
+                将模型统一显示为白色，热力图叠加其上，便于审视应力分布与结构形态
+              </div>
+            </div>
+            <el-switch
+              :model-value="whiteModelEnabled"
+              @update:model-value="v => setWhiteModel(Boolean(v))"
+            />
+          </div>
         </div>
       </div>
 
@@ -1034,6 +1048,8 @@ const {
   warningSummary,
   knownPointStressVisible,
   setKnownPointStressVisible,
+  whiteModelEnabled,
+  setWhiteModel,
   runAutoEvaluation,
   exportEvaluation,
   feedback,

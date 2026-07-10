@@ -11,10 +11,13 @@
     "imports:check": "node ./scripts/check-import-boundaries.mjs",
     "ci:check": "npm run lint:check && npm run imports:check && npm run build",
     "audit:prod": "npm audit --omit=dev",
-    "format": "prettier --write src/"
+    "format": "prettier --write src/",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
+    "cannon-es": "^0.20.0",
     "cesium": "^1.138.0",
     "element-plus": "^2.13.2",
     "exceljs": "^4.4.0",
@@ -47,6 +50,7 @@
     "unplugin-vue-components": "^30.0.0",
     "vite": "^5.4.21",
     "vite-plugin-compression": "^0.5.1",
-    "vite-plugin-externals": "^0.6.2"
+    "vite-plugin-externals": "^0.6.2",
+    "vitest": "^1.6.0"
   }
 }
