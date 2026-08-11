@@ -185,7 +185,7 @@ export function generateFragmentSpecs(options = {}) {
     }
     const Eg = explosiveSpecificEnergy[metrics.explosiveType || 'emulsion'] || 3.9e6
     const q = chargeKg / Number(metrics.volumeRoundM3) // 比装药 kg/m³
-    const eta = 0.15 // 能量耦合系数
+    const eta = Number(metrics.eta) > 0 ? Number(metrics.eta) : 0.15 // 能量耦合系数（UI 可配置，默认 0.15）
     vBase = Math.sqrt((2 * eta * q * Eg) / densityBase)
     velocityModel = 'persson1997'
   } else {

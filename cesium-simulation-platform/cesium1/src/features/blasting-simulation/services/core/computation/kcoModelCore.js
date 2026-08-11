@@ -48,6 +48,68 @@ export const KCO_SOURCE_MODE = {
   RESULT: 'result'
 }
 
+/**
+ * 场地预设：按工程场景封装岩石因子 + 装药 + 孔网典型值
+ * 用于 UI 一键填充，避免用户面对裸数值。数值来源：工程经验典型值，非标定。
+ */
+export const SITE_PRESETS = {
+  'highway-tunnel-hard': {
+    label: '公路隧道·中硬岩',
+    RMD: 20,
+    RDI: 15,
+    HF: 25,
+    Q: 320,
+    q: 0.8,
+    B: 1.5,
+    S: 2.0,
+    d: 90,
+    SANFO: 100,
+    H: 4.5,
+    xmax: 2.0,
+    b: 2.0
+  },
+  'subway-tunnel-soft': {
+    label: '地铁隧道·软岩',
+    RMD: 12,
+    RDI: 10,
+    HF: 15,
+    Q: 180,
+    q: 0.55,
+    B: 1.2,
+    S: 1.6,
+    d: 64,
+    SANFO: 100,
+    H: 3.0,
+    xmax: 1.5,
+    b: 1.8
+  },
+  'mine-drift-hard': {
+    label: '矿山巷道·硬岩',
+    RMD: 25,
+    RDI: 18,
+    HF: 28,
+    Q: 420,
+    q: 1.0,
+    B: 1.8,
+    S: 2.2,
+    d: 102,
+    SANFO: 115,
+    H: 5.0,
+    xmax: 2.5,
+    b: 2.2
+  }
+}
+
+/**
+ * 炸药类型 → { SANFO 相对ANFO威力, Eg 比能 J/kg }
+ * SANFO 用于 Kuznetsov x50，Eg 用于 Persson 速度模型
+ */
+export const EXPLOSIVE_TYPES = {
+  emulsion: { label: '乳化炸药', SANFO: 100, Eg: 3.9e6 },
+  anfo: { label: 'ANFO', SANFO: 100, Eg: 2.484e6 },
+  dynamite: { label: '胶质炸药', SANFO: 115, Eg: 3.56e6 }
+}
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
 }
@@ -199,6 +261,8 @@ export function computeKLDivergence(p, q) {
 export default {
   DEFAULT_KCO_PARAMS,
   KCO_SOURCE_MODE,
+  SITE_PRESETS,
+  EXPLOSIVE_TYPES,
   calculateUniformityIndex,
   calculateKCOParams,
   sampleSwebrecSize,

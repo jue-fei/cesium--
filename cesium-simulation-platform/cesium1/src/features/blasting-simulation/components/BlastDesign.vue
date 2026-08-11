@@ -156,7 +156,23 @@
         调整参数后碎片尺寸与抛掷效果将动态更新。
       </div>
 
-      <div class="kco-group-title">爆破设计与炸药参数</div>
+      <div class="kco-group-title">场地预设</div>
+      <div class="controls-row">
+        <select v-model="selectedPresetKey" class="db-event-select">
+          <option value="">-- 选择场地预设 --</option>
+          <option v-for="(p, key) in SITE_PRESETS" :key="key" :value="key">{{ p.label }}</option>
+        </select>
+        <button
+          class="compact-action-btn primary"
+          :disabled="!selectedPresetKey"
+          @click="applyPreset"
+        >
+          应用预设
+        </button>
+      </div>
+      <div class="hint-text kco-desc">一键填充岩石因子 + 装药 + 孔网典型值，覆盖当前参数。</div>
+
+      <div class="kco-group-title mt-3">爆破设计与炸药参数</div>
       <div class="kco-grid">
         <label class="kco-field">
           <span class="kco-label">Q 单孔装药量 (kg)</span>
@@ -204,6 +220,18 @@
             :controls="false"
             size="small"
           />
+        </label>
+        <label class="kco-field">
+          <span class="kco-label">炸药类型</span>
+          <select
+            :value="explosiveType"
+            class="db-event-select"
+            @change="explosiveType = $event.target.value; onExplosiveChange()"
+          >
+            <option v-for="(e, key) in EXPLOSIVE_TYPES" :key="key" :value="key">
+              {{ e.label }}
+            </option>
+          </select>
         </label>
         <label class="kco-field">
           <span class="kco-label">SANFO 相对ANFO威力 (%)</span>
@@ -354,6 +382,49 @@
         </label>
       </div>
 
+      <div class="kco-group-title mt-3">
+        <button class="compact-action-btn" @click="advancedOpen = !advancedOpen">
+          {{ advancedOpen ? '▼' : '▶' }} 高级参数（Persson η / 钻孔偏差 / 速度校准开关）
+        </button>
+      </div>
+      <div v-show="advancedOpen" class="kco-grid mt-2">
+        <label class="kco-field">
+          <span class="kco-label">η 能量耦合系数 (Persson 速度模型)</span>
+          <el-input-number
+            v-model="kcoParams.eta"
+            :min="0.05"
+            :max="0.4"
+            :step="0.01"
+            :precision="3"
+            :controls="false"
+            size="small"
+          />
+        </label>
+        <label class="kco-field">
+          <span class="kco-label">W_abs 钻孔偏差 (m)</span>
+          <el-input-number
+            v-model="kcoParams.drillDeviation"
+            :min="0"
+            :max="0.5"
+            :step="0.01"
+            :precision="3"
+            :controls="false"
+            size="small"
+          />
+        </label>
+        <label class="kco-field">
+          <span class="kco-label">启用速度校准（默认关）</span>
+          <el-switch v-model="kcoParams.enableVelocityCalibration" />
+        </label>
+        <label class="kco-field">
+          <span class="kco-label">Persson 速度模型（默认开）</span>
+          <el-switch
+            :model-value="kcoParams.usePerssonVelocity !== false"
+            @update:model-value="kcoParams.usePerssonVelocity = $event"
+          />
+        </label>
+      </div>
+
       <div class="kco-preview mt-3">
         <div class="stat-item">
           <span>当前口径</span><span class="stat-value">{{ kcoSourceLabel }}</span>
@@ -378,6 +449,16 @@
         </div>
         <div class="stat-item">
           <span>最大块度 xmax (m)</span><span class="stat-value">{{ kcoXmax.toFixed(3) }}</span>
+        </div>
+        <div class="stat-item">
+          <span>x80 块度 (m)</span><span class="stat-value">{{ kcoX80.toFixed(3) }}</span>
+        </div>
+        <div class="stat-item">
+          <span>单循环爆破方量 (m³)</span
+          ><span class="stat-value">{{ brokenVolume.toFixed(2) }}</span>
+        </div>
+        <div class="stat-item">
+          <span>预计碎片数</span><span class="stat-value">~{{ fragmentCountEst }}</span>
         </div>
       </div>
 
@@ -472,7 +553,12 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { KCO_SOURCE_MODE, calculateKCOParams } from '../services/core/computation/kcoModelCore.js'
+import {
+  KCO_SOURCE_MODE,
+  calculateKCOParams,
+  SITE_PRESETS,
+  EXPLOSIVE_TYPES
+} from '../services/core/computation/kcoModelCore.js'
 import { HOLE_TYPE_WEIGHTS } from '../services/core/rendering/fragmentSpecGenerator'
 
 defineOptions({ name: 'BlastDesign' })
@@ -621,6 +707,71 @@ const kcoN = computed(() => {
 const kcoXmax = computed(() => {
   const v = Number(props.kcoParams.xmax)
   return Math.max(0.2, Math.min(5.0, isFinite(v) ? v : 2.0))
+})
+
+// ─── 场地预设 ───────────────────────────
+const selectedPresetKey = ref('')
+
+function applyPreset() {
+  const key = selectedPresetKey.value
+  const preset = SITE_PRESETS[key]
+  if (!preset) return
+  // 仅覆盖预设内含的字段，不触碰 Lb/Lc/Ltot/SD 等
+  for (const k of Object.keys(preset)) {
+    if (k === 'label') continue
+    props.kcoParams[k] = preset[k]
+  }
+  // 联动炸药类型：根据 SANFO 反推
+  const matchedType = Object.keys(EXPLOSIVE_TYPES).find(
+    (t) => EXPLOSIVE_TYPES[t].SANFO === preset.SANFO
+  )
+  if (matchedType) props.kcoParams.explosiveType = matchedType
+  ElMessage.success(`已应用预设：${preset.label}`)
+}
+
+// ─── 炸药类型 ───────────────────────────
+const explosiveType = computed({
+  get: () => props.kcoParams.explosiveType || 'emulsion',
+  set: (v) => {
+    props.kcoParams.explosiveType = v
+  }
+})
+
+function onExplosiveChange() {
+  const info = EXPLOSIVE_TYPES[explosiveType.value]
+  if (info) {
+    props.kcoParams.SANFO = info.SANFO
+    // Eg 由 fragmentSpecGenerator 读取，存入 kcoParams 供其使用
+    props.kcoParams.Eg = info.Eg
+  }
+}
+
+// ─── 高级参数面板 ───────────────────────
+const advancedOpen = ref(false)
+
+// ─── 扩展预览：x80 / 破碎量 / 碎片数估算 ──
+const kcoX80 = computed(() => {
+  const x80 = kcoPreview.value?.x80
+  return isFinite(x80) ? x80 : 0
+})
+
+// 单循环爆破体积 V = B × S × H（与预览卡片一致）
+const brokenVolume = computed(() => {
+  const B = Number(props.kcoParams.B) || 0
+  const S = Number(props.kcoParams.S) || 0
+  const H = Number(props.kcoParams.H) || 0
+  return B * S * H
+})
+
+// 碎片数估算：V × 0.8 / E[physSize³]，E[physSize³] = π/6 × x50³（Swebrec 期望体积近似）
+const fragmentCountEst = computed(() => {
+  const x50 = kcoX50.value
+  if (x50 <= 0 || brokenVolume.value <= 0) return 0
+  const avgFragVol = (Math.PI / 6) * Math.pow(x50, 3)
+  if (avgFragVol <= 0) return 0
+  const count = (brokenVolume.value * 0.8) / avgFragVol
+  // 与 fragmentSpecGenerator 的 soft cap 3000 / floor 60 对齐
+  return Math.max(60, Math.min(3000, Math.round(count)))
 })
 
 // ─── KCO 重播 ─────────────────────────────
