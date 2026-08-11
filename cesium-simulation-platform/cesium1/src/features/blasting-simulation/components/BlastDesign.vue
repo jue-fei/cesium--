@@ -5,18 +5,9 @@
     <div v-else class="hole-layout-wrap">
       <svg :viewBox="`0 0 ${holeLayoutSize} ${holeLayoutSize}`" class="hole-layout-svg">
         <path :d="tunnelOutlinePath" fill="#1a1a1a" stroke="#888" stroke-width="1.5" />
-        <circle
-          v-for="(h, i) in blastDesign.holes"
-          :key="i"
-          :cx="holeToSvgX(h.x)"
-          :cy="holeToSvgY(h.y)"
-          :r="h.isEmpty ? 4 : 2.5"
-          :fill="holeColor(h)"
-          :stroke="h.isEmpty ? '#fff' : 'none'"
-          :stroke-width="h.isEmpty ? 0.8 : 0"
-          class="hole-point"
-          @click.stop="onHoleClick(h, $event)"
-        />
+        <circle v-for="(h, i) in blastDesign.holes" :key="i" :cx="holeToSvgX(h.x)" :cy="holeToSvgY(h.y)"
+          :r="h.isEmpty ? 4 : 2.5" :fill="holeColor(h)" :stroke="h.isEmpty ? '#fff' : 'none'"
+          :stroke-width="h.isEmpty ? 0.8 : 0" class="hole-point" @click.stop="onHoleClick(h, $event)" />
         <g class="hole-legend">
           <circle :cx="holeLayoutSize - 90" :cy="14" r="2.5" fill="#ff6b6b" />
           <text :x="holeLayoutSize - 82" :y="17" fill="#ccc" font-size="9">掏槽孔</text>
@@ -24,26 +15,12 @@
           <text :x="holeLayoutSize - 82" :y="31" fill="#ccc" font-size="9">辅助孔</text>
           <circle :cx="holeLayoutSize - 50" :cy="14" r="2.5" fill="#1dd1a1" />
           <text :x="holeLayoutSize - 42" :y="17" fill="#ccc" font-size="9">周边孔</text>
-          <circle
-            :cx="holeLayoutSize - 50"
-            :cy="28"
-            r="4"
-            fill="#fff"
-            stroke="#888"
-            stroke-width="0.8"
-          />
+          <circle :cx="holeLayoutSize - 50" :cy="28" r="4" fill="#fff" stroke="#888" stroke-width="0.8" />
           <text :x="holeLayoutSize - 42" :y="31" fill="#ccc" font-size="9">空孔</text>
         </g>
       </svg>
-      <el-popover
-        :virtual-ref="holePopoverRef"
-        virtual-triggering
-        :visible="holePopoverVisible"
-        placement="right"
-        :width="220"
-        trigger="click"
-        @hide="closeHolePopover"
-      >
+      <el-popover :virtual-ref="holePopoverRef" virtual-triggering :visible="holePopoverVisible" placement="right"
+        :width="220" trigger="click" @hide="closeHolePopover">
         <template #reference><span></span></template>
         <div v-if="selectedHoleDetail" class="hole-detail-pop">
           <div class="hole-detail-title">炮孔参数</div>
@@ -60,10 +37,9 @@
             <span>钻孔深度</span><span class="stat-value">{{ selectedHoleDetail.depth }} m</span>
           </div>
           <div class="stat-item">
-            <span>坐标</span
-            ><span class="stat-value"
-              >({{ selectedHoleDetail.x.toFixed(2) }}, {{ selectedHoleDetail.y.toFixed(2) }})</span
-            >
+            <span>坐标</span><span class="stat-value">({{ selectedHoleDetail.x.toFixed(2) }}, {{
+              selectedHoleDetail.y.toFixed(2)
+              }})</span>
           </div>
         </div>
       </el-popover>
@@ -75,10 +51,8 @@
         <span>总孔数</span><span class="stat-value">{{ blastDesign.counts.total }}</span>
       </div>
       <div class="stat-item">
-        <span>掏槽孔（含空孔）</span
-        ><span class="stat-value"
-          >{{ blastDesign.counts.cut }} (空孔 {{ blastDesign.counts.empty }})</span
-        >
+        <span>掏槽孔（含空孔）</span><span class="stat-value">{{ blastDesign.counts.cut }} (空孔 {{ blastDesign.counts.empty
+          }})</span>
       </div>
       <div class="stat-item">
         <span>辅助孔</span><span class="stat-value">{{ blastDesign.counts.auxiliary }}</span>
@@ -94,54 +68,43 @@
     <div v-if="blastDesign" class="mt-3">
       <div class="panel-subtitle">掘进与爆破参数</div>
       <div class="stat-item">
-        <span>断面尺寸</span
-        ><span class="stat-value"
-          >{{ blastDesign.section.W }}m × {{ blastDesign.section.totalH.toFixed(1) }}m</span
-        >
+        <span>断面尺寸</span><span class="stat-value">{{ blastDesign.section.W }}m × {{
+          blastDesign.section.totalH.toFixed(1)
+          }}m</span>
       </div>
       <div class="stat-item">
-        <span>断面面积</span
-        ><span class="stat-value">{{ blastDesign.section.area.toFixed(2) }} m²</span>
+        <span>断面面积</span><span class="stat-value">{{ blastDesign.section.area.toFixed(2) }} m²</span>
       </div>
       <div class="stat-item">
-        <span>单循环进尺</span
-        ><span class="stat-value">{{ blastDesign.advanceDepth.toFixed(2) }} m</span>
+        <span>单循环进尺</span><span class="stat-value">{{ blastDesign.advanceDepth.toFixed(2) }} m</span>
       </div>
       <div class="stat-item">
-        <span>单循环爆破方量</span
-        ><span class="stat-value">{{ blastDesign.volumePerRound.toFixed(2) }} m³</span>
+        <span>单循环爆破方量</span><span class="stat-value">{{ blastDesign.volumePerRound.toFixed(2) }} m³</span>
       </div>
       <div class="stat-item">
-        <span>爆破漏斗深度</span
-        ><span class="stat-value">{{ blastDesign.craterDepth?.toFixed(2) }} m</span>
+        <span>爆破漏斗深度</span><span class="stat-value">{{ blastDesign.craterDepth?.toFixed(2) }} m</span>
       </div>
       <div class="stat-item">
-        <span>掌子面平整度</span
-        ><span class="stat-value">{{ blastDesign.faceSmoothness }}% (半孔率)</span>
+        <span>掌子面平整度</span><span class="stat-value">{{ blastDesign.faceSmoothness }}% (半孔率)</span>
       </div>
     </div>
 
     <div v-if="blastDesign" class="mt-3">
       <div class="panel-subtitle">装药参数</div>
       <div class="stat-item">
-        <span>掏槽孔药量</span
-        ><span class="stat-value">{{ blastDesign.charge.cut.toFixed(1) }} kg</span>
+        <span>掏槽孔药量</span><span class="stat-value">{{ blastDesign.charge.cut.toFixed(1) }} kg</span>
       </div>
       <div class="stat-item">
-        <span>辅助孔药量</span
-        ><span class="stat-value">{{ blastDesign.charge.auxiliary.toFixed(1) }} kg</span>
+        <span>辅助孔药量</span><span class="stat-value">{{ blastDesign.charge.auxiliary.toFixed(1) }} kg</span>
       </div>
       <div class="stat-item">
-        <span>周边孔药量</span
-        ><span class="stat-value">{{ blastDesign.charge.perimeter.toFixed(1) }} kg</span>
+        <span>周边孔药量</span><span class="stat-value">{{ blastDesign.charge.perimeter.toFixed(1) }} kg</span>
       </div>
       <div class="stat-item">
-        <span>总装药量</span
-        ><span class="stat-value">{{ blastDesign.charge.total.toFixed(1) }} kg</span>
+        <span>总装药量</span><span class="stat-value">{{ blastDesign.charge.total.toFixed(1) }} kg</span>
       </div>
       <div class="stat-item">
-        <span>炸药单耗</span
-        ><span class="stat-value">{{ blastDesign.charge.specific.toFixed(3) }} kg/m³</span>
+        <span>炸药单耗</span><span class="stat-value">{{ blastDesign.charge.specific.toFixed(3) }} kg/m³</span>
       </div>
     </div>
 
@@ -168,39 +131,18 @@
         </label>
         <label class="kco-field">
           <span class="kco-label">宽度 W (m)</span>
-          <el-input-number
-            v-model="sectionForm.width"
-            :min="4"
-            :max="30"
-            :step="0.5"
-            :precision="1"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="sectionForm.width" :min="4" :max="30" :step="0.5" :precision="1" :controls="false"
+            size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">直墙高 (m)</span>
-          <el-input-number
-            v-model="sectionForm.wallHeight"
-            :min="2"
-            :max="15"
-            :step="0.5"
-            :precision="1"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="sectionForm.wallHeight" :min="2" :max="15" :step="0.5" :precision="1"
+            :controls="false" size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">拱半径 (m)</span>
-          <el-input-number
-            v-model="sectionForm.archRadius"
-            :min="2"
-            :max="15"
-            :step="0.5"
-            :precision="1"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="sectionForm.archRadius" :min="2" :max="15" :step="0.5" :precision="1"
+            :controls="false" size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">掏槽形式</span>
@@ -225,11 +167,7 @@
           <option value="">-- 选择场地预设 --</option>
           <option v-for="(p, key) in SITE_PRESETS" :key="key" :value="key">{{ p.label }}</option>
         </select>
-        <button
-          class="compact-action-btn primary"
-          :disabled="!selectedPresetKey"
-          @click="applyPreset"
-        >
+        <button class="compact-action-btn primary" :disabled="!selectedPresetKey" @click="applyPreset">
           应用预设
         </button>
       </div>
@@ -239,58 +177,27 @@
       <div class="kco-grid">
         <label class="kco-field">
           <span class="kco-label">Q 单孔装药量 (kg)</span>
-          <el-input-number
-            v-model="kcoParams.Q"
-            :min="1"
-            :max="2000"
-            :step="10"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.Q" :min="1" :max="2000" :step="10" :controls="false" size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">q 炸药单耗 (kg/m³)</span>
-          <el-input-number
-            v-model="kcoParams.q"
-            :min="0.1"
-            :max="5"
-            :step="0.05"
-            :precision="3"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.q" :min="0.1" :max="5" :step="0.05" :precision="3" :controls="false"
+            size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">B 抵抗线 (m)</span>
-          <el-input-number
-            v-model="kcoParams.B"
-            :min="0.3"
-            :max="5"
-            :step="0.1"
-            :precision="2"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.B" :min="0.3" :max="5" :step="0.1" :precision="2" :controls="false"
+            size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">S 孔间距 (m)</span>
-          <el-input-number
-            v-model="kcoParams.S"
-            :min="0.3"
-            :max="6"
-            :step="0.1"
-            :precision="2"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.S" :min="0.3" :max="6" :step="0.1" :precision="2" :controls="false"
+            size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">炸药类型</span>
-          <select
-            :value="explosiveType"
-            class="db-event-select"
-            @change="explosiveType = $event.target.value; onExplosiveChange()"
-          >
+          <select :value="explosiveType" class="db-event-select"
+            @change="explosiveType = $event.target.value; onExplosiveChange()">
             <option v-for="(e, key) in EXPLOSIVE_TYPES" :key="key" :value="key">
               {{ e.label }}
             </option>
@@ -298,85 +205,36 @@
         </label>
         <label class="kco-field">
           <span class="kco-label">SANFO 相对ANFO威力 (%)</span>
-          <el-input-number
-            v-model="kcoParams.SANFO"
-            :min="50"
-            :max="200"
-            :step="5"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.SANFO" :min="50" :max="200" :step="5" :controls="false" size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">d 炮孔直径 (mm)</span>
-          <el-input-number
-            v-model="kcoParams.d"
-            :min="30"
-            :max="300"
-            :step="5"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.d" :min="30" :max="300" :step="5" :controls="false" size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">Lb 底部装药长度 (m)</span>
-          <el-input-number
-            v-model="kcoParams.Lb"
-            :min="0.2"
-            :max="8"
-            :step="0.1"
-            :precision="2"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.Lb" :min="0.2" :max="8" :step="0.1" :precision="2" :controls="false"
+            size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">Lc 柱状装药长度 (m)</span>
-          <el-input-number
-            v-model="kcoParams.Lc"
-            :min="0.2"
-            :max="10"
-            :step="0.1"
-            :precision="2"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.Lc" :min="0.2" :max="10" :step="0.1" :precision="2" :controls="false"
+            size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">Ltot 总装药长度 (m)</span>
-          <el-input-number
-            v-model="kcoParams.Ltot"
-            :min="0.5"
-            :max="15"
-            :step="0.1"
-            :precision="2"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.Ltot" :min="0.5" :max="15" :step="0.1" :precision="2" :controls="false"
+            size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">H 台阶高度 (m)</span>
-          <el-input-number
-            v-model="kcoParams.H"
-            :min="1"
-            :max="15"
-            :step="0.1"
-            :precision="2"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.H" :min="1" :max="15" :step="0.1" :precision="2" :controls="false"
+            size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">SD 钻孔精度标准差 (m)</span>
-          <el-input-number
-            v-model="kcoParams.SD"
-            :min="0"
-            :max="2"
-            :step="0.05"
-            :precision="3"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.SD" :min="0" :max="2" :step="0.05" :precision="3" :controls="false"
+            size="small" />
         </label>
       </div>
 
@@ -384,36 +242,15 @@
       <div class="kco-grid">
         <label class="kco-field">
           <span class="kco-label">RMD 岩体描述因子 (0-30)</span>
-          <el-input-number
-            v-model="kcoParams.RMD"
-            :min="0"
-            :max="30"
-            :step="1"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.RMD" :min="0" :max="30" :step="1" :controls="false" size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">RDI 岩石密度影响 (0-20)</span>
-          <el-input-number
-            v-model="kcoParams.RDI"
-            :min="0"
-            :max="20"
-            :step="1"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.RDI" :min="0" :max="20" :step="1" :controls="false" size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">HF 硬度因子 (0-30)</span>
-          <el-input-number
-            v-model="kcoParams.HF"
-            :min="0"
-            :max="30"
-            :step="1"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.HF" :min="0" :max="30" :step="1" :controls="false" size="small" />
         </label>
       </div>
 
@@ -421,27 +258,13 @@
       <div class="kco-grid">
         <label class="kco-field">
           <span class="kco-label">xmax 最大块度尺寸 (m)</span>
-          <el-input-number
-            v-model="kcoParams.xmax"
-            :min="0.2"
-            :max="5"
-            :step="0.1"
-            :precision="2"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.xmax" :min="0.2" :max="5" :step="0.1" :precision="2" :controls="false"
+            size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">b Swebrec 曲线弯曲参数</span>
-          <el-input-number
-            v-model="kcoParams.b"
-            :min="1.0"
-            :max="5.0"
-            :step="0.1"
-            :precision="2"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.b" :min="1.0" :max="5.0" :step="0.1" :precision="2" :controls="false"
+            size="small" />
         </label>
       </div>
 
@@ -453,27 +276,13 @@
       <div v-show="advancedOpen" class="kco-grid mt-2">
         <label class="kco-field">
           <span class="kco-label">η 能量耦合系数 (Persson 速度模型)</span>
-          <el-input-number
-            v-model="kcoParams.eta"
-            :min="0.05"
-            :max="0.4"
-            :step="0.01"
-            :precision="3"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.eta" :min="0.05" :max="0.4" :step="0.01" :precision="3" :controls="false"
+            size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">W_abs 钻孔偏差 (m)</span>
-          <el-input-number
-            v-model="kcoParams.drillDeviation"
-            :min="0"
-            :max="0.5"
-            :step="0.01"
-            :precision="3"
-            :controls="false"
-            size="small"
-          />
+          <el-input-number v-model="kcoParams.drillDeviation" :min="0" :max="0.5" :step="0.01" :precision="3"
+            :controls="false" size="small" />
         </label>
         <label class="kco-field">
           <span class="kco-label">启用速度校准（默认关）</span>
@@ -481,10 +290,8 @@
         </label>
         <label class="kco-field">
           <span class="kco-label">Persson 速度模型（默认开）</span>
-          <el-switch
-            :model-value="kcoParams.usePerssonVelocity !== false"
-            @update:model-value="kcoParams.usePerssonVelocity = $event"
-          />
+          <el-switch :model-value="kcoParams.usePerssonVelocity !== false"
+            @update:model-value="kcoParams.usePerssonVelocity = $event" />
         </label>
       </div>
 
@@ -493,16 +300,14 @@
           <span>当前口径</span><span class="stat-value">{{ kcoSourceLabel }}</span>
         </div>
         <div class="stat-item">
-          <span>岩石因子 A</span
-          ><span class="stat-value">{{
+          <span>岩石因子 A</span><span class="stat-value">{{
             (0.06 * (kcoParams.RMD + kcoParams.RDI + kcoParams.HF)).toFixed(3)
-          }}</span>
+            }}</span>
         </div>
         <div class="stat-item">
-          <span>单孔爆破体积 V (m³)</span
-          ><span class="stat-value">{{
+          <span>单孔爆破体积 V (m³)</span><span class="stat-value">{{
             (kcoParams.B * kcoParams.S * kcoParams.H).toFixed(2)
-          }}</span>
+            }}</span>
         </div>
         <div class="stat-item">
           <span>中位块度 x50 (m)</span><span class="stat-value">{{ kcoX50.toFixed(3) }}</span>
@@ -517,8 +322,7 @@
           <span>x80 块度 (m)</span><span class="stat-value">{{ kcoX80.toFixed(3) }}</span>
         </div>
         <div class="stat-item">
-          <span>单循环爆破方量 (m³)</span
-          ><span class="stat-value">{{ brokenVolume.toFixed(2) }}</span>
+          <span>单循环爆破方量 (m³)</span><span class="stat-value">{{ brokenVolume.toFixed(2) }}</span>
         </div>
         <div class="stat-item">
           <span>预计碎片数</span><span class="stat-value">~{{ fragmentCountEst }}</span>
@@ -564,11 +368,7 @@
       </div>
 
       <div class="controls-row mt-3">
-        <button
-          class="compact-action-btn primary"
-          :disabled="!dataset || kcoReplaying"
-          @click="applyKcoAndReplay"
-        >
+        <button class="compact-action-btn primary" :disabled="!dataset || kcoReplaying" @click="applyKcoAndReplay">
           {{ kcoReplaying ? '预览中…' : '立即重播' }}
         </button>
         <button class="compact-action-btn" :disabled="kcoReplaying" @click="$emit('reset-kco')">
@@ -582,11 +382,7 @@
       <div class="preset-section mt-3">
         <div class="panel-subtitle">方案保存与加载</div>
         <div class="controls-row">
-          <input
-            v-model="presetName"
-            class="preset-name-input"
-            placeholder="方案名称（如：硬岩深孔）"
-          />
+          <input v-model="presetName" class="preset-name-input" placeholder="方案名称（如：硬岩深孔）" />
           <button class="compact-action-btn primary" @click="savePreset">保存当前方案</button>
         </div>
         <div class="controls-row mt-2">
@@ -599,11 +395,7 @@
           <button class="compact-action-btn" :disabled="!selectedPresetId" @click="loadPreset">
             加载
           </button>
-          <button
-            class="compact-action-btn danger"
-            :disabled="!selectedPresetId"
-            @click="deletePreset"
-          >
+          <button class="compact-action-btn danger" :disabled="!selectedPresetId" @click="deletePreset">
             删除
           </button>
         </div>
@@ -902,16 +694,16 @@ watch(
     }
     if (kcoDebounceTimer) clearTimeout(kcoDebounceTimer)
     kcoDebounceTimer = setTimeout(() => {
-      props.kcoParams.sourceMode = KCO_SOURCE_MODE.DESIGN
       kcoReplaying.value = true
+      props.kcoParams.sourceMode = KCO_SOURCE_MODE.DESIGN
       emit('replay-blast')
       setTimeout(() => {
         kcoReplaying.value = false
         if (kcoNeedsReplay) {
           kcoNeedsReplay = false
           kcoDebounceTimer = setTimeout(() => {
-            props.kcoParams.sourceMode = KCO_SOURCE_MODE.DESIGN
             kcoReplaying.value = true
+            props.kcoParams.sourceMode = KCO_SOURCE_MODE.DESIGN
             emit('replay-blast')
             setTimeout(() => {
               kcoReplaying.value = false
@@ -971,7 +763,7 @@ function savePreset() {
   ElMessage.success(`方案「${name}」已保存`)
 }
 
-function onPresetSelect() {}
+function onPresetSelect() { }
 
 function loadPreset() {
   const preset = presetList.value.find(p => p.id === selectedPresetId.value)
@@ -1004,20 +796,24 @@ loadPresetList()
   font-size: 12px;
   margin-top: 6px;
 }
+
 .hole-weight-table th,
 .hole-weight-table td {
   padding: 4px 8px;
   text-align: center;
   border: 1px solid #3a3a3a;
 }
+
 .hole-weight-table th {
   background: #2a2a2a;
   color: #ddd;
   font-weight: 600;
 }
+
 .hole-weight-table td {
   color: #ccc;
 }
+
 .hole-weight-table td:first-child {
   text-align: left;
 }
