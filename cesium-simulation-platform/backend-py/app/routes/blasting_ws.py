@@ -28,6 +28,7 @@ from app.services.blasting.blast_physics import (
     build_ppv_grid, ppv_field_3d, pack_ppv_binary,
     stress_field_from_ppv, damage_zone_classify,
     pack_stress_binary, pack_damage_binary,
+    make_fdtd_engine, RockMedium,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,7 +107,10 @@ class BlastConnectionManager:
                           charge_kg: float = 100.0,
                           blast_center: tuple = (0.0, 0.0, 0.0),
                           tunnel_width: float = 18.0,
-                          tunnel_height: float = 15.0) -> None:
+                          tunnel_height: float = 15.0,
+                          explosive_type: str = "emulsion",
+                          use_jwl: bool = True,
+                          rock_params: Optional[dict] = None) -> None:
         """启动（或重启）指定事件的模拟推送循环
 
         async 修正：先 await 旧任务取消完成（含 stopped 广播），再创建新任务，
@@ -116,6 +120,9 @@ class BlastConnectionManager:
         :param blast_center: 爆心坐标 (x, y, z)
         :param tunnel_width: 隧道宽度(m)，用于 PPV 采样网格范围
         :param tunnel_height: 隧道高度(m)
+        :param explosive_type: 炸药类型 'emulsion'|'anfo'|'dynamite'（JWL 模式用）
+        :param use_jwl: True=JWL+FDTD 精确模式；False=萨道夫斯基近似 fallback
+        :param rock_params: 岩体参数 {density, p_wave_speed, s_wave_speed, ...}（可选）
         """
         # 取消已有任务并 await 其清理完成（含 stopped 广播）
         await self.stop_stream_async(event_id)
@@ -140,6 +147,39 @@ class BlastConnectionManager:
             tunnel_width=tunnel_width, tunnel_height=tunnel_height
         )
 
+        # 问题 8：JWL+FDTD 精确模式 — 创建有状态 FDTD 引擎，_stream_loop 每帧增量推进
+        fdtd_engine = None
+        n_substeps = 0
+        if use_jwl and charge_kg > 0:
+            rock = RockMedium()
+            if isinstance(rock_params, dict):
+                # 允许客户端覆盖默认岩体参数（密度/波速/泊松比等）
+                rock = RockMedium(
+                    density=float(rock_params.get("density", rock.density)),
+                    p_wave_speed=float(rock_params.get("pWaveSpeed", rock.p_wave_speed)),
+                    s_wave_speed=float(rock_params.get("sWaveSpeed", rock.s_wave_speed)),
+                    youngs_modulus=float(rock_params.get("youngsModulus", rock.youngs_modulus)),
+                    poissons_ratio=float(rock_params.get("poissonsRatio", rock.poissons_ratio)),
+                    attenuation_p=float(rock_params.get("attenuationP", rock.attenuation_p)),
+                    attenuation_s=float(rock_params.get("attenuationS", rock.attenuation_s)),
+                )
+            try:
+                fdtd_engine = make_fdtd_engine(
+                    grid_xyz, grid_shape, bounds_min, bounds_max,
+                    charge_kg, explosive_type, rock
+                )
+                # 每推送帧的 FDTD 子步数 = timestep / dt（CFL 稳定步长）
+                n_substeps = max(1, int(round(timestep / fdtd_engine.dt)))
+                logger.info("[BlastingWS] FDTD 引擎已创建 event=%s explosive=%s R0=%.3fm P0=%.2ePa "
+                            "dt=%.6fs n_substeps=%d/grid=%s",
+                            event_id, explosive_type, fdtd_engine.source.cavity_radius,
+                            fdtd_engine.source.peak_pressure, fdtd_engine.dt, n_substeps, grid_shape)
+            except Exception as e:
+                # FDTD 创建失败时降级为萨道夫斯基，保证推送不中断
+                logger.exception("[BlastingWS] FDTD 引擎创建失败，降级萨道夫斯基: %s", e)
+                fdtd_engine = None
+                use_jwl = False
+
         state = StreamState(
             duration=duration,
             timestep=timestep,
@@ -151,13 +191,18 @@ class BlastConnectionManager:
             grid_shape=grid_shape,
             bounds_min=bounds_min,
             bounds_max=bounds_max,
+            use_jwl=use_jwl,
+            explosive_type=explosive_type,
+            fdtd_engine=fdtd_engine,
+            n_substeps=n_substeps,
         )
         self._streams[event_id] = state
         self._tasks[event_id] = asyncio.create_task(
             self._stream_loop(event_id, state)
         )
-        logger.info("[BlastingWS] stream started event=%s duration=%.2fs frames=%d PPV_grid=%s",
-                    event_id, duration, state.total_frames, grid_shape)
+        logger.info("[BlastingWS] stream started event=%s duration=%.2fs frames=%d PPV_grid=%s mode=%s",
+                    event_id, duration, state.total_frames, grid_shape,
+                    "JWL+FDTD" if use_jwl else "Sadosky-fallback")
 
     def stop_stream(self, event_id: str) -> None:
         """停止指定事件的推送循环（同步版，用于 disconnect 等非 async 上下文）
@@ -224,10 +269,18 @@ class BlastConnectionManager:
                 # PPV 振动场 + 应力场 + 损伤分区（二进制帧）— 每 2 帧推送一次以降低带宽
                 # 三帧在同一时刻 t 计算/推送，前端据此实现振动-应力-损伤的同步演化
                 if state.grid_xyz is not None and frame % 2 == 0:
-                    ppv = ppv_field_3d(
-                        state.grid_xyz, state.blast_center,
-                        state.charge_kg, t=t
-                    )
+                    if state.use_jwl and state.fdtd_engine is not None:
+                        # 问题 8：JWL+FDTD 精确模式
+                        # 有状态引擎增量推进 n_substeps 个子步（CFL 稳定），sim_time 与 t 同步
+                        # 输出 PPV = √(vx²+vy²+vz²)，物理含 JWL 爆腔源 + 弹性波传播
+                        state.fdtd_engine.step(state.n_substeps)
+                        ppv = state.fdtd_engine.get_ppv()
+                    else:
+                        # 萨道夫斯基近似 fallback（后端不可用 JWL 或 use_jwl=False）
+                        ppv = ppv_field_3d(
+                            state.grid_xyz, state.blast_center,
+                            state.charge_kg, t=t
+                        )
                     await self.broadcast_bytes(event_id, pack_ppv_binary(
                         frame, t, state.grid_shape,
                         state.bounds_min, state.bounds_max, ppv
@@ -270,13 +323,16 @@ class StreamState:
 
     __slots__ = ("duration", "timestep", "total_frames", "blast_events",
                  "charge_kg", "blast_center", "grid_xyz", "grid_shape",
-                 "bounds_min", "bounds_max")
+                 "bounds_min", "bounds_max",
+                 "use_jwl", "explosive_type", "fdtd_engine", "n_substeps")
 
     def __init__(self, duration: float, timestep: float,
                  total_frames: int, blast_events: list[tuple[float, dict]],
                  charge_kg: float = 100.0, blast_center: Optional[np.ndarray] = None,
                  grid_xyz: Optional[np.ndarray] = None, grid_shape: Optional[tuple] = None,
-                 bounds_min: Optional[np.ndarray] = None, bounds_max: Optional[np.ndarray] = None):
+                 bounds_min: Optional[np.ndarray] = None, bounds_max: Optional[np.ndarray] = None,
+                 use_jwl: bool = True, explosive_type: str = "emulsion",
+                 fdtd_engine=None, n_substeps: int = 0):
         self.duration = duration
         self.timestep = timestep
         self.total_frames = total_frames
@@ -287,6 +343,11 @@ class StreamState:
         self.grid_shape = grid_shape
         self.bounds_min = bounds_min
         self.bounds_max = bounds_max
+        # 问题 8：JWL+FDTD 精确模式 vs 萨道夫斯基近似 fallback
+        self.use_jwl = use_jwl
+        self.explosive_type = explosive_type
+        self.fdtd_engine = fdtd_engine  # ElasticWaveFDTD3D 实例（use_jwl=True 时非空）
+        self.n_substeps = n_substeps    # 每推送帧的 FDTD 子步数 = timestep/dt
 
 
 # 全局单例（FastAPI 应用级别共享）
@@ -341,6 +402,11 @@ async def blasting_stream(ws: WebSocket, event_id: str):
                 blast_center = tuple(float(v) for v in bc) if isinstance(bc, (list, tuple)) and len(bc) >= 3 else (0.0, 0.0, 0.0)
                 tunnel_width = float(msg.get("tunnelWidth", 18.0))
                 tunnel_height = float(msg.get("tunnelHeight", 15.0))
+                # 问题 8：JWL+FDTD 精确模式参数（未提供时默认 JWL，可显式关闭降级萨道夫斯基）
+                explosive_type = str(msg.get("explosiveType", "emulsion"))
+                use_jwl = msg.get("useJwl", True)
+                use_jwl = bool(use_jwl) if use_jwl is not None else True
+                rock_params = msg.get("rockParams")  # 可选 dict
                 # start_stream 改为 async：先 await 旧任务取消完成（含 stopped 广播），再创建新任务
                 await mgr.start_stream(
                     event_id, duration, timestep, holes,
@@ -348,6 +414,9 @@ async def blasting_stream(ws: WebSocket, event_id: str):
                     blast_center=blast_center,
                     tunnel_width=tunnel_width,
                     tunnel_height=tunnel_height,
+                    explosive_type=explosive_type,
+                    use_jwl=use_jwl,
+                    rock_params=rock_params,
                 )
             elif ctype == "stop":
                 mgr.stop_stream(event_id)

@@ -22,7 +22,8 @@
     <div class="panel-section-title vibration-section-title">振动场分析</div>
     <div class="hint-text">
       实时振动场体积渲染，切换 PPV 振动速度 / σ_vm 等效应力 / 损伤分区。 数据由后端 WebSocket
-      同帧推送（萨道夫斯基正演 + 弹性球面波应力反演 + Persson 损伤分区）。
+      同帧推送（JWL 爆腔源 + 3D 弹性波 FDTD 正演 + 弹性球面波应力反演 + Persson 损伤分区；
+      FDTD 不可用时降级萨道夫斯基近似）。
     </div>
 
     <!-- 三模式切换按钮 -->

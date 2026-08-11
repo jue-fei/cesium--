@@ -36,6 +36,9 @@ from app.services.blasting.blast_physics import (
     damage_zone_classify,
     DAMAGE_THRESHOLDS_CMPS,
     DAMAGE_ZONE_LABELS,
+    JWLBlastSource,
+    ElasticWaveFDTD3D,
+    make_fdtd_engine,
 )
 
 
@@ -448,3 +451,194 @@ class TestBuildPpvGrid:
         _, (nx1, ny1, nz1), _, _ = build_ppv_grid(resolution=2.0)
         _, (nx2, ny2, nz2), _, _ = build_ppv_grid(resolution=1.0)
         assert nx2 >= nx1 and ny2 >= ny1 and nz2 >= nz1
+
+
+# ============================================================
+# JWLBlastSource JWL 爆腔源（问题 8）
+# ============================================================
+
+class TestJWLBlastSource:
+    """JWL 爆腔源：P0 = jwl_pressure(V=1)，R0 = (3V/4π)^(1/3)"""
+
+    def test_cavity_radius_scales_with_charge_cuberoot(self):
+        """R0 ∝ (kg/ρ)^(1/3)：8 倍药量 → 2 倍半径"""
+        s1 = JWLBlastSource(100.0, 'emulsion')
+        s2 = JWLBlastSource(800.0, 'emulsion')
+        assert s2.cavity_radius / s1.cavity_radius == pytest.approx(2.0, rel=1e-6)
+
+    def test_cavity_radius_positive(self):
+        s = JWLBlastSource(50.0, 'anfo')
+        assert s.cavity_radius > 0
+
+    def test_peak_pressure_positive_all_explosives(self):
+        for exp in ('emulsion', 'anfo', 'dynamite'):
+            s = JWLBlastSource(100.0, exp)
+            assert s.peak_pressure > 0, f"{exp} peak pressure should be positive"
+
+    def test_peak_pressure_independent_of_charge(self):
+        """P0 = jwl_pressure(V=1, kg=None) 仅依赖炸药类型，与装药量无关"""
+        s1 = JWLBlastSource(50.0, 'emulsion')
+        s2 = JWLBlastSource(500.0, 'emulsion')
+        assert s1.peak_pressure == pytest.approx(s2.peak_pressure, rel=1e-10)
+
+    def test_pressure_decay_exponential(self):
+        """P(t) = P0·exp(-t/τ)；t=τ 时 P = P0/e"""
+        s = JWLBlastSource(100.0, 'emulsion')
+        p0 = s.pressure_at(0.0)
+        tau = s.characteristic_time()
+        p_tau = s.pressure_at(tau)
+        assert p_tau / p0 == pytest.approx(np.exp(-1.0), rel=1e-5)
+
+    def test_pressure_monotonic_decrease(self):
+        s = JWLBlastSource(100.0, 'emulsion')
+        p0 = s.pressure_at(0.0)
+        p1 = s.pressure_at(1e-4)
+        p2 = s.pressure_at(1e-3)
+        assert p0 > p1 > p2 > 0
+
+    def test_pressure_zero_before_detonation(self):
+        s = JWLBlastSource(100.0, 'emulsion')
+        assert s.pressure_at(-1.0) == 0.0
+
+    def test_invalid_charge_raises(self):
+        with pytest.raises(ValueError):
+            JWLBlastSource(0.0, 'emulsion')
+        with pytest.raises(ValueError):
+            JWLBlastSource(-10.0, 'emulsion')
+
+    def test_explosive_density_affects_cavity(self):
+        """同药量下，密度小的炸药（ANFO 800）爆腔更大"""
+        s_emul = JWLBlastSource(100.0, 'emulsion')   # ρ=1100
+        s_anfo = JWLBlastSource(100.0, 'anfo')        # ρ=800
+        assert s_anfo.cavity_radius > s_emul.cavity_radius
+
+
+# ============================================================
+# ElasticWaveFDTD3D 3D 弹性波 FDTD（问题 8）
+# ============================================================
+
+class TestElasticWaveFDTD3D:
+    """3D 速度-应力 FDTD：JWL 爆腔源 + 弹性波传播"""
+
+    @staticmethod
+    def _make_engine(charge_kg=100.0, explosive='emulsion', resolution=2.5):
+        grid_xyz, gs, bmin, bmax = build_ppv_grid(18, 15, 25, resolution)
+        return make_fdtd_engine(grid_xyz, gs, bmin, bmax, charge_kg, explosive)
+
+    def test_cfl_stability_condition(self):
+        """dt < h / (c_p · √3)，且取 0.9 安全系数"""
+        eng = self._make_engine()
+        cfl_max = eng.h / (eng.cp * np.sqrt(3.0))
+        assert eng.dt < cfl_max
+        assert eng.dt == pytest.approx(0.9 * cfl_max, rel=1e-6)
+
+    def test_initial_ppv_zero(self):
+        """爆前（未 step）PPV 全 0"""
+        eng = self._make_engine()
+        ppv = eng.get_ppv()
+        assert np.all(ppv == 0)
+
+    def test_step_produces_nonzero_wave(self):
+        """step 后波场非零"""
+        eng = self._make_engine()
+        eng.step(50)
+        ppv = eng.get_ppv()
+        assert np.any(ppv > 0)
+        assert np.all(np.isfinite(ppv))
+
+    def test_no_nan_after_long_simulation(self):
+        """较长模拟不产生 NaN（数值稳定性）"""
+        eng = self._make_engine()
+        eng.step(200)
+        ppv = eng.get_ppv()
+        assert np.all(np.isfinite(ppv))
+
+    def test_ppv_decreases_with_distance(self):
+        """几何衰减：近场峰值 PPV > 远场峰值 PPV（球面波能量扩散）
+
+        逐帧记录各点峰值 PPV，避免瞬时快照因波前已过近场而误判
+        （波传播是时变的，单时刻比较无物理意义）。
+        """
+        eng = self._make_engine()
+        grid_xyz, gs, _, _ = build_ppv_grid(18, 15, 25, 2.5)
+        r = np.linalg.norm(grid_xyz, axis=1)  # 爆心在原点
+        peak_ppv = np.zeros(r.shape, dtype=np.float32)
+        for _ in range(250):
+            eng.step(1)
+            ppv = eng.get_ppv().ravel()
+            np.maximum(peak_ppv, ppv, out=peak_ppv)
+        # 分近场（r<5m）和远场（r>15m），比较峰值 PPV 的均值
+        near_mask = (r < 5.0) & (peak_ppv > 1e-9)
+        far_mask = (r > 15.0) & (peak_ppv > 1e-9)
+        if near_mask.any() and far_mask.any():
+            assert peak_ppv[near_mask].mean() > peak_ppv[far_mask].mean()
+
+    def test_sim_time_advances(self):
+        """step 后 sim_time 按 n_substeps·dt 推进"""
+        eng = self._make_engine()
+        assert eng.sim_time == 0.0
+        eng.step(100)
+        assert eng.sim_time == pytest.approx(100 * eng.dt, rel=1e-6)
+
+    def test_different_explosives_different_wave(self):
+        """不同炸药类型（P0 不同）产出不同波场"""
+        eng_emul = self._make_engine(100.0, 'emulsion')
+        eng_anfo = self._make_engine(100.0, 'anfo')
+        eng_emul.step(50)
+        eng_anfo.step(50)
+        # emulsion 的 P0（7.7GPa）高于 anfo，波场应有差异
+        ppv_emul = eng_emul.get_ppv()
+        ppv_anfo = eng_anfo.get_ppv()
+        assert not np.allclose(ppv_emul, ppv_anfo, atol=1e-9)
+
+    def test_velocity_fields_shape(self):
+        """三向速度场形状与网格一致"""
+        eng = self._make_engine()
+        vx, vy, vz = eng.get_velocity()
+        assert vx.shape == eng.grid_shape
+        assert vy.shape == eng.grid_shape
+        assert vz.shape == eng.grid_shape
+
+    def test_cavity_mask_nonempty(self):
+        """爆腔掩膜至少覆盖一个网格点"""
+        eng = self._make_engine()
+        assert eng.cavity_mask.sum() >= 1
+
+    def test_pml_damping_at_boundary(self):
+        """PML 阻尼层在边界处 < 1，内部 = 1"""
+        eng = self._make_engine()
+        damp = eng.damp
+        # 内部点（远离边界）应为 1.0
+        nx, ny, nz = eng.grid_shape
+        interior = damp[nx // 2, ny // 2, nz // 2]
+        assert interior == 1.0
+        # 边界角点应 < 1.0
+        assert damp[0, 0, 0] < 1.0
+
+
+# ============================================================
+# make_fdtd_engine 工厂函数（问题 8）
+# ============================================================
+
+class TestMakeFdtdEngine:
+
+    def test_returns_fdtd_instance(self):
+        grid_xyz, gs, bmin, bmax = build_ppv_grid(18, 15, 25, 2.5)
+        eng = make_fdtd_engine(grid_xyz, gs, bmin, bmax, 100.0, 'emulsion')
+        assert isinstance(eng, ElasticWaveFDTD3D)
+        assert eng.grid_shape == gs
+
+    def test_custom_rock_params(self):
+        """自定义岩体参数影响波速与 dt"""
+        grid_xyz, gs, bmin, bmax = build_ppv_grid(18, 15, 25, 2.5)
+        rock_hard = RockMedium(density=3000, p_wave_speed=5500, s_wave_speed=3200)
+        eng = ElasticWaveFDTD3D(grid_xyz, bmin, bmax, gs,
+                                JWLBlastSource(100.0, 'emulsion'), rock_hard)
+        # 更高波速 → 更小 dt（CFL）
+        eng_soft = self._default_engine()
+        assert eng.dt < eng_soft.dt
+
+    @staticmethod
+    def _default_engine():
+        grid_xyz, gs, bmin, bmax = build_ppv_grid(18, 15, 25, 2.5)
+        return make_fdtd_engine(grid_xyz, gs, bmin, bmax, 100.0, 'emulsion')

@@ -424,3 +424,328 @@ def pack_damage_binary(frame: int, t: float, grid_shape: tuple,
     # int8 单字节，无字节序问题；轴序转 WebGL x-最快
     body = _webgl_flatten_3d(zones.astype(np.int8), grid_shape).tobytes()
     return header + body
+
+
+# ─── JWL 爆腔源 + 3D 弹性波 FDTD（方案 B：完整波动方程数值解）──────────
+# 物理链路：
+#   JWL 状态方程 → 爆腔峰值压力 P0（CJ 压力量级，仅依赖炸药类型）
+#   装药量 → 爆腔初始半径 R0 = (3·V_charge/(4π))^(1/3)
+#   爆腔压力时程 P(t) = P0 · exp(-t/τ)，τ = R0/c_p（爆腔声学时间）
+#   P(t) 作为爆腔区域(r<R0)的各向同性压力源项，喂给弹性波动方程
+#   FDTD 速度-应力格式（同位网格 + 4 阶人工粘性）求解岩体中波场
+#   输出 PPV = √(vx²+vy²+vz²)
+#
+# 理论依据：
+#   - Virieux (1986) 速度-应力有限差分，IEEE Trans. Geosci. Remote Sens.
+#   - von Neumann & Richtmyer (1950) 人工粘性稳定化
+#   - JWL 状态方程：Lee & Tarver, Phys. Fluids, 1980
+#   - 弹性波方程：Aki & Richards《定量地震学》
+
+
+class JWLBlastSource:
+    """JWL 爆腔源：由 JWL 状态方程给出爆腔压力时程 P(t)
+
+    P0 = jwl_pressure(V=1, explosive, charge_kg=None)：CJ 压力量级，
+        仅依赖炸药类型（单位体积能量决定，与装药量无关）
+    R0 = (3·V_charge/(4π))^(1/3)：装药量决定爆腔初始半径
+    τ = R0/c_p：爆腔声学特征时间，P(t) 衰减时间常数
+
+    P(t) = P0 · exp(-t/τ) · H(t)，物理近似：爆气绝热膨胀驱动爆腔壁，
+    压力随爆腔膨胀按指数衰减。
+    """
+
+    EXPLOSIVE_DENSITY = {"emulsion": 1100.0, "anfo": 800.0, "dynamite": 1400.0}
+
+    def __init__(self, charge_kg: float, explosive_type: str = "emulsion"):
+        if charge_kg <= 0:
+            raise ValueError(f"charge_kg 必须 > 0，得到 {charge_kg}")
+        self.charge_kg = charge_kg
+        self.explosive_type = explosive_type
+        self._rho_explosive = self.EXPLOSIVE_DENSITY.get(explosive_type, 1000.0)
+        self._v_charge = charge_kg / self._rho_explosive
+        # 爆腔初始半径(m)
+        self.cavity_radius = (3.0 * self._v_charge / (4.0 * np.pi)) ** (1.0 / 3.0)
+        # JWL 峰值压力(Pa)：charge_kg=None 取单位体积 CJ 压力（不缩放）
+        self.peak_pressure = jwl_pressure(1.0, explosive_type, None)
+
+    def characteristic_time(self, c_p: float = 4500.0) -> float:
+        """爆腔声学特征时间 τ = R0/c_p"""
+        return self.cavity_radius / max(c_p, 1.0)
+
+    def pressure_at(self, t: float, c_p: float = 4500.0) -> float:
+        """爆腔压力时程 P(t) = P0 · exp(-t/τ) · H(t)"""
+        if t < 0:
+            return 0.0
+        tau = self.characteristic_time(c_p)
+        return self.peak_pressure * np.exp(-t / max(tau, 1e-9))
+
+
+class ElasticWaveFDTD3D:
+    """3D 弹性波速度-应力有限差分引擎（同位网格 + 人工粘性）
+
+    状态：v=(vx,vy,vz), σ=(σxx,σyy,σzz,σxy,σxz,σyz)
+    方程（各向同性弹性介质）：
+        ρ·∂vi/∂t = ∂σij/∂xj
+        ∂σij/∂t = λ·δij·(∂vk/∂xk) + μ·(∂vi/∂xj + ∂vj/∂xi)
+    空间差分：2 阶中心差分（同位网格）
+    稳定化：von Neumann-Richtmyer 4 阶人工粘性抑制奇偶解耦合
+    边界：阻尼吸收层（简化 PML），在边界 N_pml 层内对场施加指数衰减
+
+    时间步进：显式 Euler（应力-速度交错，leapfrog）
+    CFL：dt < dx / (c_p·√3)
+
+    理论：Virieux 1986；Aki & Richards《定量地震学》第 4 章
+    """
+
+    def __init__(self, grid_xyz: np.ndarray, bounds_min: np.ndarray,
+                 bounds_max: np.ndarray, grid_shape: tuple,
+                 source: JWLBlastSource, rock: RockMedium = RockMedium(),
+                 n_pml: int = 4):
+        self.grid_shape = grid_shape
+        nx, ny, nz = grid_shape
+        self.nx, self.ny, self.nz = nx, ny, nz
+        self.bounds_min = bounds_min
+        self.bounds_max = bounds_max
+        self.source = source
+        self.rock = rock
+
+        # 网格间距（build_ppv_grid 各轴等分辨率 linspace）
+        dx = (bounds_max[0] - bounds_min[0]) / max(nx - 1, 1)
+        dy = (bounds_max[1] - bounds_min[1]) / max(ny - 1, 1)
+        dz = (bounds_max[2] - bounds_min[2]) / max(nz - 1, 1)
+        self.dx = float(dx)
+        # 各向同性假设：取三轴平均（build_ppv_grid 理论上相等）
+        if not (abs(dx - dy) < 0.01 * dx and abs(dx - dz) < 0.01 * dx):
+            # 网格非各向同性时取 dx（build_ppv_grid 默认各轴等分辨率，此分支极少触发）
+            pass
+        self.h = float(dx)
+
+        # 弹性模量
+        self.rho = float(rock.density)
+        self.cp = float(rock.p_wave_speed)
+        self.cs = float(rock.s_wave_speed)
+        # λ, μ 由 c_p, c_s, ρ 反演：μ=ρ·cs²，λ=ρ·cp² - 2μ
+        self.mu = self.rho * self.cs ** 2
+        self.lam = self.rho * self.cp ** 2 - 2.0 * self.mu
+
+        # CFL 稳定时间步
+        self.dt = 0.9 * self.h / (self.cp * np.sqrt(3.0))
+        # 源位置：爆心 = 网格原点（局部坐标系，与 build_ppv_grid 一致）
+        self.blast_center = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+
+        # 爆腔掩膜（r < R0 的网格点）
+        r = np.linalg.norm(grid_xyz - self.blast_center, axis=1)
+        self.cavity_mask = (r < source.cavity_radius).reshape(grid_shape).astype(np.float32)
+        if not self.cavity_mask.any():
+            # 爆腔小于一个网格胞元时，取最近爆心的单点
+            idx = np.argmin(r)
+            self.cavity_mask = np.zeros(grid_shape, dtype=np.float32)
+            self.cavity_mask[np.unravel_index(idx, grid_shape)] = 1.0
+
+        # 阻尼吸收层（简化 PML）
+        self.damp = self._build_damping_field(n_pml)
+
+        # 状态场（同位网格，全部 (nx,ny,nz)）
+        self.vx = np.zeros(grid_shape, dtype=np.float32)
+        self.vy = np.zeros(grid_shape, dtype=np.float32)
+        self.vz = np.zeros(grid_shape, dtype=np.float32)
+        self.sxx = np.zeros(grid_shape, dtype=np.float32)
+        self.syy = np.zeros(grid_shape, dtype=np.float32)
+        self.szz = np.zeros(grid_shape, dtype=np.float32)
+        self.sxy = np.zeros(grid_shape, dtype=np.float32)
+        self.sxz = np.zeros(grid_shape, dtype=np.float32)
+        self.syz = np.zeros(grid_shape, dtype=np.float32)
+
+        self.sim_time = 0.0
+
+    def _build_damping_field(self, n_pml: int) -> np.ndarray:
+        """构建阻尼吸收层：边界 n_pml 层内指数衰减，内部为 1.0
+
+        简化 PML：对场乘 (1 - d)，d 在边界最大，向内指数衰减。
+        d_max 取 0.15/步（经验值，足够吸收且不过度反射）。
+        """
+        nx, ny, nz = self.grid_shape
+        damp = np.ones((nx, ny, nz), dtype=np.float32)
+        d_max = 0.15
+        for i in range(n_pml):
+            factor = 1.0 - d_max * ((n_pml - i) / n_pml) ** 2
+            # x 边界
+            damp[i, :, :] = np.minimum(damp[i, :, :], factor)
+            damp[-(i + 1), :, :] = np.minimum(damp[-(i + 1), :, :], factor)
+            # y 边界
+            damp[:, i, :] = np.minimum(damp[:, i, :], factor)
+            damp[:, -(i + 1), :] = np.minimum(damp[:, -(i + 1), :], factor)
+            # z 边界
+            damp[:, :, i] = np.minimum(damp[:, :, i], factor)
+            damp[:, :, -(i + 1)] = np.minimum(damp[:, :, -(i + 1)], factor)
+        return damp
+
+    def _dx(self, f: np.ndarray) -> np.ndarray:
+        """∂f/∂x，2 阶中心差分，边界 0 填充"""
+        out = np.zeros_like(f)
+        out[1:-1, :, :] = (f[2:, :, :] - f[:-2, :, :]) / (2.0 * self.h)
+        return out
+
+    def _dy(self, f: np.ndarray) -> np.ndarray:
+        out = np.zeros_like(f)
+        out[:, 1:-1, :] = (f[:, 2:, :] - f[:, :-2, :]) / (2.0 * self.h)
+        return out
+
+    def _dz(self, f: np.ndarray) -> np.ndarray:
+        out = np.zeros_like(f)
+        out[:, :, 1:-1] = (f[:, :, 2:] - f[:, :, :-2]) / (2.0 * self.h)
+        return out
+
+    def _artificial_viscosity(self, f: np.ndarray, axis: int) -> np.ndarray:
+        """von Neumann-Richtmyer 4 阶人工粘性：抑制同位网格奇偶解耦合
+
+        q = c_q · ρ · h² · |∂v/∂x| · (∂v/∂x)，仅在压缩梯度处生效。
+        简化实现：对速度场施加二阶扩散项 κ·∇²v。
+        """
+        # 简化：对场施加拉普拉斯平滑（等价于人工粘性扩散）
+        lap = np.zeros_like(f)
+        if axis == 0:
+            lap[1:-1, :, :] = (f[2:, :, :] - 2 * f[1:-1, :, :] + f[:-2, :, :])
+        elif axis == 1:
+            lap[:, 1:-1, :] = (f[:, 2:, :] - 2 * f[:, 1:-1, :] + f[:, :-2, :])
+        else:
+            lap[:, :, 1:-1] = (f[:, :, 2:] - 2 * f[:, :, 1:-1] + f[:, :, :-2])
+        return lap
+
+    def step(self, n_substeps: int = 1):
+        """推进 n_substeps 个 FDTD 子步
+
+        每个子步：
+          1. 速度更新：v += (dt/ρ) · div(σ)
+          2. 应力更新：σ += dt · (λ·tr(ε̇)·I + 2μ·ε̇)
+          3. 爆腔源：σxx/σyy/σzz -= dt · P(t) · cavity_mask（压应力）
+          4. 人工粘性 + PML 阻尼
+        """
+        dt = self.dt
+        rho = self.rho
+        lam, mu = self.lam, self.mu
+        h = self.h
+        # 人工粘性系数（经验值，0.01-0.05）
+        q_visc = 0.02
+
+        for _ in range(n_substeps):
+            t = self.sim_time
+            # 1. 速度更新：ρ·∂vi/∂t = ∂σij/∂xj
+            dvx = (self._dx(self.sxx) + self._dy(self.sxy) + self._dz(self.sxz)) / rho
+            dvy = (self._dx(self.sxy) + self._dy(self.syy) + self._dz(self.syz)) / rho
+            dvz = (self._dx(self.sxz) + self._dy(self.syz) + self._dz(self.szz)) / rho
+            # 人工粘性（扩散项）
+            dvx += q_visc * (self._artificial_viscosity(self.vx, 0) +
+                             self._artificial_viscosity(self.vx, 1) +
+                             self._artificial_viscosity(self.vx, 2)) / (h * h)
+            dvy += q_visc * (self._artificial_viscosity(self.vy, 0) +
+                             self._artificial_viscosity(self.vy, 1) +
+                             self._artificial_viscosity(self.vy, 2)) / (h * h)
+            dvz += q_visc * (self._artificial_viscosity(self.vz, 0) +
+                             self._artificial_viscosity(self.vz, 1) +
+                             self._artificial_viscosity(self.vz, 2)) / (h * h)
+
+            self.vx += dt * dvx
+            self.vy += dt * dvy
+            self.vz += dt * dvz
+
+            # PML 阻尼（施加在速度上）
+            self.vx *= self.damp
+            self.vy *= self.damp
+            self.vz *= self.damp
+
+            # 2. 应变率 → 应力更新
+            #   ε̇xx = ∂vx/∂x, ε̇yy = ∂vy/∂y, ε̇zz = ∂vz/∂z
+            #   tr(ε̇) = ε̇xx + ε̇yy + ε̇zz
+            #   σ̇ij = λ·δij·tr(ε̇) + 2μ·ε̇ij
+            exx = self._dx(self.vx)
+            eyy = self._dy(self.vy)
+            ezz = self._dz(self.vz)
+            tr = exx + eyy + ezz
+            # 剪应变率：ε̇xy = (∂vx/∂y + ∂vy/∂x)/2，应力 σ̇xy = 2μ·ε̇xy = μ·(∂vx/∂y+∂vy/∂x)
+            self.sxx += dt * (lam * tr + 2.0 * mu * exx)
+            self.syy += dt * (lam * tr + 2.0 * mu * eyy)
+            self.szz += dt * (lam * tr + 2.0 * mu * ezz)
+            self.sxy += dt * mu * (self._dy(self.vx) + self._dx(self.vy))
+            self.sxz += dt * mu * (self._dz(self.vx) + self._dx(self.vz))
+            self.syz += dt * mu * (self._dz(self.vy) + self._dy(self.vz))
+
+            # 3. 爆腔源：在 r<R0 区域施加各向同性压应力 P(t)
+            #    σij -= dt · P(t) · δij · mask（压应力为负，与拉应力约定一致）
+            p_src = self.source.pressure_at(t, self.cp)
+            src_term = dt * p_src * self.cavity_mask
+            self.sxx -= src_term
+            self.syy -= src_term
+            self.szz -= src_term
+
+            # PML 阻尼（施加在应力上）
+            self.sxx *= self.damp
+            self.syy *= self.damp
+            self.szz *= self.damp
+            self.sxy *= self.damp
+            self.sxz *= self.damp
+            self.syz *= self.damp
+
+            self.sim_time += dt
+
+    def get_ppv(self) -> np.ndarray:
+        """当前时刻 PPV = √(vx²+vy²+vz²)，单位 m/s"""
+        ppv = np.sqrt(self.vx ** 2 + self.vy ** 2 + self.vz ** 2)
+        return ppv.astype(np.float32)
+
+    def get_velocity(self) -> tuple:
+        """返回 (vx, vy, vz) 三向速度场"""
+        return self.vx, self.vy, self.vz
+
+
+def ppv_field_3d_fdtd(grid_xyz: np.ndarray, blast_center: np.ndarray,
+                      charge_kg: float, explosive_type: str = "emulsion",
+                      rock: RockMedium = RockMedium(),
+                      sim_time: float = 0.0,
+                      n_substeps: int = 0,
+                      engine: Optional[ElasticWaveFDTD3D] = None
+                      ) -> tuple:
+    """3D 弹性波 FDTD 振动场计算（JWL 爆腔源 + 速度-应力格式）
+
+    有状态模式（推荐，供 _stream_loop 增量推进）：
+        传入 engine 实例，调用 engine.step(n_substeps) 后返回 engine.get_ppv()
+    无状态模式（单次快照，仅用于测试/离线）：
+        不传 engine，内部创建并推进 sim_time/dt 个子步
+
+    :param engine: 复用的 FDTD 引擎实例（流式推送时传入避免重建）
+    :param sim_time: 目标模拟时间(s)，无状态模式下推进到此时刻
+    :param n_substeps: 有状态模式下推进的子步数（= timestep/dt）
+    :return: (ppv_mps, engine) —— ppv 单位 m/s，engine 为新建或复用的引擎
+    """
+    if engine is None:
+        # 无状态模式：创建引擎并推进到 sim_time
+        source = JWLBlastSource(charge_kg, explosive_type)
+        # grid_shape 由 grid_xyz 推断（需与 build_ppv_grid 一致）
+        # 注：调用方应确保 grid_xyz 形状匹配，此处用平方根估算
+        n = grid_xyz.shape[0]
+        nx = int(round(n ** (1.0 / 3.0)))
+        grid_shape = (nx, nx, nx)
+        bounds_min = np.array([grid_xyz[:, 0].min(), grid_xyz[:, 1].min(), grid_xyz[:, 2].min()], dtype=np.float32)
+        bounds_max = np.array([grid_xyz[:, 0].max(), grid_xyz[:, 1].max(), grid_xyz[:, 2].max()], dtype=np.float32)
+        engine = ElasticWaveFDTD3D(grid_xyz, bounds_min, bounds_max, grid_shape, source, rock)
+        n_sub = max(1, int(sim_time / engine.dt))
+        engine.step(n_sub)
+    else:
+        # 有状态模式：推进指定子步数
+        if n_substeps > 0:
+            engine.step(n_substeps)
+    return engine.get_ppv(), engine
+
+
+def make_fdtd_engine(grid_xyz: np.ndarray, grid_shape: tuple,
+                     bounds_min: np.ndarray, bounds_max: np.ndarray,
+                     charge_kg: float, explosive_type: str = "emulsion",
+                     rock: RockMedium = RockMedium()) -> ElasticWaveFDTD3D:
+    """工厂函数：创建 FDTD 引擎（供 blasting_ws StreamState 复用）
+
+    与 ppv_field_3d_fdtd 不同，本函数不推进时间，仅返回引擎实例。
+    调用方负责 step() 与 get_ppv()。
+    """
+    source = JWLBlastSource(charge_kg, explosive_type)
+    return ElasticWaveFDTD3D(grid_xyz, bounds_min, bounds_max, grid_shape, source, rock)
+

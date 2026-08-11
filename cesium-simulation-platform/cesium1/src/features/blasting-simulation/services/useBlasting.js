@@ -297,8 +297,11 @@ export default function useBlasting() {
         detonatorSeries: h.detonatorSeries,
         chargeKg: h.chargeKg
       }))
-      // PPV 振动场计算参数（装药量/隧道断面），驱动后端萨道夫斯基场正演
+      // PPV 振动场计算参数（装药量/隧道断面），驱动后端 JWL+FDTD 或萨道夫斯基场正演
       const ppvParams = blastingManager?.getPpvStreamParams?.() || {}
+      // 问题 8：透传炸药类型 + 启用 JWL 精确模式（后端默认 FDTD，失败降级萨道夫斯基）
+      ppvParams.explosiveType = kcoParams.value?.explosiveType || 'emulsion'
+      ppvParams.useJwl = true
       blastingWs.startStream(duration, timestep, holes, ppvParams)
     })
     blastingWs.on('_close', () => {

@@ -352,10 +352,13 @@ export class BlastingWsConnector {
    * @param {number} timestep - 时间步长（秒）
    * @param {Array} [holes] - 炮孔列表（含 delayMs/detonatorSeries/chargeKg/id）
    * @param {Object} [opts] - PPV 振动场计算参数
-   * @param {number} [opts.chargeKg] - 装药量(kg)，驱动萨道夫斯基振幅
+   * @param {number} [opts.chargeKg] - 装药量(kg)，驱动爆源强度
    * @param {number[]} [opts.blastCenter] - 爆心坐标 [x,y,z]（局部坐标系，m）
    * @param {number} [opts.tunnelWidth] - 隧道宽度(m)，决定采样网格横向范围
    * @param {number} [opts.tunnelHeight] - 隧道高度(m)，决定采样网格竖向范围
+   * @param {string} [opts.explosiveType] - 炸药类型 'emulsion'|'anfo'|'dynamite'（JWL 模式用）
+   * @param {boolean} [opts.useJwl] - True=JWL+FDTD 精确模式；False=萨道夫斯基近似 fallback
+   * @param {Object} [opts.rockParams] - 岩体参数 {density,pWaveSpeed,sWaveSpeed,...}（可选）
    */
   startStream(duration, timestep, holes, opts = {}) {
     const payload = { type: CommandType.START, duration, timestep, holes }
@@ -366,6 +369,10 @@ export class BlastingWsConnector {
     }
     if (opts.tunnelWidth !== undefined) payload.tunnelWidth = Number(opts.tunnelWidth)
     if (opts.tunnelHeight !== undefined) payload.tunnelHeight = Number(opts.tunnelHeight)
+    // 问题 8：JWL+FDTD 精确模式参数（未提供时后端默认 JWL）
+    if (opts.explosiveType !== undefined) payload.explosiveType = String(opts.explosiveType)
+    if (opts.useJwl !== undefined) payload.useJwl = Boolean(opts.useJwl)
+    if (opts.rockParams !== undefined) payload.rockParams = opts.rockParams
     this.send(payload)
   }
 
