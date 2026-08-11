@@ -205,11 +205,7 @@ function sampleColorStops(ppvCmps) {
     const [p1, c1] = stops[i + 1]
     if (ppvCmps >= p0 && ppvCmps <= p1) {
       const k = (ppvCmps - p0) / (p1 - p0)
-      return [
-        c0[0] + (c1[0] - c0[0]) * k,
-        c0[1] + (c1[1] - c0[1]) * k,
-        c0[2] + (c1[2] - c0[2]) * k
-      ]
+      return [c0[0] + (c1[0] - c0[0]) * k, c0[1] + (c1[1] - c0[1]) * k, c0[2] + (c1[2] - c0[2]) * k]
     }
   }
   return stops[stops.length - 1][1]
@@ -255,11 +251,11 @@ const STRESS_VISIBLE_THRESHOLD_PA = 1.0e5 // 0.1 MPa
 // 与后端 DAMAGE_ZONE_LABELS 对应；zone=0 弹性区透明不显示，
 // 避免大范围弹性区淹没场景，仅显示有损伤的区域（zone≥1）。
 const DAMAGE_ZONE_COLORS = [
-  [0.30, 0.30, 0.35, 0.0], // 0 elastic      灰  透明（不渲染）
-  [0.90, 0.85, 0.30, 0.55], // 1 micro_crack  浅黄
-  [0.95, 0.55, 0.15, 0.70], // 2 crack_growth 橙
-  [0.90, 0.20, 0.15, 0.80], // 3 fracture     红
-  [0.60, 0.05, 0.10, 0.85] // 4 throw        深红
+  [0.3, 0.3, 0.35, 0.0], // 0 elastic      灰  透明（不渲染）
+  [0.9, 0.85, 0.3, 0.55], // 1 micro_crack  浅黄
+  [0.95, 0.55, 0.15, 0.7], // 2 crack_growth 橙
+  [0.9, 0.2, 0.15, 0.8], // 3 fracture     红
+  [0.6, 0.05, 0.1, 0.85] // 4 throw        深红
 ]
 
 /** 显示模式枚举（与 shader uDisplayMode 对应） */
@@ -491,7 +487,9 @@ export class BlastVibrationFieldRenderer {
     if (!ppv || ppv.length !== expected) {
       console.warn(
         '[BlastVibrationFieldRenderer] PPV length mismatch:',
-        ppv?.length, 'expected', expected
+        ppv?.length,
+        'expected',
+        expected
       )
       return
     }
@@ -523,7 +521,9 @@ export class BlastVibrationFieldRenderer {
     if (!sigmaVm || sigmaVm.length !== expected) {
       console.warn(
         '[BlastVibrationFieldRenderer] stress length mismatch:',
-        sigmaVm?.length, 'expected', expected
+        sigmaVm?.length,
+        'expected',
+        expected
       )
       return
     }
@@ -550,7 +550,9 @@ export class BlastVibrationFieldRenderer {
     if (!zones || zones.length !== expected) {
       console.warn(
         '[BlastVibrationFieldRenderer] damage length mismatch:',
-        zones?.length, 'expected', expected
+        zones?.length,
+        'expected',
+        expected
       )
       return
     }
@@ -573,13 +575,19 @@ export class BlastVibrationFieldRenderer {
   setDisplayMode(mode) {
     let m
     if (typeof mode === 'string') {
-      m = mode === 'stress' ? DISPLAY_MODE.STRESS
-        : mode === 'damage' ? DISPLAY_MODE.DAMAGE
-          : DISPLAY_MODE.PPV
+      m =
+        mode === 'stress'
+          ? DISPLAY_MODE.STRESS
+          : mode === 'damage'
+            ? DISPLAY_MODE.DAMAGE
+            : DISPLAY_MODE.PPV
     } else {
-      m = Number(mode) === DISPLAY_MODE.STRESS ? DISPLAY_MODE.STRESS
-        : Number(mode) === DISPLAY_MODE.DAMAGE ? DISPLAY_MODE.DAMAGE
-          : DISPLAY_MODE.PPV
+      m =
+        Number(mode) === DISPLAY_MODE.STRESS
+          ? DISPLAY_MODE.STRESS
+          : Number(mode) === DISPLAY_MODE.DAMAGE
+            ? DISPLAY_MODE.DAMAGE
+            : DISPLAY_MODE.PPV
     }
     this._displayMode = m
     if (this._material) this._material.uniforms.uDisplayMode.value = m
@@ -608,9 +616,7 @@ export class BlastVibrationFieldRenderer {
     // 体积渲染设计为从内部观察：从外部看 box 表面会形成色片，
     // 且 raymarching 穿过整个 box 截面导致 GPU 负载剧增、页面卡死。
     const inside =
-      Math.abs(camLocal.x) <= 0.5 &&
-      Math.abs(camLocal.y) <= 0.5 &&
-      Math.abs(camLocal.z) <= 0.5
+      Math.abs(camLocal.x) <= 0.5 && Math.abs(camLocal.y) <= 0.5 && Math.abs(camLocal.z) <= 0.5
     this._mesh.visible = this._visible && inside
   }
 
@@ -643,8 +649,12 @@ export class BlastVibrationFieldRenderer {
 
   /** 最近帧元信息（供 UI 显示当前场时间/帧/模式） */
   getFieldInfo() {
-    const modeName = this._displayMode === DISPLAY_MODE.STRESS ? 'stress'
-      : this._displayMode === DISPLAY_MODE.DAMAGE ? 'damage' : 'ppv'
+    const modeName =
+      this._displayMode === DISPLAY_MODE.STRESS
+        ? 'stress'
+        : this._displayMode === DISPLAY_MODE.DAMAGE
+          ? 'damage'
+          : 'ppv'
     return {
       gridShape: this._gridShape,
       boundsMin: this._boundsMin,

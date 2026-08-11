@@ -23,7 +23,7 @@ function createEngineWithOneBody(overrides = {}) {
     restitution: 0.5,
     friction: 0.6,
     maxBounces: 3,
-    ...overrides.spec,
+    ...overrides.spec
   }
   const pos = { x: 0, y: 10, z: 0, ...overrides.pos }
   const vel = { x: 0, y: 0, z: 0, ...overrides.vel }
@@ -35,31 +35,42 @@ function createEngineWithOneBody(overrides = {}) {
 // 矩形隧道边界（便于测试）
 function rectangularBounds() {
   return {
-    centerX: 0, centerY: 5, centerZ: 0,
-    rightX: 1, rightY: 0, rightZ: 0,
-    forwardX: 0, forwardY: 0, forwardZ: 1,
+    centerX: 0,
+    centerY: 5,
+    centerZ: 0,
+    rightX: 1,
+    rightY: 0,
+    rightZ: 0,
+    forwardX: 0,
+    forwardY: 0,
+    forwardZ: 1,
     halfWidth: 5,
     wallHeight: 10,
     archRadius: 5,
     floorY: 0,
-    shape: 'rectangular',
+    shape: 'rectangular'
   }
 }
 
 // 马蹄形隧道边界
 function horseshoeBounds() {
   return {
-    centerX: 0, centerY: 5, centerZ: 0,
-    rightX: 1, rightY: 0, rightZ: 0,
-    forwardX: 0, forwardY: 0, forwardZ: 1,
+    centerX: 0,
+    centerY: 5,
+    centerZ: 0,
+    rightX: 1,
+    rightY: 0,
+    rightZ: 0,
+    forwardX: 0,
+    forwardY: 0,
+    forwardZ: 1,
     halfWidth: 5,
     wallHeight: 5,
     archRadius: 5,
     floorY: 0,
-    shape: 'horseshoe',
+    shape: 'horseshoe'
   }
 }
-
 
 // ============================================================
 // 初始化与基础状态
@@ -69,10 +80,16 @@ describe('BlastPhysicsEngine - 初始化', () => {
     const engine = new BlastPhysicsEngine({ rng: makeRng(1) })
     const specs = [
       { physSize: 0.3, density: 2600, restitution: 0.2, friction: 0.5, maxBounces: 2 },
-      { physSize: 0.5, density: 2800, restitution: 0.3, friction: 0.6, maxBounces: 3 },
+      { physSize: 0.5, density: 2800, restitution: 0.3, friction: 0.6, maxBounces: 3 }
     ]
-    const pos = [{ x: 0, y: 5, z: 0 }, { x: 1, y: 5, z: 0 }]
-    const vel = [{ x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }]
+    const pos = [
+      { x: 0, y: 5, z: 0 },
+      { x: 1, y: 5, z: 0 }
+    ]
+    const vel = [
+      { x: 1, y: 0, z: 0 },
+      { x: -1, y: 0, z: 0 }
+    ]
     engine.init(specs, pos, vel)
     expect(engine.bodies).toHaveLength(2)
     expect(engine.bodies[0].physSize).toBe(0.3)
@@ -94,16 +111,24 @@ describe('BlastPhysicsEngine - 初始化', () => {
   it('delayTime > 0 的碎片初始为休眠（非 ALIVE）', () => {
     const engine = new BlastPhysicsEngine({ rng: makeRng(1) })
     engine.init(
-      [{ physSize: 0.3, density: 2700, restitution: 0.2, friction: 0.5, maxBounces: 2, delayTime: 0.1 }],
+      [
+        {
+          physSize: 0.3,
+          density: 2700,
+          restitution: 0.2,
+          friction: 0.5,
+          maxBounces: 2,
+          delayTime: 0.1
+        }
+      ],
       [{ x: 0, y: 5, z: 0 }],
-      [{ x: 0, y: 0, z: 0 }],
+      [{ x: 0, y: 0, z: 0 }]
     )
     engine.activateAll()
     expect(engine.aliveFragmentCount).toBe(0) // 延迟碎片未激活
     expect(engine.bodies[0]._delayed).toBe(true)
   })
 })
-
 
 // ============================================================
 // 重力积分
@@ -130,7 +155,8 @@ describe('BlastPhysicsEngine - 重力积分', () => {
 
   it('水平速度受空气阻力衰减', () => {
     const { engine, body } = createEngineWithOneBody({
-      pos: { y: 50 }, vel: { x: 20, y: 0 },
+      pos: { y: 50 },
+      vel: { x: 20, y: 0 }
     })
     engine.step(0.05)
     // 空气阻力使 vx 减小（但不会为 0）
@@ -139,14 +165,14 @@ describe('BlastPhysicsEngine - 重力积分', () => {
   })
 })
 
-
 // ============================================================
 // 底板碰撞与恢复系数
 // ============================================================
 describe('BlastPhysicsEngine - 底板碰撞', () => {
   it('碰撞后 posY 被 clamp 到 floorY + radius', () => {
     const { engine, body } = createEngineWithOneBody({
-      pos: { y: 0.1 }, vel: { y: -5 },
+      pos: { y: 0.1 },
+      vel: { y: -5 }
     })
     engine.setTunnelBounds(rectangularBounds())
     engine.step(0.05)
@@ -156,8 +182,9 @@ describe('BlastPhysicsEngine - 底板碰撞', () => {
 
   it('恢复系数：反弹后 |velY| = |velY_old| × restitution × 0.75^(bounce-1)', () => {
     const { engine, body } = createEngineWithOneBody({
-      pos: { y: 0.21 }, vel: { y: -10 },
-      spec: { physSize: 0.4, density: 2700, restitution: 0.5, friction: 0, maxBounces: 10 },
+      pos: { y: 0.21 },
+      vel: { y: -10 },
+      spec: { physSize: 0.4, density: 2700, restitution: 0.5, friction: 0, maxBounces: 10 }
     })
     engine.setTunnelBounds(rectangularBounds())
     // rng 随机偏转影响 vx/vz 但不影响 vy 主分量
@@ -170,8 +197,9 @@ describe('BlastPhysicsEngine - 底板碰撞', () => {
 
   it('多次弹跳后达到 maxBounces 时落地', () => {
     const { engine, body } = createEngineWithOneBody({
-      pos: { y: 0.21 }, vel: { y: -10 },
-      spec: { physSize: 0.4, density: 2700, restitution: 0.3, friction: 0.5, maxBounces: 2 },
+      pos: { y: 0.21 },
+      vel: { y: -10 },
+      spec: { physSize: 0.4, density: 2700, restitution: 0.3, friction: 0.5, maxBounces: 2 }
     })
     engine.setTunnelBounds(rectangularBounds())
     // 多步模拟直到落地
@@ -187,8 +215,9 @@ describe('BlastPhysicsEngine - 底板碰撞', () => {
 
   it('摩擦衰减：底板碰撞后水平速度减小', () => {
     const { engine, body } = createEngineWithOneBody({
-      pos: { y: 0.21 }, vel: { x: 10, y: -10 },
-      spec: { physSize: 0.4, density: 2700, restitution: 0.5, friction: 0.8, maxBounces: 10 },
+      pos: { y: 0.21 },
+      vel: { x: 10, y: -10 },
+      spec: { physSize: 0.4, density: 2700, restitution: 0.5, friction: 0.8, maxBounces: 10 }
     })
     engine.setTunnelBounds(rectangularBounds())
     engine.step(0.01)
@@ -198,15 +227,15 @@ describe('BlastPhysicsEngine - 底板碰撞', () => {
   })
 })
 
-
 // ============================================================
 // 隧道壁碰撞
 // ============================================================
 describe('BlastPhysicsEngine - 隧道壁碰撞（矩形）', () => {
   it('右壁碰撞：位置修正 + 法向速度反射', () => {
     const { engine, body } = createEngineWithOneBody({
-      pos: { x: 4.9, y: 5, z: 0 }, vel: { x: 5, y: 0, z: 0 },
-      spec: { physSize: 0.4, density: 2700, restitution: 0.5, friction: 0, maxBounces: 10 },
+      pos: { x: 4.9, y: 5, z: 0 },
+      vel: { x: 5, y: 0, z: 0 },
+      spec: { physSize: 0.4, density: 2700, restitution: 0.5, friction: 0, maxBounces: 10 }
     })
     engine.setTunnelBounds(rectangularBounds())
     engine.step(0.01)
@@ -218,8 +247,9 @@ describe('BlastPhysicsEngine - 隧道壁碰撞（矩形）', () => {
 
   it('左壁碰撞：位置修正 + 法向速度反射', () => {
     const { engine, body } = createEngineWithOneBody({
-      pos: { x: -4.9, y: 5, z: 0 }, vel: { x: -5, y: 0, z: 0 },
-      spec: { physSize: 0.4, density: 2700, restitution: 0.5, friction: 0, maxBounces: 10 },
+      pos: { x: -4.9, y: 5, z: 0 },
+      vel: { x: -5, y: 0, z: 0 },
+      spec: { physSize: 0.4, density: 2700, restitution: 0.5, friction: 0, maxBounces: 10 }
     })
     engine.setTunnelBounds(rectangularBounds())
     engine.step(0.01)
@@ -229,8 +259,9 @@ describe('BlastPhysicsEngine - 隧道壁碰撞（矩形）', () => {
 
   it('顶部碰撞：velY 反向', () => {
     const { engine, body } = createEngineWithOneBody({
-      pos: { x: 0, y: 9.9, z: 0 }, vel: { x: 0, y: 5, z: 0 },
-      spec: { physSize: 0.4, density: 2700, restitution: 0.5, friction: 0, maxBounces: 10 },
+      pos: { x: 0, y: 9.9, z: 0 },
+      vel: { x: 0, y: 5, z: 0 },
+      spec: { physSize: 0.4, density: 2700, restitution: 0.5, friction: 0, maxBounces: 10 }
     })
     engine.setTunnelBounds(rectangularBounds())
     engine.step(0.01)
@@ -243,8 +274,9 @@ describe('BlastPhysicsEngine - 隧道壁碰撞（矩形）', () => {
 describe('BlastPhysicsEngine - 隧道壁碰撞（马蹄形）', () => {
   it('直墙区碰撞与矩形一致', () => {
     const { engine, body } = createEngineWithOneBody({
-      pos: { x: 4.9, y: 2, z: 0 }, vel: { x: 5, y: 0, z: 0 },
-      spec: { physSize: 0.4, density: 2700, restitution: 0.5, friction: 0, maxBounces: 10 },
+      pos: { x: 4.9, y: 2, z: 0 },
+      vel: { x: 5, y: 0, z: 0 },
+      spec: { physSize: 0.4, density: 2700, restitution: 0.5, friction: 0, maxBounces: 10 }
     })
     engine.setTunnelBounds(horseshoeBounds())
     engine.step(0.01)
@@ -254,8 +286,9 @@ describe('BlastPhysicsEngine - 隧道壁碰撞（马蹄形）', () => {
 
   it('拱顶区碰撞：径向反射', () => {
     const { engine, body } = createEngineWithOneBody({
-      pos: { x: 4.5, y: 9, z: 0 }, vel: { x: 3, y: 3, z: 0 },
-      spec: { physSize: 0.3, density: 2700, restitution: 0.5, friction: 0, maxBounces: 10 },
+      pos: { x: 4.5, y: 9, z: 0 },
+      vel: { x: 3, y: 3, z: 0 },
+      spec: { physSize: 0.3, density: 2700, restitution: 0.5, friction: 0, maxBounces: 10 }
     })
     engine.setTunnelBounds(horseshoeBounds()) // wallHeight=5, archRadius=5
     // 拱顶中心 y0=5, archDY = 9-5=4, lateral=4.5, dist≈6.02 > limit(5-0.15=4.85)
@@ -269,7 +302,6 @@ describe('BlastPhysicsEngine - 隧道壁碰撞（马蹄形）', () => {
   })
 })
 
-
 // ============================================================
 // 碎片间碰撞（冲量响应 + 库仑摩擦）
 // ============================================================
@@ -279,8 +311,14 @@ describe('BlastPhysicsEngine - 碎片间碰撞', () => {
     const spec = { physSize: 0.4, density: 2700, restitution: 0.2, friction: 0.5, maxBounces: 2 }
     engine.init(
       [spec, spec],
-      [{ x: 0, y: 5, z: 0 }, { x: 0.3, y: 5, z: 0 }], // dist=0.3 < minDist=0.4
-      [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }],
+      [
+        { x: 0, y: 5, z: 0 },
+        { x: 0.3, y: 5, z: 0 }
+      ], // dist=0.3 < minDist=0.4
+      [
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 0 }
+      ]
     )
     engine.activateAll()
     engine.step(0.001) // 极小步长，仅触发碰撞解析
@@ -295,8 +333,14 @@ describe('BlastPhysicsEngine - 碎片间碰撞', () => {
     const spec = { physSize: 0.4, density: 2700, restitution: 0.2, friction: 0, maxBounces: 5 }
     engine.init(
       [spec, spec],
-      [{ x: 0, y: 50, z: 0 }, { x: 0.35, y: 50, z: 0 }],
-      [{ x: 2, y: 0, z: 0 }, { x: -2, y: 0, z: 0 }],
+      [
+        { x: 0, y: 50, z: 0 },
+        { x: 0.35, y: 50, z: 0 }
+      ],
+      [
+        { x: 2, y: 0, z: 0 },
+        { x: -2, y: 0, z: 0 }
+      ]
     )
     engine.activateAll()
     engine.step(0.001)
@@ -313,8 +357,14 @@ describe('BlastPhysicsEngine - 碎片间碰撞', () => {
     const spec = { physSize: 0.4, density: 2700, restitution: 0.2, friction: 0, maxBounces: 5 }
     engine.init(
       [spec, spec],
-      [{ x: 0, y: 50, z: 0 }, { x: 0.35, y: 50, z: 0 }],
-      [{ x: -2, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }], // 背离运动
+      [
+        { x: 0, y: 50, z: 0 },
+        { x: 0.35, y: 50, z: 0 }
+      ],
+      [
+        { x: -2, y: 0, z: 0 },
+        { x: 2, y: 0, z: 0 }
+      ] // 背离运动
     )
     engine.activateAll()
     const v0a = engine.bodies[0].velX
@@ -330,8 +380,14 @@ describe('BlastPhysicsEngine - 碎片间碰撞', () => {
     const spec = { physSize: 0.4, density: 2700, restitution: 0.2, friction: 0.5, maxBounces: 5 }
     engine.init(
       [spec, spec],
-      [{ x: 0, y: 0.2, z: 0 }, { x: 0.3, y: 0.2, z: 0 }],
-      [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }],
+      [
+        { x: 0, y: 0.2, z: 0 },
+        { x: 0.3, y: 0.2, z: 0 }
+      ],
+      [
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 0 }
+      ]
     )
     engine.setTunnelBounds(rectangularBounds())
     engine.activateAll()
@@ -349,9 +405,15 @@ describe('BlastPhysicsEngine - 碎片间碰撞', () => {
     const spec = { physSize: 0.4, density: 2700, restitution: 0.2, friction: 0.6, maxBounces: 5 }
     engine.init(
       [spec, spec],
-      [{ x: 0, y: 50, z: 0 }, { x: 0.35, y: 50, z: 0 }],
+      [
+        { x: 0, y: 50, z: 0 },
+        { x: 0.35, y: 50, z: 0 }
+      ],
       // A 有大法向速度 + 大切向速度
-      [{ x: 1, y: 0, z: 10 }, { x: -1, y: 0, z: -10 }],
+      [
+        { x: 1, y: 0, z: 10 },
+        { x: -1, y: 0, z: -10 }
+      ]
     )
     engine.activateAll()
     engine.step(0.001)
@@ -364,7 +426,6 @@ describe('BlastPhysicsEngine - 碎片间碰撞', () => {
   })
 })
 
-
 // ============================================================
 // 分段起爆（delayTime）
 // ============================================================
@@ -372,9 +433,18 @@ describe('BlastPhysicsEngine - 分段起爆', () => {
   it('延迟碎片在 simTime < delayTime 时不运动', () => {
     const engine = new BlastPhysicsEngine({ rng: makeRng(1) })
     engine.init(
-      [{ physSize: 0.3, density: 2700, restitution: 0.2, friction: 0.5, maxBounces: 2, delayTime: 0.2 }],
+      [
+        {
+          physSize: 0.3,
+          density: 2700,
+          restitution: 0.2,
+          friction: 0.5,
+          maxBounces: 2,
+          delayTime: 0.2
+        }
+      ],
       [{ x: 0, y: 50, z: 0 }],
-      [{ x: 5, y: 0, z: 0 }],
+      [{ x: 5, y: 0, z: 0 }]
     )
     engine.activateAll()
     // simTime < 0.2 时碎片未激活
@@ -386,9 +456,18 @@ describe('BlastPhysicsEngine - 分段起爆', () => {
   it('simTime >= delayTime 时碎片自动激活', () => {
     const engine = new BlastPhysicsEngine({ rng: makeRng(1) })
     engine.init(
-      [{ physSize: 0.3, density: 2700, restitution: 0.2, friction: 0.5, maxBounces: 2, delayTime: 0.1 }],
+      [
+        {
+          physSize: 0.3,
+          density: 2700,
+          restitution: 0.2,
+          friction: 0.5,
+          maxBounces: 2,
+          delayTime: 0.1
+        }
+      ],
       [{ x: 0, y: 50, z: 0 }],
-      [{ x: 5, y: 0, z: 0 }],
+      [{ x: 5, y: 0, z: 0 }]
     )
     engine.activateAll()
     engine.step(0.15) // simTime=0.15 > 0.1
@@ -397,7 +476,6 @@ describe('BlastPhysicsEngine - 分段起爆', () => {
     expect(engine.bodies[0].posX).not.toBe(0)
   })
 })
-
 
 // ============================================================
 // 堆积与冻结
@@ -408,7 +486,7 @@ describe('BlastPhysicsEngine - 堆积冻结', () => {
     engine.init(
       [{ physSize: 0.3, density: 2700, restitution: 0.1, friction: 0.9, maxBounces: 1 }],
       [{ x: 0, y: 50, z: 0 }],
-      [{ x: 0, y: 0, z: 0 }],
+      [{ x: 0, y: 0, z: 0 }]
     )
     engine.setTunnelBounds(rectangularBounds())
     engine.activateAll()
@@ -424,7 +502,6 @@ describe('BlastPhysicsEngine - 堆积冻结', () => {
   })
 })
 
-
 // ============================================================
 // 统计 API
 // ============================================================
@@ -435,10 +512,25 @@ describe('BlastPhysicsEngine - 统计 API', () => {
       [
         { physSize: 0.3, density: 2700, restitution: 0.2, friction: 0.5, maxBounces: 2 },
         { physSize: 0.3, density: 2700, restitution: 0.2, friction: 0.5, maxBounces: 2 },
-        { physSize: 0.3, density: 2700, restitution: 0.2, friction: 0.5, maxBounces: 2, delayTime: 1.0 },
+        {
+          physSize: 0.3,
+          density: 2700,
+          restitution: 0.2,
+          friction: 0.5,
+          maxBounces: 2,
+          delayTime: 1.0
+        }
       ],
-      [{ x: 0, y: 5, z: 0 }, { x: 1, y: 5, z: 0 }, { x: 2, y: 5, z: 0 }],
-      [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }],
+      [
+        { x: 0, y: 5, z: 0 },
+        { x: 1, y: 5, z: 0 },
+        { x: 2, y: 5, z: 0 }
+      ],
+      [
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 0 }
+      ]
     )
     engine.activateAll()
     expect(engine.aliveFragmentCount).toBe(2) // 延迟碎片未激活

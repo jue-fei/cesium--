@@ -159,7 +159,9 @@ export class CesiumThreeBridge {
       } else if (frustum instanceof Cesium.OrthographicFrustum) {
         const orthoHeight = Math.abs(frustum.top - frustum.bottom)
         const camDist = Cesium.Cartesian3.magnitude(cameraPositionLocal)
-        fov = Cesium.Math.toDegrees(2 * Math.atan(Math.max(1, orthoHeight) / (2 * Math.max(1, camDist))))
+        fov = Cesium.Math.toDegrees(
+          2 * Math.atan(Math.max(1, orthoHeight) / (2 * Math.max(1, camDist)))
+        )
       } else {
         fov = 60 // 未知投影类型，回退默认值
       }

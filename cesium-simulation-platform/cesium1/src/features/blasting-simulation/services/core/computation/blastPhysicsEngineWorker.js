@@ -75,8 +75,8 @@ export class BlastPhysicsEngineWorker {
       this._worker = new Worker(new URL('./blastPhysicsWorker.js', import.meta.url), {
         type: 'module'
       })
-      this._worker.onmessage = (e) => this._onMessage(e.data)
-      this._worker.onerror = (e) => {
+      this._worker.onmessage = e => this._onMessage(e.data)
+      this._worker.onerror = e => {
         console.warn('[BlastPhysics] Worker 运行时错误，降级为同步模式:', e.message)
         this._fallbackToSync()
       }
@@ -133,10 +133,7 @@ export class BlastPhysicsEngineWorker {
         break
       case 'bodyLanded':
         if (this._onBodyLanded) {
-          this._onBodyLanded(
-            { posX: msg.posX, posY: msg.posY, posZ: msg.posZ },
-            msg.impactSpeed
-          )
+          this._onBodyLanded({ posX: msg.posX, posY: msg.posY, posZ: msg.posZ }, msg.impactSpeed)
         }
         break
       case 'energyStats':
@@ -390,11 +387,13 @@ export class BlastPhysicsEngineWorker {
    */
   getEnergyStats() {
     if (this._useWorker) {
-      return this._cachedEnergyStats ?? {
-        totalKineticEnergy: 0,
-        settledMassRatio: 0,
-        timeSeries: []
-      }
+      return (
+        this._cachedEnergyStats ?? {
+          totalKineticEnergy: 0,
+          settledMassRatio: 0,
+          timeSeries: []
+        }
+      )
     }
     if (this._syncEngine) {
       return this._syncEngine.getEnergyStats()

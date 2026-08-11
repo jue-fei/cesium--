@@ -84,7 +84,10 @@ export class BlastingWsConnector {
 
   /** 建立连接 */
   connect() {
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+    if (
+      this.ws &&
+      (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)
+    ) {
       return
     }
     this._shouldReconnect = this._autoReconnect
@@ -119,9 +122,12 @@ export class BlastingWsConnector {
     }
     // 兼容 Blob（理论上 binaryType='arraybuffer' 不会出现，但兜底处理）
     if (data && typeof data === 'object' && typeof data.arrayBuffer === 'function') {
-      data.arrayBuffer().then((buf) => this._handleBinaryFrame(buf)).catch((err) => {
-        console.error('[BlastingWs] blob→arraybuffer failed:', err)
-      })
+      data
+        .arrayBuffer()
+        .then(buf => this._handleBinaryFrame(buf))
+        .catch(err => {
+          console.error('[BlastingWs] blob→arraybuffer failed:', err)
+        })
       return
     }
     // JSON 文本帧
@@ -219,7 +225,7 @@ export class BlastingWsConnector {
     if (view.byteLength < expectedBytes) {
       throw new Error(
         `float field payload size mismatch: got ${view.byteLength}, expected ${expectedBytes} ` +
-        `(grid ${gridW}x${gridH}x${gridD}=${voxelCount} voxels)`
+          `(grid ${gridW}x${gridH}x${gridD}=${voxelCount} voxels)`
       )
     }
 
@@ -238,13 +244,27 @@ export class BlastingWsConnector {
   /** 解析 PPV 振动场（0x02），载荷语义为质点速度 m/s */
   _parsePpvField(view, buf) {
     const r = this._parseFloatFieldFrame(view, buf)
-    return { frame: r.frame, t: r.t, gridShape: r.gridShape, boundsMin: r.boundsMin, boundsMax: r.boundsMax, ppv: r.data }
+    return {
+      frame: r.frame,
+      t: r.t,
+      gridShape: r.gridShape,
+      boundsMin: r.boundsMin,
+      boundsMax: r.boundsMax,
+      ppv: r.data
+    }
   }
 
   /** 解析 σ_vm 等效应力场（0x03），载荷语义为 von Mises 应力 Pa */
   _parseStressField(view, buf) {
     const r = this._parseFloatFieldFrame(view, buf)
-    return { frame: r.frame, t: r.t, gridShape: r.gridShape, boundsMin: r.boundsMin, boundsMax: r.boundsMax, sigmaVm: r.data }
+    return {
+      frame: r.frame,
+      t: r.t,
+      gridShape: r.gridShape,
+      boundsMin: r.boundsMin,
+      boundsMax: r.boundsMax,
+      sigmaVm: r.data
+    }
   }
 
   /**
@@ -280,7 +300,7 @@ export class BlastingWsConnector {
     if (view.byteLength < expectedBytes) {
       throw new Error(
         `damage field payload size mismatch: got ${view.byteLength}, expected ${expectedBytes} ` +
-        `(grid ${gridW}x${gridH}x${gridD}=${voxelCount} voxels)`
+          `(grid ${gridW}x${gridH}x${gridD}=${voxelCount} voxels)`
       )
     }
 
@@ -382,7 +402,9 @@ export class BlastingWsConnector {
 
   _scheduleReconnect() {
     if (this._reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.warn(`[BlastingWs] max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached, giving up`)
+      console.warn(
+        `[BlastingWs] max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached, giving up`
+      )
       this._handlers.get('_giveup')?.()
       return
     }
@@ -391,7 +413,9 @@ export class BlastingWsConnector {
       RECONNECT_BASE_DELAY_MS * 2 ** (this._reconnectAttempts - 1),
       RECONNECT_MAX_DELAY_MS
     )
-    console.info(`[BlastingWs] reconnecting in ${delay}ms (attempt ${this._reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`)
+    console.info(
+      `[BlastingWs] reconnecting in ${delay}ms (attempt ${this._reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`
+    )
     setTimeout(() => this.connect(), delay)
   }
 

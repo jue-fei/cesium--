@@ -58,13 +58,15 @@
             </span>
           </div>
           <div class="histogram-chart">
-            <div
-              v-for="(bin, i) in sizeChartBins"
-              :key="'size-' + i"
-              class="histogram-bin-group"
-            >
-              <div class="histogram-bar actual" :style="{ height: barHeight(bin.pct, sizeMaxPct) }"></div>
-              <div class="histogram-bar target" :style="{ height: barHeight(sizeTargetPcts[i], sizeMaxPct) }"></div>
+            <div v-for="(bin, i) in sizeChartBins" :key="'size-' + i" class="histogram-bin-group">
+              <div
+                class="histogram-bar actual"
+                :style="{ height: barHeight(bin.pct, sizeMaxPct) }"
+              ></div>
+              <div
+                class="histogram-bar target"
+                :style="{ height: barHeight(sizeTargetPcts[i], sizeMaxPct) }"
+              ></div>
             </div>
           </div>
           <div class="histogram-legend">
@@ -78,8 +80,8 @@
           <div class="histogram-block-head">
             <span class="histogram-block-title">速度分布</span>
             <span class="histogram-hint">
-              均值 {{ formatVal(diagnostics.stats.velocityMean) }} m/s ·
-              P95 {{ formatVal(diagnostics.stats.velocityP95) }} m/s
+              均值 {{ formatVal(diagnostics.stats.velocityMean) }} m/s · P95
+              {{ formatVal(diagnostics.stats.velocityP95) }} m/s
             </span>
           </div>
           <div class="histogram-chart histogram-single">
@@ -120,10 +122,15 @@
             </span>
           </div>
           <div class="energy-bar-container">
-            <div class="energy-bar-fill" :class="`is-${settledStatus}`" :style="{ width: barWidth(settledRatio) }"></div>
+            <div
+              class="energy-bar-fill"
+              :class="`is-${settledStatus}`"
+              :style="{ width: barWidth(settledRatio) }"
+            ></div>
           </div>
           <div class="histogram-hint">
-            目标 ≥90% · {{ settledRatio >= 0.9 ? '达标' : settledRatio >= 0.75 ? '待收敛' : '高风险' }}
+            目标 ≥90% ·
+            {{ settledRatio >= 0.9 ? '达标' : settledRatio >= 0.75 ? '待收敛' : '高风险' }}
           </div>
         </div>
 
@@ -131,9 +138,7 @@
         <div v-if="energyPoints.length > 1" class="histogram-block">
           <div class="histogram-block-head">
             <span class="histogram-block-title">总动能衰减</span>
-            <span class="histogram-hint">
-              峰值 {{ formatVal(peakEnergy) }} J
-            </span>
+            <span class="histogram-hint"> 峰值 {{ formatVal(peakEnergy) }} J </span>
           </div>
           <svg class="energy-chart" viewBox="0 0 200 60" preserveAspectRatio="none">
             <polyline
@@ -217,13 +222,17 @@ function formatValue(value, unit) {
 const hasHistograms = computed(() => {
   const s = props.diagnostics?.stats
   if (!s) return false
-  return (Array.isArray(s.sizeHistogramGenerated) && s.sizeHistogramGenerated.length > 0) ||
-         (Array.isArray(s.velocityHistogramGenerated) && s.velocityHistogramGenerated.length > 0)
+  return (
+    (Array.isArray(s.sizeHistogramGenerated) && s.sizeHistogramGenerated.length > 0) ||
+    (Array.isArray(s.velocityHistogramGenerated) && s.velocityHistogramGenerated.length > 0)
+  )
 })
 
 // 块度分布数据
 const sizeChartBins = computed(() => props.diagnostics?.stats?.sizeHistogramGenerated || [])
-const sizeTargetPcts = computed(() => props.diagnostics?.stats?.sizeHistogramTarget?.map(b => b.pct) || [])
+const sizeTargetPcts = computed(
+  () => props.diagnostics?.stats?.sizeHistogramTarget?.map(b => b.pct) || []
+)
 const sizeMaxPct = computed(() => {
   const actual = sizeChartBins.value.map(b => b.pct)
   const target = sizeTargetPcts.value
@@ -291,7 +300,7 @@ const settledRatio = computed(() => props.diagnostics?.stats?.energyStats?.settl
 const settledStatus = computed(() => {
   const r = settledRatio.value
   if (r == null) return 'neutral'
-  if (r >= 0.90) return 'ok'
+  if (r >= 0.9) return 'ok'
   if (r >= 0.75) return 'warning'
   return 'error'
 })
@@ -308,11 +317,13 @@ const energyPolyline = computed(() => {
   if (pts.length < 2) return ''
   const maxT = pts[pts.length - 1].t || 1
   const maxE = Math.max(...pts.map(p => p.kineticEnergy || 0), 0.001)
-  return pts.map(p => {
-    const x = ((p.t || 0) / maxT) * 200
-    const y = 60 - ((p.kineticEnergy || 0) / maxE) * 55
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  }).join(' ')
+  return pts
+    .map(p => {
+      const x = ((p.t || 0) / maxT) * 200
+      const y = 60 - ((p.kineticEnergy || 0) / maxE) * 55
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
 })
 
 function formatPercent(val) {
@@ -586,9 +597,15 @@ function barWidth(ratio) {
   transition: width 0.3s ease;
 }
 
-.energy-bar-fill.is-ok { background: linear-gradient(90deg, #67c23a, #4e9e2e); }
-.energy-bar-fill.is-warning { background: linear-gradient(90deg, #e6a23c, #c4852e); }
-.energy-bar-fill.is-error { background: linear-gradient(90deg, #f56c6c, #c94e4e); }
+.energy-bar-fill.is-ok {
+  background: linear-gradient(90deg, #67c23a, #4e9e2e);
+}
+.energy-bar-fill.is-warning {
+  background: linear-gradient(90deg, #e6a23c, #c4852e);
+}
+.energy-bar-fill.is-error {
+  background: linear-gradient(90deg, #f56c6c, #c94e4e);
+}
 
 .energy-chart {
   width: 100%;

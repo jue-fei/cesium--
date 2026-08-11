@@ -9,7 +9,7 @@
     <template v-else>
       <!-- 块度分布柱状图 -->
       <div class="dist-chart-block">
-        <div class="dist-chart-row" v-for="b in buckets" :key="b.label">
+        <div v-for="b in buckets" :key="b.label" class="dist-chart-row">
           <div class="dist-chart-label" :title="b.label">{{ b.label }}</div>
           <div class="dist-chart-track">
             <div
@@ -121,11 +121,16 @@ const activeBucketLabel = ref(null)
 
 const buckets = computed(() => props.distribution?.buckets || [])
 const hasData = computed(
-  () => !!props.distribution && Array.isArray(props.distribution.buckets) && props.distribution.total > 0
+  () =>
+    !!props.distribution &&
+    Array.isArray(props.distribution.buckets) &&
+    props.distribution.total > 0
 )
 
 // ─── KCO 模型参数来源：优先 threeStats（实际应用值），其次 dataset.result（设计值） ───
-const kcoX50 = computed(() => props.threeStats?.x50Applied ?? props.dataset?.result?.fragmentX50 ?? null)
+const kcoX50 = computed(
+  () => props.threeStats?.x50Applied ?? props.dataset?.result?.fragmentX50 ?? null
+)
 const kcoXmax = computed(
   () => props.dataset?.result?.fragmentXmax ?? props.distribution?.xmax ?? null
 )
@@ -255,7 +260,9 @@ function formatMass(v) {
   height: 100%;
   background: linear-gradient(90deg, rgba(64, 158, 255, 0.55), var(--primary-color));
   border-radius: 5px;
-  transition: width 0.3s ease, background 0.2s ease;
+  transition:
+    width 0.3s ease,
+    background 0.2s ease;
 }
 
 .dist-chart-fill.is-active {
@@ -296,7 +303,9 @@ function formatMass(v) {
 .dist-table-row {
   border-top: 1px solid rgba(255, 255, 255, 0.05);
   cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
   color: var(--text-primary);
 }
 

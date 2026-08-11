@@ -29,14 +29,14 @@ const DEBUG_FRAGMENT_SPECS = false
 export const HOLE_TYPE_WEIGHTS = {
   cut: { velocityFactor: 1.25, axialBias: 0.15, sizeFactor: 0.85 },
   auxiliary: { velocityFactor: 1.0, axialBias: 0.0, sizeFactor: 1.0 },
-  perimeter: { velocityFactor: 0.80, axialBias: -0.10, sizeFactor: 1.15 },
+  perimeter: { velocityFactor: 0.8, axialBias: -0.1, sizeFactor: 1.15 },
   empty: { velocityFactor: 0, axialBias: 0, sizeFactor: 0 }
 }
 
 // ─── 延时场耦合参数 ───
 // 后序孔因前序孔形成新自由面，块度更细、方向偏向已形成自由面（轴向）
 const DELAY_SIZE_DECAY = 0.04 // 每序块度衰减系数
-const DELAY_SIZE_FLOOR = 0.80 // 块度衰减下限
+const DELAY_SIZE_FLOOR = 0.8 // 块度衰减下限
 const DELAY_DIR_BIAS_PER_ORDER = (5 * Math.PI) / 180 // 每序方向偏移 5°（弧度）
 const DELAY_DIR_BIAS_MAX = (20 * Math.PI) / 180 // 方向偏移上限 20°（弧度）
 
@@ -113,13 +113,16 @@ export function generateFragmentSpecs(options = {}) {
       ? Number(metrics.volumeRoundM3) * densityBase * visibleMassFraction
       : 0
   )
-  const estimatedMeanMassKg = _estimateMeanFragmentMass({
-    x50,
-    xmax,
-    b,
-    n,
-    density: densityBase
-  }, rng)
+  const estimatedMeanMassKg = _estimateMeanFragmentMass(
+    {
+      x50,
+      xmax,
+      b,
+      n,
+      density: densityBase
+    },
+    rng
+  )
   const massDrivenCount =
     targetVisibleMassKg > 0 && estimatedMeanMassKg > 0
       ? Math.round(targetVisibleMassKg / estimatedMeanMassKg)
@@ -149,38 +152,44 @@ export function generateFragmentSpecs(options = {}) {
       '中间.blendedCount': blendedCount,
       '中间.safeCountLimit': safeCountLimit,
       '最终.count': count,
-      '是否被截断': blendedCount > safeCountLimit ? '是(被上限截断)' : '否'
+      是否被截断: blendedCount > safeCountLimit ? '是(被上限截断)' : '否'
     })
   }
 
-  // 速度基准 — 双模型可选，由 metrics.usePerssonVelocity 控制
+  // 速度基准 — Persson(1997) 物理模型为默认，经验拟合仅作 fallback
   //
-  // 模型 A（默认，经验拟合）：vBase = 6 + √Q×0.3
-  //   - 量级吻合隧道爆破抛掷速度（5-30 m/s），但加性常数 6 和系数 0.3 无物理依据
-  //   - 缺陷：应与比装药 q=Q/V 相关而非总药量 Q
-  //
-  // 模型 B（Persson 1997 物理模型）：vBase = √(2·q·E_g/ρ_rock)·η
+  // 模型 A（默认，Persson 1997 物理模型）：vBase = √(2·η·q·E_g/ρ_rock)
   //   - q = 比装药 (kg/m³) = chargeKg / brokenVolume
   //   - E_g = 炸药比能 (J/kg)，ANFO≈2.484e6, emulsion≈3.9e6, dynamite≈3.56e6
   //   - ρ_rock = 岩体密度 (kg/m³)
   //   - η = 0.15 能量耦合系数（经验，炸药能量转化为碎片动能的比例）
   //   - 物理依据：炸药总能量 E_total = Q·E_g，转化为碎片动能 E_k = ½·m·v²
   //     假设能量耦合 η，碎片总质量 m = V·ρ_rock，则 v = √(2·η·Q·E_g/(V·ρ_rock)) = √(2·η·q·E_g/ρ_rock)
-  const usePersson = metrics.usePerssonVelocity === true
+  //
+  // 模型 B（fallback，经验拟合）：vBase = 6 + √Q×0.3
+  //   - 仅当 brokenVolume 不可得（≤0）或显式关闭 Persson 时使用
+  //   - 量级吻合隧道爆破抛掷速度（5-30 m/s），但加性常数 6 和系数 0.3 无物理依据
+  //   - 缺陷：应与比装药 q=Q/V 相关而非总药量 Q
+  //
+  // 切换：metrics.usePerssonVelocity === false 可强制关闭 Persson（仅诊断用）
+  const perssonDisabled = metrics.usePerssonVelocity === false
+  const hasVolume = Number(metrics.volumeRoundM3) > 0
   let vBase
-  let velocityModel = 'empirical'  // 标注当前使用的速度模型
-  if (usePersson && Number(metrics.volumeRoundM3) > 0) {
-    // Persson(1997) 物理模型
+  let velocityModel = 'empirical' // 标注当前使用的速度模型
+  if (!perssonDisabled && hasVolume) {
+    // Persson(1997) 物理模型（默认）
     const explosiveSpecificEnergy = {
-      emulsion: 3.9e6, anfo: 2.484e6, dynamite: 3.56e6
+      emulsion: 3.9e6,
+      anfo: 2.484e6,
+      dynamite: 3.56e6
     }
     const Eg = explosiveSpecificEnergy[metrics.explosiveType || 'emulsion'] || 3.9e6
-    const q = chargeKg / Number(metrics.volumeRoundM3)  // 比装药 kg/m³
-    const eta = 0.15  // 能量耦合系数
-    vBase = Math.sqrt(2 * eta * q * Eg / densityBase)
+    const q = chargeKg / Number(metrics.volumeRoundM3) // 比装药 kg/m³
+    const eta = 0.15 // 能量耦合系数
+    vBase = Math.sqrt((2 * eta * q * Eg) / densityBase)
     velocityModel = 'persson1997'
   } else {
-    // 经验拟合公式（fallback）
+    // 经验拟合公式（fallback：无体积数据或强制关闭 Persson 时）
     vBase = 6 + Math.sqrt(Math.max(1, chargeKg)) * 0.3
   }
 
@@ -233,7 +242,9 @@ export function generateFragmentSpecs(options = {}) {
   }
 
   // 计算延时序号（同段孔 delayOrder 相同），用于延时场耦合
-  const sortedDelays = [...new Set((holes || []).map(h => Number(h.delayMs) || 0))].sort((a, b) => a - b)
+  const sortedDelays = [...new Set((holes || []).map(h => Number(h.delayMs) || 0))].sort(
+    (a, b) => a - b
+  )
   const delayOrderMap = new Map()
   sortedDelays.forEach((d, i) => delayOrderMap.set(d, i))
 
@@ -252,12 +263,10 @@ export function generateFragmentSpecs(options = {}) {
 
       // 延时场耦合：后序孔因前序孔形成新自由面，块度更细、方向偏向前方
       const delayOrder = delayOrderMap.get(Number(h.delayMs) || 0) || 0
-      const delaySizeFactor = delayOrder > 0
-        ? Math.max(DELAY_SIZE_FLOOR, 1 - DELAY_SIZE_DECAY * delayOrder)
-        : 1
-      const delayDirBias = delayOrder > 0
-        ? Math.min(DELAY_DIR_BIAS_MAX, DELAY_DIR_BIAS_PER_ORDER * delayOrder)
-        : 0
+      const delaySizeFactor =
+        delayOrder > 0 ? Math.max(DELAY_SIZE_FLOOR, 1 - DELAY_SIZE_DECAY * delayOrder) : 1
+      const delayDirBias =
+        delayOrder > 0 ? Math.min(DELAY_DIR_BIAS_MAX, DELAY_DIR_BIAS_PER_ORDER * delayOrder) : 0
 
       // 局部速度基准：单孔装药量越大，该孔碎片初速越高
       // vBase_hole = vBase × (holeChargeKg / avgHoleChargeKg)^0.4，再叠加孔型速度系数
@@ -340,7 +349,17 @@ export function generateFragmentSpecs(options = {}) {
       const facePos = _sampleFacePosition(face, rng)
 
       // 4. 计算发射速度
-      const vel = _computeLaunchVelocity(physSize, x50, vBase, throwNx, throwNy, throwNz, face, 0, rng)
+      const vel = _computeLaunchVelocity(
+        physSize,
+        x50,
+        vBase,
+        throwNx,
+        throwNy,
+        throwNz,
+        face,
+        0,
+        rng
+      )
 
       // 5. 岩石颜色（大块深褐色，小块浅灰色）
       const sizeNorm = Math.min(1, physSize / Math.max(0.1, xmax))
@@ -382,8 +401,8 @@ export function generateFragmentSpecs(options = {}) {
     velocities,
     positions,
     floorY: Number(face.floorY) || 0,
-    targetAvg: enableCalibration ? (Number(metrics.throwDistanceTargetAvg) || null) : null,
-    targetMax: enableCalibration ? (Number(metrics.throwDistanceTargetMax) || null) : null
+    targetAvg: enableCalibration ? Number(metrics.throwDistanceTargetAvg) || null : null,
+    targetMax: enableCalibration ? Number(metrics.throwDistanceTargetMax) || null : null
   })
 
   // ─── 分布直方图诊断（分布闭合） ───
@@ -397,10 +416,19 @@ export function generateFragmentSpecs(options = {}) {
   const sizeHistogramGenerated = binHistogram(sizeValues, sizeBinEdges)
 
   // 目标块度直方图（Swebrec 理论分布，使用相同分箱边界）
-  const safeX50ForHist = Math.max(0.01, Math.min(safeXmaxForHist * 0.99, Number(metrics.fragmentX50) || Number(kco?.x50) || 0.5))
+  const safeX50ForHist = Math.max(
+    0.01,
+    Math.min(safeXmaxForHist * 0.99, Number(metrics.fragmentX50) || Number(kco?.x50) || 0.5)
+  )
   const safeBForHist = Math.max(0.1, Number(metrics.fragmentB) || Number(kco?.b) || 2.0)
   const safeNForHist = Number(metrics.fragmentN) || Number(kco?.n) || 1.2
-  const sizeHistogramTarget = generateSwebrecHistogram(safeX50ForHist, safeXmaxForHist, safeNForHist, safeBForHist, sizeBinCount)
+  const sizeHistogramTarget = generateSwebrecHistogram(
+    safeX50ForHist,
+    safeXmaxForHist,
+    safeNForHist,
+    safeBForHist,
+    sizeBinCount
+  )
 
   // KL 散度（目标 vs 实际）
   const sizeKLDivergence = computeKLDivergence(
@@ -429,7 +457,7 @@ export function generateFragmentSpecs(options = {}) {
     positions,
     velocities,
     meta: {
-      velocityModel,                        // 'empirical' | 'persson1997'
+      velocityModel, // 'empirical' | 'persson1997'
       velocityCalibrated: enableCalibration, // 是否启用事后校准
       velocityScaleApplied: velocityStats.velocityScaleApplied
     },
@@ -562,10 +590,10 @@ function _computeVisibleMassFraction(metrics, chargeKg) {
   // 调高至 30%~80% 区间，确保碎石量充足，视觉效果饱满
   const specificCharge = Number(metrics.specificChargeKgM3) || 0
   const throwAvg = Number(metrics.throwDistanceTargetAvg) || 0
-  const chargeTerm = Math.min(0.20, Math.sqrt(Math.max(1, chargeKg)) * 0.0075)
+  const chargeTerm = Math.min(0.2, Math.sqrt(Math.max(1, chargeKg)) * 0.0075)
   const specificTerm = Math.min(0.15, specificCharge * 0.11)
   const throwTerm = Math.min(0.12, throwAvg * 0.0075)
-  return Math.max(0.30, Math.min(0.80, 0.25 + chargeTerm + specificTerm + throwTerm))
+  return Math.max(0.3, Math.min(0.8, 0.25 + chargeTerm + specificTerm + throwTerm))
 }
 
 function _worldToFaceLateral(face, point) {
@@ -662,27 +690,54 @@ function _projectWorldPointToFace(face, point) {
  * @param {number} [axialBias=0] - 轴向偏置（弧度），由孔型权重与延时场耦合叠加
  * @returns {{x:number,y:number,z:number}}
  */
-function _computeLaunchVelocity(physSize, x50, vBase, nx, ny, nz, face, axialBias = 0, rng = Math.random) {
+function _computeLaunchVelocity(
+  physSize,
+  x50,
+  vBase,
+  nx,
+  ny,
+  nz,
+  face,
+  axialBias = 0,
+  rng = Math.random
+) {
+  // ─── 发射运动学常量（来源标注：文献/标定/经验值）───
+  const BASE_LAUNCH_ANGLE = Math.PI * 0.25 // 45° 最优射程角（弹道学经典值，文献）
+  const ANGLE_BIAS_LIMIT = 0.6 // 大/小块抛角偏差上限 rad（工程经验值，未标定）
+  const SIZE_RATIO_REF = 0.5 // sizeRatio 基准点：physSize=x50 时 angleBias=0（工程经验值）
+  const ANGLE_JITTER = Math.PI * 0.12 // ±10.8° 随机扰动（工程经验值，未标定）
+  const LAUNCH_ANGLE_MIN = 0.08 // ~4.6° 下限，防水平抛射（工程经验值）
+  const LAUNCH_ANGLE_MAX = Math.PI * 0.48 // ~86.4° 上限，防垂直抛射（工程经验值）
+  const AZIMUTH_SPREAD = Math.PI * 0.67 // ±60° 锥形扩散，受隧道断面约束（工程经验值）
+  const V_VARIATION_BASE = 0.75 // 速度随机下界（工程经验值，未标定）
+  const V_VARIATION_RANGE = 0.5 // 速度随机范围 → [0.75, 1.25]（工程经验值）
+  const AXIAL_WEIGHT = 0.85 // 轴向分量权重，掌子面法向主导（工程经验值，未标定）
+  const LATERAL_WEIGHT = 0.7 // 横向分量权重（工程经验值，未标定）
+  // 注：AXIAL_WEIGHT/LATERAL_WEIGHT 不满足单位向量条件，
+  // 未来应改为基于掌子面法向与隧道轴向的几何投影（见 OPTIMIZATION_PLAN 问题4）
+
   // 发射角：大块低抛，小块高抛，严格限制在 (0, π/2) 确保只向隧道内抛掷
   const sizeRatio = physSize / Math.max(0.1, x50)
-  const angleBias = Math.max(-0.6, Math.min(0.6, (0.5 - sizeRatio) * 0.6))
+  const angleBias = Math.max(-ANGLE_BIAS_LIMIT, Math.min(ANGLE_BIAS_LIMIT, (SIZE_RATIO_REF - sizeRatio) * ANGLE_BIAS_LIMIT))
   // 叠加孔型与延时场轴向偏置，使速度方向轴向占比变化
-  let launchAngle = Math.PI * 0.25 + angleBias + (rng() - 0.5) * Math.PI * 0.12 + axialBias
-  launchAngle = Math.max(0.08, Math.min(Math.PI * 0.48, launchAngle))
+  let launchAngle = BASE_LAUNCH_ANGLE + angleBias + (rng() - 0.5) * ANGLE_JITTER + axialBias
+  launchAngle = Math.max(LAUNCH_ANGLE_MIN, Math.min(LAUNCH_ANGLE_MAX, launchAngle))
 
-  // 方位角：锥形扩散 ±60°（收窄，避免碎片飞过大截面侧散到岩体内）
-  const azimuth = (rng() - 0.5) * Math.PI * 0.67
+  // 方位角：锥形扩散（收窄，避免碎片飞过大截面侧散到岩体内）
+  const azimuth = (rng() - 0.5) * AZIMUTH_SPREAD
 
-  // 尺寸因子：小碎片加速
-  const sizeFactor = Math.pow(x50 / Math.max(0.1, physSize), 1.0)
-  const vVariation = 0.75 + rng() * 0.5
-  const speed = Math.max(5, Math.min(14, vBase * sizeFactor * vVariation))
+  // 尺寸因子：动能均分 v ∝ (m_mean/m)^{1/3} = x50/physSize（m ∝ physSize³）
+  // 加上界 MAX_SIZE_FACTOR 防止 physSize→0 时发散；下界不裁剪（小碎片该慢就慢）
+  const MAX_SIZE_FACTOR = 3.0 // 工程经验值：小碎片速度上限 = vBase × 3（对应 physSize ≈ x50/3）
+  const sizeFactor = Math.min(x50 / Math.max(0.1, physSize), MAX_SIZE_FACTOR)
+  const vVariation = V_VARIATION_BASE + rng() * V_VARIATION_RANGE
+  const speed = Math.max(0.5, vBase * sizeFactor * vVariation) // 下界 0.5 m/s 防静止，无硬编码上界
 
-  // 速度分解：轴向×0.85（加强向前），横向×0.7，竖向×1.0
+  // 速度分解：轴向加强向前，横向收窄，竖向保留
   // 使用 abs 确保轴向始终指向隧道内
   const cosLaunch = Math.abs(Math.cos(launchAngle))
-  const axialComp = cosLaunch * Math.cos(azimuth) * speed * 0.85
-  const lateralComp = cosLaunch * Math.sin(azimuth) * speed * 0.7
+  const axialComp = cosLaunch * Math.cos(azimuth) * speed * AXIAL_WEIGHT
+  const lateralComp = cosLaunch * Math.sin(azimuth) * speed * LATERAL_WEIGHT
   const verticalComp = Math.sin(launchAngle) * speed
 
   return {
@@ -718,7 +773,9 @@ function _calibrateVelocitiesToThrowTargets({
     const maxScale = Math.sqrt(targetMax / currentStats.throwDistanceMax)
     scale = scale * 0.65 + maxScale * 0.35
   }
-  scale = Math.max(0.55, Math.min(1.1, scale))
+  // 注：原 clamp(0.55, 1.1) 已移除——人为裁剪物理结果只会掩盖模型偏差，
+  // 应通过 Persson η 标定或 sizeFactor 模型修正源头，而非事后砍 scale。
+  // enableCalibration=false 时 targetAvg/targetMax 为 null，scale 恒为 1 不校准。
 
   if (Math.abs(scale - 1) > 0.03) {
     for (const v of velocities) {

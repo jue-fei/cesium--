@@ -531,8 +531,7 @@ export class BlastingManager {
       chargeKg: Number(event.chargeKg) || 100,
       blastCenter: [0, 0, 0],
       tunnelWidth: Number(design.tunnelWidth) || 18,
-      tunnelHeight:
-        (Number(design.tunnelWallHeight) || 6) + (Number(design.tunnelArchRadius) || 9)
+      tunnelHeight: (Number(design.tunnelWallHeight) || 6) + (Number(design.tunnelArchRadius) || 9)
     }
   }
 

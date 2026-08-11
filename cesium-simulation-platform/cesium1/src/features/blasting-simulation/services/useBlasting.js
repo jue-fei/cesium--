@@ -316,7 +316,7 @@ export default function useBlasting() {
       // WebSocket 仅负责推送振动场/应力/损伤数据，碎片动画由本地播放独立驱动。
     })
     // PPV 振动场二进制帧：首帧初始化体积，后续帧更新 Data3DTexture
-    blastingWs.on(FrameType.PPV_FIELD, (payload) => {
+    blastingWs.on(FrameType.PPV_FIELD, payload => {
       if (!blastingManager) return
       const { frame, t, gridShape, boundsMin, boundsMax, ppv } = payload
       if (!blastingManager.hasVibrationField()) {
@@ -325,7 +325,7 @@ export default function useBlasting() {
       blastingManager.updateVibrationField(ppv, t, frame)
     })
     // σ_vm 应力场二进制帧：与 PPV 同时刻推送，更新应力纹理
-    blastingWs.on(FrameType.STRESS_FIELD, (payload) => {
+    blastingWs.on(FrameType.STRESS_FIELD, payload => {
       if (!blastingManager) return
       const { frame, t, gridShape, boundsMin, boundsMax, sigmaVm } = payload
       if (!blastingManager.hasVibrationField()) {
@@ -334,7 +334,7 @@ export default function useBlasting() {
       blastingManager.updateStressField(sigmaVm, t, frame)
     })
     // 损伤分区二进制帧：与 PPV 同时刻推送，更新损伤纹理
-    blastingWs.on(FrameType.DAMAGE_FIELD, (payload) => {
+    blastingWs.on(FrameType.DAMAGE_FIELD, payload => {
       if (!blastingManager) return
       const { frame, t, gridShape, boundsMin, boundsMax, zones } = payload
       if (!blastingManager.hasVibrationField()) {
@@ -491,21 +491,28 @@ export default function useBlasting() {
       ...dataset.value.result,
       // 仅在算法侧未提供 fragmentCount 时兜底使用生成数，避免用渲染统计污染设计结果语义。
       ...(stats &&
-        typeof stats.fragmentCountGenerated === 'number' &&
-        !Number.isFinite(Number(dataset.value.result?.fragmentCount))
+      typeof stats.fragmentCountGenerated === 'number' &&
+      !Number.isFinite(Number(dataset.value.result?.fragmentCount))
         ? { fragmentCount: stats.fragmentCountGenerated }
         : {})
     }
     // 新增：数量细分字段
-    if (stats.fragmentCountTarget != null) resultData.fragmentCountTarget = stats.fragmentCountTarget
-    if (stats.fragmentCountGenerated != null) resultData.fragmentCountGenerated = stats.fragmentCountGenerated
-    if (stats.fragmentCountRendered != null) resultData.fragmentCountRendered = stats.fragmentCountRendered
+    if (stats.fragmentCountTarget != null)
+      resultData.fragmentCountTarget = stats.fragmentCountTarget
+    if (stats.fragmentCountGenerated != null)
+      resultData.fragmentCountGenerated = stats.fragmentCountGenerated
+    if (stats.fragmentCountRendered != null)
+      resultData.fragmentCountRendered = stats.fragmentCountRendered
     // 新增：质量字段
-    if (stats.fragmentMassTargetKg != null) resultData.fragmentMassTargetKg = stats.fragmentMassTargetKg
-    if (stats.fragmentMassGeneratedKg != null) resultData.fragmentMassGeneratedKg = stats.fragmentMassGeneratedKg
+    if (stats.fragmentMassTargetKg != null)
+      resultData.fragmentMassTargetKg = stats.fragmentMassTargetKg
+    if (stats.fragmentMassGeneratedKg != null)
+      resultData.fragmentMassGeneratedKg = stats.fragmentMassGeneratedKg
     // 新增：直方图 JSON 字段
-    if (stats.sizeHistogramGenerated) resultData.fragmentHistogramJson = stats.sizeHistogramGenerated
-    if (stats.velocityHistogramGenerated) resultData.velocityHistogramJson = stats.velocityHistogramGenerated
+    if (stats.sizeHistogramGenerated)
+      resultData.fragmentHistogramJson = stats.sizeHistogramGenerated
+    if (stats.velocityHistogramGenerated)
+      resultData.velocityHistogramJson = stats.velocityHistogramGenerated
     if (stats.renderScaleMode) resultData.renderScaleMode = stats.renderScaleMode
 
     try {
@@ -745,9 +752,13 @@ export default function useBlasting() {
     const energyStats = stats.energyStats || null
     const settledRatio = toFiniteNumber(energyStats?.settledMassRatio)
     const settledStatus =
-      settledRatio == null ? 'neutral' :
-        settledRatio >= 0.90 ? 'ok' :
-          settledRatio >= 0.75 ? 'warning' : 'error'
+      settledRatio == null
+        ? 'neutral'
+        : settledRatio >= 0.9
+          ? 'ok'
+          : settledRatio >= 0.75
+            ? 'warning'
+            : 'error'
     const sectionEnergy = {
       title: '能量与堆积',
       description: '总动能衰减反映抛掷过程能量耗散；堆积质量比衡量碎片落地完整性。',
@@ -763,7 +774,14 @@ export default function useBlasting() {
       ]
     }
 
-    const sections = [sectionKco, sectionCount, sectionMass, sectionThrow, sectionDistribution, sectionEnergy]
+    const sections = [
+      sectionKco,
+      sectionCount,
+      sectionMass,
+      sectionThrow,
+      sectionDistribution,
+      sectionEnergy
+    ]
       .map(section => ({
         ...section,
         metrics: section.metrics.filter(metric => metric.target != null && metric.actual != null)
@@ -847,7 +865,7 @@ export default function useBlasting() {
   // 振动场元信息（gridShape/各场就绪状态/当前时间帧，由 WS 帧处理器刷新）
   const vibrationFieldInfo = ref(null)
 
-  const setVibrationDisplayMode = (mode) => {
+  const setVibrationDisplayMode = mode => {
     if (!VIBRATION_MODES.some(m => m.key === mode)) return
     vibrationDisplayMode.value = mode
     blastingManager?.setVibrationDisplayMode(mode)

@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  swebrecCdf,
-  swebrecInverse,
-  solveX80,
-  cunninghamN
-} from '../kcoFormulas.js'
+import { swebrecCdf, swebrecInverse, solveX80, cunninghamN } from '../kcoFormulas.js'
 
 // 前后端对齐基准值（运行一次记录，作为后端测试的对标基准）
 // swebrecCdf(0.5, 0.3, 2.0, 1.2, 2.0)

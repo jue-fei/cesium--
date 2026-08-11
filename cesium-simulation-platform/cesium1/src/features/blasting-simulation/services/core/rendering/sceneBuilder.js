@@ -11,17 +11,29 @@ const DEFAULT_LIGHTING = {
   ambient: { color: 0xb0b8c0, intensity: 2.5 },
   sun: { color: 0xffffff, intensity: 2.2, position: [50, 80, 30] },
   hemisphere: { sky: 0xaaccff, ground: 0x998866, intensity: 1.5 },
-  tunnelLight: { color: 0xffeecc, intensity: 3.0, distance: 180, decay: 1.5, position: [0, 8, -10] },
-  tunnelLight2: { color: 0xfff4dd, intensity: 2.5, distance: 180, decay: 1.5, position: [0, 6, -30] },
+  tunnelLight: {
+    color: 0xffeecc,
+    intensity: 3.0,
+    distance: 180,
+    decay: 1.5,
+    position: [0, 8, -10]
+  },
+  tunnelLight2: {
+    color: 0xfff4dd,
+    intensity: 2.5,
+    distance: 180,
+    decay: 1.5,
+    position: [0, 6, -30]
+  },
   fireLight: { color: 0xff6600, intensity: 0, distance: 500, decay: 2 }
 }
 
 // ─── 炮孔类型颜色编码 ──────────────────────────────────
 const HOLE_TYPE_COLORS = {
   cut: 0xff6b6b,
-  easing: 0xff6b6b,      // easing 等同 cut
+  easing: 0xff6b6b, // easing 等同 cut
   auxiliary: 0xfeca57,
-  production: 0xfeca57,  // production 默认归入辅助
+  production: 0xfeca57, // production 默认归入辅助
   perimeter: 0x1dd1a1
 }
 const EMPTY_HOLE_COLOR = 0xffffff
@@ -224,7 +236,11 @@ export class SceneBuilder {
     this.scene.add(this.sunLight)
 
     // 半球光（天空-地面）
-    const hemiLight = new THREE.HemisphereLight(L.hemisphere.sky, L.hemisphere.ground, L.hemisphere.intensity)
+    const hemiLight = new THREE.HemisphereLight(
+      L.hemisphere.sky,
+      L.hemisphere.ground,
+      L.hemisphere.intensity
+    )
     this.scene.add(hemiLight)
 
     // 隧道内部补光 #1（掌子面附近，模拟施工照明）
@@ -292,10 +308,10 @@ export class SceneBuilder {
       // 1) 中央破碎区（掏槽+辅助孔区域，完全破碎抛出，形成深凹腔）
       const crater = new THREE.Path()
       const craterCX = 0
-      const craterCY = totalH * 0.40
+      const craterCY = totalH * 0.4
       // 中央破碎区约占断面 90%（大面积破碎抛出）
-      const craterW = W * 0.90
-      const craterH = totalH * 0.90
+      const craterW = W * 0.9
+      const craterH = totalH * 0.9
       const craterPts = 24
       for (let i = 0; i < craterPts; i++) {
         const a = (i / craterPts) * Math.PI * 2
@@ -322,12 +338,15 @@ export class SceneBuilder {
         const d = t * perimeterLen
         let px, py
         if (d < Hw) {
-          px = -W / 2 + 0.3; py = d
+          px = -W / 2 + 0.3
+          py = d
         } else if (d < 2 * Hw) {
-          px = W / 2 - 0.3; py = 2 * Hw - d
+          px = W / 2 - 0.3
+          py = 2 * Hw - d
         } else {
           const a = Math.PI - ((d - 2 * Hw) / (Math.PI * R)) * Math.PI
-          px = Math.cos(a) * (R - 0.3); py = Hw + Math.sin(a) * (R - 0.3)
+          px = Math.cos(a) * (R - 0.3)
+          py = Hw + Math.sin(a) * (R - 0.3)
         }
         const pr = W * 0.018
         const ppts = 5
@@ -361,19 +380,26 @@ export class SceneBuilder {
 
   // ─── 清理旧场景网格 ──────────────────────────────────
   _cleanupBenchGeometry() {
-    const disposeSingle = (mesh) => {
+    const disposeSingle = mesh => {
       if (!mesh) return
       this.scene.remove(mesh)
       mesh.geometry.dispose()
       mesh.material.dispose()
     }
-    disposeSingle(this.benchMesh); this.benchMesh = null
-    disposeSingle(this.faceMesh); this.faceMesh = null
-    disposeSingle(this.faceDamagedMesh); this.faceDamagedMesh = null
-    disposeSingle(this.tunnelShellMesh); this.tunnelShellMesh = null
-    disposeSingle(this.craterMesh); this.craterMesh = null
-    this._disposeGroup(this.blastHolesGroup); this.blastHolesGroup = null
-    this._disposeGroup(this.annotationsGroup); this.annotationsGroup = null
+    disposeSingle(this.benchMesh)
+    this.benchMesh = null
+    disposeSingle(this.faceMesh)
+    this.faceMesh = null
+    disposeSingle(this.faceDamagedMesh)
+    this.faceDamagedMesh = null
+    disposeSingle(this.tunnelShellMesh)
+    this.tunnelShellMesh = null
+    disposeSingle(this.craterMesh)
+    this.craterMesh = null
+    this._disposeGroup(this.blastHolesGroup)
+    this.blastHolesGroup = null
+    this._disposeGroup(this.annotationsGroup)
+    this.annotationsGroup = null
   }
 
   // ─── 主构建入口 ───────────────────────────────────────
@@ -439,10 +465,10 @@ export class SceneBuilder {
   // ─── 岩体（马蹄形挤出，掌子面前方待爆岩体） ──────────
   _buildBenchMesh(ctx) {
     const benchDepth = this.benchLength
-    const benchGeo = new THREE.ExtrudeGeometry(
-      ctx.tunnelShape,
-      { depth: benchDepth, bevelEnabled: false }
-    )
+    const benchGeo = new THREE.ExtrudeGeometry(ctx.tunnelShape, {
+      depth: benchDepth,
+      bevelEnabled: false
+    })
     benchGeo.translate(0, 0, -benchDepth / 2) // 沿深度居中
     this.benchMesh = new THREE.Mesh(benchGeo, ctx.benchMat)
     // 岩体位于掌子面前方（+forward，未开挖岩体方向），后端贴合掌子面
@@ -460,10 +486,10 @@ export class SceneBuilder {
   // ─── 隧道内壁（已开挖段） ────────────────────────────
   _buildTunnelShell(ctx) {
     const shellLength = 80 // 已开挖隧道长度(m)，足够覆盖相机视野
-    const shellGeo = new THREE.ExtrudeGeometry(
-      ctx.tunnelShape,
-      { depth: shellLength, bevelEnabled: false }
-    )
+    const shellGeo = new THREE.ExtrudeGeometry(ctx.tunnelShape, {
+      depth: shellLength,
+      bevelEnabled: false
+    })
     // 沿 +Z extrude；translate 使其一端在 Z=0（掌子面端），另一端在 Z=-shellLength（相机后方）
     shellGeo.translate(0, 0, -shellLength)
     const shellMat = new THREE.MeshStandardMaterial({
@@ -474,7 +500,11 @@ export class SceneBuilder {
     })
     this.tunnelShellMesh = new THREE.Mesh(shellGeo, shellMat)
     // 前端贴合掌子面（faceOffset），向 -forward 延伸
-    this.tunnelShellMesh.position.set(ctx.cx + ctx.dir.x * ctx.faceOffset, ctx.cz, ctx.cy + ctx.dir.z * ctx.faceOffset)
+    this.tunnelShellMesh.position.set(
+      ctx.cx + ctx.dir.x * ctx.faceOffset,
+      ctx.cz,
+      ctx.cy + ctx.dir.z * ctx.faceOffset
+    )
     this.tunnelShellMesh.rotation.y = ctx.yaw
     this.tunnelShellMesh.receiveShadow = true
     this.scene.add(this.tunnelShellMesh)
@@ -483,13 +513,17 @@ export class SceneBuilder {
   // ─── 完整掌子面（薄板马蹄形，爆破前可见） ────────────
   _buildFaceMesh(ctx) {
     const faceThickness = 2
-    const faceGeo = new THREE.ExtrudeGeometry(
-      ctx.tunnelShape,
-      { depth: faceThickness, bevelEnabled: false }
-    )
+    const faceGeo = new THREE.ExtrudeGeometry(ctx.tunnelShape, {
+      depth: faceThickness,
+      bevelEnabled: false
+    })
     faceGeo.translate(0, 0, -faceThickness / 2)
     this.faceMesh = new THREE.Mesh(faceGeo, ctx.faceMat)
-    this.faceMesh.position.set(ctx.cx + ctx.dir.x * ctx.faceOffset, ctx.cz, ctx.cy + ctx.dir.z * ctx.faceOffset)
+    this.faceMesh.position.set(
+      ctx.cx + ctx.dir.x * ctx.faceOffset,
+      ctx.cz,
+      ctx.cy + ctx.dir.z * ctx.faceOffset
+    )
     this.faceMesh.rotation.y = ctx.yaw
     this.faceMesh.castShadow = true
     this.faceMesh.receiveShadow = true
@@ -523,15 +557,21 @@ export class SceneBuilder {
     const craterGeo = this._buildCraterGeometry(craterRadius, craterDepth, 40)
     const craterMat = new THREE.MeshStandardMaterial({
       color: 0x0d0805,
-      roughness: 1.0, metalness: 0.0, flatShading: true, side: THREE.DoubleSide
+      roughness: 1.0,
+      metalness: 0.0,
+      flatShading: true,
+      side: THREE.DoubleSide
     })
     this.craterMesh = new THREE.Mesh(craterGeo, craterMat)
     const rectArea = ctx.W * ctx.Hw
     const archArea = (Math.PI * ctx.R * ctx.R) / 2
     const totalArea = rectArea + archArea
-    const hcy = (rectArea * (ctx.Hw * 0.5) + archArea * (ctx.Hw + (4 * ctx.R) / (3 * Math.PI))) / totalArea
+    const hcy =
+      (rectArea * (ctx.Hw * 0.5) + archArea * (ctx.Hw + (4 * ctx.R) / (3 * Math.PI))) / totalArea
     this.craterMesh.position.set(
-      ctx.cx + ctx.dir.x * (ctx.faceOffset + 0.15), ctx.cz + hcy, ctx.cy + ctx.dir.z * (ctx.faceOffset + 0.15)
+      ctx.cx + ctx.dir.x * (ctx.faceOffset + 0.15),
+      ctx.cz + hcy,
+      ctx.cy + ctx.dir.z * (ctx.faceOffset + 0.15)
     )
     this.craterMesh.rotation.y = ctx.yaw
     this.craterMesh.castShadow = true
@@ -633,26 +673,51 @@ export class SceneBuilder {
 
     // 中心空孔
     holes.push({
-      x: 0, y: cy0, type: 'cut', isEmpty: true,
-      depth: holeDepth, visRadius: emptyVisRadius,
-      inclination: 0, azimuth: 0,
-      chargeKg: 0, chargeLength: 0, explosiveType: 'emulsion',
-      detonatorSeries: 1, delayMs: 0, id: 'CUT-EMPTY'
+      x: 0,
+      y: cy0,
+      type: 'cut',
+      isEmpty: true,
+      depth: holeDepth,
+      visRadius: emptyVisRadius,
+      inclination: 0,
+      azimuth: 0,
+      chargeKg: 0,
+      chargeLength: 0,
+      explosiveType: 'emulsion',
+      detonatorSeries: 1,
+      delayMs: 0,
+      id: 'CUT-EMPTY'
     })
     // 菱形 4 孔装药掏槽
-    const cutPos = [[cutR, cy0], [-cutR, cy0], [0, cy0 + cutR], [0, cy0 - cutR]]
+    const cutPos = [
+      [cutR, cy0],
+      [-cutR, cy0],
+      [0, cy0 + cutR],
+      [0, cy0 - cutR]
+    ]
     cutPos.forEach((p, i) => {
       holes.push({
-        x: p[0], y: p[1], type: 'cut', isEmpty: false,
-        depth: holeDepth, visRadius,
-        inclination: 0, azimuth: 0,
-        chargeKg: holeDepth * 0.8 * 1.2, chargeLength: holeDepth * 0.8,
-        explosiveType: 'emulsion', detonatorSeries: i + 2,
-        delayMs: (i + 2) * 100, id: `CUT-${i + 1}`
+        x: p[0],
+        y: p[1],
+        type: 'cut',
+        isEmpty: false,
+        depth: holeDepth,
+        visRadius,
+        inclination: 0,
+        azimuth: 0,
+        chargeKg: holeDepth * 0.8 * 1.2,
+        chargeLength: holeDepth * 0.8,
+        explosiveType: 'emulsion',
+        detonatorSeries: i + 2,
+        delayMs: (i + 2) * 100,
+        id: `CUT-${i + 1}`
       })
     })
     // 辅助孔 2 圈
-    const helperRings = [{ r: 2.6, n: 8 }, { r: 4.2, n: 12 }]
+    const helperRings = [
+      { r: 2.6, n: 8 },
+      { r: 4.2, n: 12 }
+    ]
     let auxSeries = 6
     helperRings.forEach(({ r, n }) => {
       for (let i = 0; i < n; i++) {
@@ -661,12 +726,20 @@ export class SceneBuilder {
         const y = cy0 + Math.sin(a) * r
         if (this._isInsideTunnelSection(x, y, W, Hw, R)) {
           holes.push({
-            x, y, type: 'auxiliary', isEmpty: false,
-            depth: holeDepth, visRadius,
-            inclination: 0, azimuth: 0,
-            chargeKg: holeDepth * 0.7 * 1.0, chargeLength: holeDepth * 0.7,
-            explosiveType: 'emulsion', detonatorSeries: auxSeries,
-            delayMs: auxSeries * 100, id: `AUX-${auxSeries}`
+            x,
+            y,
+            type: 'auxiliary',
+            isEmpty: false,
+            depth: holeDepth,
+            visRadius,
+            inclination: 0,
+            azimuth: 0,
+            chargeKg: holeDepth * 0.7 * 1.0,
+            chargeLength: holeDepth * 0.7,
+            explosiveType: 'emulsion',
+            detonatorSeries: auxSeries,
+            delayMs: auxSeries * 100,
+            id: `AUX-${auxSeries}`
           })
           auxSeries = (auxSeries % 20) + 1
         }
@@ -678,12 +751,20 @@ export class SceneBuilder {
     for (let y = 1.0; y <= Hw - 0.3; y += perimSpacing) {
       for (const x of [-W / 2 + 0.35, W / 2 - 0.35]) {
         holes.push({
-          x, y, type: 'perimeter', isEmpty: false,
-          depth: holeDepth, visRadius,
-          inclination: 3, azimuth: x > 0 ? 90 : -90,
-          chargeKg: holeDepth * 0.6 * 0.5, chargeLength: holeDepth * 0.6,
-          explosiveType: 'emulsion', detonatorSeries: perimSeries,
-          delayMs: perimSeries * 100, id: `PER-W-${perimSeries}`
+          x,
+          y,
+          type: 'perimeter',
+          isEmpty: false,
+          depth: holeDepth,
+          visRadius,
+          inclination: 3,
+          azimuth: x > 0 ? 90 : -90,
+          chargeKg: holeDepth * 0.6 * 0.5,
+          chargeLength: holeDepth * 0.6,
+          explosiveType: 'emulsion',
+          detonatorSeries: perimSeries,
+          delayMs: perimSeries * 100,
+          id: `PER-W-${perimSeries}`
         })
         perimSeries = (perimSeries % 20) + 1
       }
@@ -694,28 +775,54 @@ export class SceneBuilder {
       const x = Math.cos(a) * R
       const y = Hw + Math.sin(a) * R
       holes.push({
-        x, y, type: 'perimeter', isEmpty: false,
-        depth: holeDepth, visRadius,
-        inclination: 3, azimuth: Math.atan2(x, y - Hw) * 180 / Math.PI,
-        chargeKg: holeDepth * 0.6 * 0.5, chargeLength: holeDepth * 0.6,
-        explosiveType: 'emulsion', detonatorSeries: perimSeries,
-        delayMs: perimSeries * 100, id: `PER-A-${perimSeries}`
+        x,
+        y,
+        type: 'perimeter',
+        isEmpty: false,
+        depth: holeDepth,
+        visRadius,
+        inclination: 3,
+        azimuth: (Math.atan2(x, y - Hw) * 180) / Math.PI,
+        chargeKg: holeDepth * 0.6 * 0.5,
+        chargeLength: holeDepth * 0.6,
+        explosiveType: 'emulsion',
+        detonatorSeries: perimSeries,
+        delayMs: perimSeries * 100,
+        id: `PER-A-${perimSeries}`
       })
       perimSeries = (perimSeries % 20) + 1
     }
     holes.push({
-      x: -W / 2 + 0.4, y: 0.5, type: 'perimeter', isEmpty: false,
-      depth: holeDepth, visRadius, inclination: 5, azimuth: -90,
-      chargeKg: holeDepth * 0.7 * 0.5, chargeLength: holeDepth * 0.7,
-      explosiveType: 'emulsion', detonatorSeries: perimSeries,
-      delayMs: perimSeries * 100, id: 'PER-BL'
+      x: -W / 2 + 0.4,
+      y: 0.5,
+      type: 'perimeter',
+      isEmpty: false,
+      depth: holeDepth,
+      visRadius,
+      inclination: 5,
+      azimuth: -90,
+      chargeKg: holeDepth * 0.7 * 0.5,
+      chargeLength: holeDepth * 0.7,
+      explosiveType: 'emulsion',
+      detonatorSeries: perimSeries,
+      delayMs: perimSeries * 100,
+      id: 'PER-BL'
     })
     holes.push({
-      x: W / 2 - 0.4, y: 0.5, type: 'perimeter', isEmpty: false,
-      depth: holeDepth, visRadius, inclination: 5, azimuth: 90,
-      chargeKg: holeDepth * 0.7 * 0.5, chargeLength: holeDepth * 0.7,
-      explosiveType: 'emulsion', detonatorSeries: perimSeries,
-      delayMs: perimSeries * 100, id: 'PER-BR'
+      x: W / 2 - 0.4,
+      y: 0.5,
+      type: 'perimeter',
+      isEmpty: false,
+      depth: holeDepth,
+      visRadius,
+      inclination: 5,
+      azimuth: 90,
+      chargeKg: holeDepth * 0.7 * 0.5,
+      chargeLength: holeDepth * 0.7,
+      explosiveType: 'emulsion',
+      detonatorSeries: perimSeries,
+      delayMs: perimSeries * 100,
+      id: 'PER-BR'
     })
     return holes
   }
@@ -746,7 +853,7 @@ export class SceneBuilder {
           color,
           roughness: 0.7,
           metalness: 0.1,
-          emissive: isEmpty ? 0x222222 : (color & 0x222222), // 空孔弱自发光
+          emissive: isEmpty ? 0x222222 : color & 0x222222, // 空孔弱自发光
           emissiveIntensity: isEmpty ? 0.2 : 0.1,
           flatShading: true
         })
@@ -766,19 +873,15 @@ export class SceneBuilder {
       if (h.inclination && h.inclination > 0.1) {
         const incRad = (h.inclination * Math.PI) / 180
         const aziRad = (h.azimuth * Math.PI) / 180
-        mesh.rotation.set(
-          -Math.sin(aziRad) * incRad,
-          Math.cos(aziRad) * incRad,
-          0,
-          'XYZ'
-        )
+        mesh.rotation.set(-Math.sin(aziRad) * incRad, Math.cos(aziRad) * incRad, 0, 'XYZ')
       }
 
       // 孔位标注：在孔口附近显示编号 + 段别 + 装药量（小尺寸 Sprite）
       if (holes.length <= 60 && h.id) {
         const labelText = `${h.id} · S${h.detonatorSeries}`
         const chargeText = h.isEmpty ? '(空孔)' : `${h.chargeKg.toFixed(1)}kg`
-        const labelColor = h.isEmpty ? '#cccccc'
+        const labelColor = h.isEmpty
+          ? '#cccccc'
           : '#' + (HOLE_TYPE_COLORS[h.type] ?? 0xfeca57).toString(16).padStart(6, '0')
         const sprite = this._createTextSprite(`${labelText}\n${chargeText}`, labelColor, 18)
         if (sprite) {
@@ -844,7 +947,7 @@ export class SceneBuilder {
     // 掘进深度标注（保留）
     const holeDepth = Number(this.designParams?.holeDepth) || 2.5
     const utilization = Number(this.designParams?.utilization) || 0.85
-    const advanceDepth = Number(this.designParams?.advanceLength) || (holeDepth * utilization)
+    const advanceDepth = Number(this.designParams?.advanceLength) || holeDepth * utilization
     const advanceLabel = this._createTextSprite(
       `掘进进尺: ${advanceDepth.toFixed(2)} m  (孔深${holeDepth.toFixed(1)}m × 利用率${(utilization * 100).toFixed(0)}%)`,
       '#ffd166',
@@ -856,10 +959,14 @@ export class SceneBuilder {
     // 断面尺寸标注（保留）
     const sectionArea = W * Hw + (Math.PI * R * R) / 2
     const shapeLabel = this.tunnelSection?.shape || 'horseshoe'
-    const shapeCN = shapeLabel === 'horseshoe' ? '马蹄形'
-      : shapeLabel === 'circular' ? '圆形'
-        : shapeLabel === 'rectangular' ? '矩形'
-          : '拱形'
+    const shapeCN =
+      shapeLabel === 'horseshoe'
+        ? '马蹄形'
+        : shapeLabel === 'circular'
+          ? '圆形'
+          : shapeLabel === 'rectangular'
+            ? '矩形'
+            : '拱形'
     const sizeLabel = this._createTextSprite(
       `断面: ${shapeCN} ${W}m × ${totalH.toFixed(1)}m  (A=${sectionArea.toFixed(1)}m²)`,
       '#4fc3f7',
@@ -932,7 +1039,8 @@ export class SceneBuilder {
     const geo = new THREE.BufferGeometry()
     const r = Math.max(0.5, radius)
     const d = Math.max(0.5, depth)
-    const verts = []; const idx = []
+    const verts = []
+    const idx = []
     // 开口环
     for (let i = 0; i <= segments; i++) {
       const a = (i / segments) * Math.PI * 2
@@ -954,7 +1062,10 @@ export class SceneBuilder {
     const bottomIdx = verts.length / 3 - 1
     for (let ring = 0; ring < rings; ring++) {
       for (let i = 0; i < segments; i++) {
-        const a = ring * (segments + 1) + i, b = a + 1, c = a + (segments + 1), e = c + 1
+        const a = ring * (segments + 1) + i,
+          b = a + 1,
+          c = a + (segments + 1),
+          e = c + 1
         idx.push(a, b, c, b, e, c)
       }
     }
@@ -1033,8 +1144,10 @@ export class SceneBuilder {
     this.tunnelWallHeight = next.wallHeight
     this.tunnelArchRadius = next.archRadius
     this.tunnelHeight =
-      next.shape === 'circular' ? next.archRadius * 2
-        : next.shape === 'rectangular' ? next.wallHeight
+      next.shape === 'circular'
+        ? next.archRadius * 2
+        : next.shape === 'rectangular'
+          ? next.wallHeight
           : next.wallHeight + next.archRadius
   }
 

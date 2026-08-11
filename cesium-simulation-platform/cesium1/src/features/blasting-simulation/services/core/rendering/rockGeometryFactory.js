@@ -46,9 +46,7 @@ function createBlockyRockGeometry(seed) {
     const z = positions.getZ(i)
     const isCorner = Math.abs(x) > 0.35 && Math.abs(y) > 0.35 && Math.abs(z) > 0.35
     // 角顶点大幅偏移(0.4~1.4)，面内顶点小幅偏移(0.8~1.1)
-    const factor = isCorner
-      ? (0.4 + rng() * 1.0)
-      : (0.8 + rng() * 0.3)
+    const factor = isCorner ? 0.4 + rng() * 1.0 : 0.8 + rng() * 0.3
     positions.setXYZ(i, x * factor, y * factor, z * factor)
   }
   geo.computeVertexNormals()
@@ -149,7 +147,7 @@ function createElongatedRockGeometry(seed) {
     const z = positions.getZ(i)
     const jitter = 0.7 + rng() * 0.6
     // 端面微凹/凸
-    const endFactor = Math.abs(y) > 0.4 ? (0.6 + rng() * 0.8) : 1.0
+    const endFactor = Math.abs(y) > 0.4 ? 0.6 + rng() * 0.8 : 1.0
     positions.setXYZ(
       i,
       x * compressXZ * jitter * endFactor,

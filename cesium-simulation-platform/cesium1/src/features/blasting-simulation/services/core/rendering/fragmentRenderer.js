@@ -37,21 +37,25 @@ export class FragmentRenderer {
    */
   buildFragmentMesh(specs) {
     // 清理旧碎片
-    this.fragmentMeshes.forEach(mesh => { this.scene.remove(mesh) })
+    this.fragmentMeshes.forEach(mesh => {
+      this.scene.remove(mesh)
+    })
     this.fragmentMeshes = []
 
     if (!specs || specs.length === 0) return
 
     if (!this.rockMaterial) {
       this.rockMaterial = new THREE.MeshStandardMaterial({
-        roughness: 0.9, metalness: 0.0, flatShading: true
+        roughness: 0.9,
+        metalness: 0.0,
+        flatShading: true
       })
     }
 
     const variantCount = this.rockGeometries.length
     const groups = Array.from({ length: variantCount }, () => [])
     specs.forEach((s, i) => {
-      const v = s.variantIndex !== undefined ? s.variantIndex : (i % variantCount)
+      const v = s.variantIndex !== undefined ? s.variantIndex : i % variantCount
       groups[v].push({ spec: s, specIndex: i })
     })
 
@@ -61,7 +65,8 @@ export class FragmentRenderer {
       const geometry = this.rockGeometries[variant]
       const mesh = new THREE.InstancedMesh(geometry, this.rockMaterial, group.length)
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-      mesh.castShadow = true; mesh.receiveShadow = true
+      mesh.castShadow = true
+      mesh.receiveShadow = true
       mesh.frustumCulled = false
 
       group.forEach(({ spec }, localIdx) => {

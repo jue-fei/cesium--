@@ -53,7 +53,9 @@ function _objCamelToSnake(obj) {
  * @returns {Promise<Array>}
  */
 export function fetchBlastingEvents(status = null) {
-  const url = status ? `${API_BASE}/events?status=${encodeURIComponent(status)}` : `${API_BASE}/events`
+  const url = status
+    ? `${API_BASE}/events?status=${encodeURIComponent(status)}`
+    : `${API_BASE}/events`
   return request(url).then(r => r.data || [])
 }
 

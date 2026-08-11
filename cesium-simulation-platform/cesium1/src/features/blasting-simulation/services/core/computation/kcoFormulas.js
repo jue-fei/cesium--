@@ -30,8 +30,12 @@ function brentq(fn, a, b, tol = 1e-7, maxIter = 100) {
 
   // 令 b 为当前最佳近似（|fb| < |fa|）
   if (Math.abs(fa) < Math.abs(fb)) {
-    const ta = a; a = b; b = ta
-    const tfa = fa; fa = fb; fb = tfa
+    const ta = a
+    a = b
+    b = ta
+    const tfa = fa
+    fa = fb
+    fb = tfa
   }
 
   let c = a
@@ -85,8 +89,12 @@ function brentq(fn, a, b, tol = 1e-7, maxIter = 100) {
       fa = fs
     }
     if (Math.abs(fa) < Math.abs(fb)) {
-      const ta = a; a = b; b = ta
-      const tfa = fa; fa = fb; fb = tfa
+      const ta = a
+      a = b
+      b = ta
+      const tfa = fa
+      fa = fb
+      fb = tfa
     }
   }
   return b
@@ -125,7 +133,7 @@ export function swebrecInverse(u, x50, xmax, n, b) {
   if (u <= 0) return 0
   if (u >= 1) return xmax
   const eps = 1e-9
-  const fn = (x) => swebrecCdf(x, x50, xmax, n, b) - u
+  const fn = x => swebrecCdf(x, x50, xmax, n, b) - u
   return brentq(fn, eps, xmax - eps)
 }
 
@@ -151,7 +159,7 @@ export function solveX80(x50, xmax, n, b) {
  */
 export function cunninghamN(B, d, W_abs) {
   if (B <= 0) return 1.0
-  const raw = (2.2 - (14 * d) / B) * (1 - W_abs / B) / 2
+  const raw = ((2.2 - (14 * d) / B) * (1 - W_abs / B)) / 2
   return Math.max(0.5, Math.min(2.5, raw))
 }
 

@@ -21,12 +21,7 @@
  * computeKLDivergence（KL 散度，衡量实际采样与理论分布的形态差异）。
  */
 
-import {
-  swebrecCdf,
-  swebrecInverse,
-  solveX80,
-  cunninghamN
-} from './kcoFormulas.js'
+import { swebrecCdf, swebrecInverse, solveX80, cunninghamN } from './kcoFormulas.js'
 
 // KCO 默认参数（公路隧道中硬岩典型值）
 export const DEFAULT_KCO_PARAMS = {

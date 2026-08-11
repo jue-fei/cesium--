@@ -727,7 +727,9 @@ export class ThreeBlastingRenderer {
     const total = sizes.length
     const buckets = bucketDefs.map(def => {
       // 上界开放、下界闭，避免边界重复计数（1.0 m+ 区间下界闭）
-      const count = sizes.filter(s => s >= def.min && (def.max === Infinity ? true : s < def.max)).length
+      const count = sizes.filter(
+        s => s >= def.min && (def.max === Infinity ? true : s < def.max)
+      ).length
       return {
         min: def.min,
         max: def.max === Infinity ? null : def.max,

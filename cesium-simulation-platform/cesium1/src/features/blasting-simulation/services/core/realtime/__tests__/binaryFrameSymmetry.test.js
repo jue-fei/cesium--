@@ -34,7 +34,9 @@ import { BlastingWsConnector } from '../blastingWsConnector.js'
  * @returns {{ buffer: ArrayBuffer, meta: Object }}
  */
 function buildFloatFrame(typeId) {
-  const nx = 3, ny = 2, nz = 4
+  const nx = 3,
+    ny = 2,
+    nz = 4
   const voxelCount = nx * ny * nz // 24
   const headerSize = 45
   const buf = new ArrayBuffer(headerSize + voxelCount * 4)
@@ -47,7 +49,7 @@ function buildFloatFrame(typeId) {
 
   // 头部（大端，与 Python struct.pack('>...') 一致）
   view.setUint8(0, typeId)
-  view.setUint32(1, frame, false)        // false = big-endian
+  view.setUint32(1, frame, false) // false = big-endian
   view.setFloat32(5, t, false)
   view.setUint32(9, nx, false)
   view.setUint32(13, ny, false)
@@ -78,7 +80,7 @@ function buildFloatFrame(typeId) {
 
   return {
     buffer: buf,
-    meta: { frame, t, nx, ny, nz, bmin, bmax, values, voxelCount },
+    meta: { frame, t, nx, ny, nz, bmin, bmax, values, voxelCount }
   }
 }
 
@@ -87,7 +89,9 @@ function buildFloatFrame(typeId) {
  * @returns {{ buffer: ArrayBuffer, meta: Object }}
  */
 function buildDamageFrame() {
-  const nx = 3, ny = 2, nz = 2
+  const nx = 3,
+    ny = 2,
+    nz = 2
   const voxelCount = nx * ny * nz // 12
   const headerSize = 45
   const buf = new ArrayBuffer(headerSize + voxelCount) // int8 = 1 byte/voxel
@@ -121,13 +125,11 @@ function buildDamageFrame() {
   return { buffer: buf, meta: { frame, t, nx, ny, nz, bmin, bmax, zones, voxelCount } }
 }
 
-
 // ─── 创建解析器实例（不连接 WebSocket） ────────────────
 function createParser() {
   // 传入 url 避免 _buildUrl 访问 window.location
   return new BlastingWsConnector('test-event', { url: 'ws://localhost/test', autoReconnect: false })
 }
-
 
 // ============================================================
 // PPV 帧（0x02）对称性
@@ -178,7 +180,6 @@ describe('二进制帧对称性 - PPV (0x02)', () => {
   })
 })
 
-
 // ============================================================
 // STRESS 帧（0x03）对称性
 // ============================================================
@@ -199,7 +200,6 @@ describe('二进制帧对称性 - STRESS (0x03)', () => {
     }
   })
 })
-
 
 // ============================================================
 // DAMAGE 帧（0x04）对称性
@@ -244,7 +244,6 @@ describe('二进制帧对称性 - DAMAGE (0x04)', () => {
   })
 })
 
-
 // ============================================================
 // 帧分发与错误处理
 // ============================================================
@@ -253,7 +252,9 @@ describe('二进制帧分发', () => {
     const { buffer, meta } = buildFloatFrame(0x02)
     const parser = createParser()
     let received = null
-    parser.on('ppv_field', (payload) => { received = payload })
+    parser.on('ppv_field', payload => {
+      received = payload
+    })
     parser._handleBinaryFrame(buffer)
     expect(received).not.toBeNull()
     expect(received.frame).toBe(meta.frame)
@@ -263,7 +264,9 @@ describe('二进制帧分发', () => {
     const { buffer, meta } = buildDamageFrame()
     const parser = createParser()
     let received = null
-    parser.on('damage_field', (payload) => { received = payload })
+    parser.on('damage_field', payload => {
+      received = payload
+    })
     parser._handleBinaryFrame(buffer)
     expect(received).not.toBeNull()
     expect(received.frame).toBe(meta.frame)
@@ -272,7 +275,7 @@ describe('二进制帧分发', () => {
   it('未知 type_id 被跳过（不抛异常）', () => {
     const buf = new ArrayBuffer(45)
     const view = new DataView(buf)
-    view.setUint8(0, 0xFF) // 未知 type_id
+    view.setUint8(0, 0xff) // 未知 type_id
     const parser = createParser()
     expect(() => parser._handleBinaryFrame(buf)).not.toThrow()
   })

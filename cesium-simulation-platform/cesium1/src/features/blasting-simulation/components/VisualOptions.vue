@@ -1,12 +1,14 @@
 <template>
   <div class="panel-section">
     <div class="panel-section-title">图层可见性</div>
-    <div class="hint-text">
-      单独控制 3D 场景中各爆破元素的显示/隐藏，便于聚焦观察特定效果。
-    </div>
+    <div class="hint-text">单独控制 3D 场景中各爆破元素的显示/隐藏，便于聚焦观察特定效果。</div>
     <div class="layer-grid">
       <label v-for="layer in layerDefs" :key="layer.key" class="toggle-label layer-toggle">
-        <input type="checkbox" :checked="layerVisibility[layer.key]" @change="onToggle(layer.key, $event)" />
+        <input
+          type="checkbox"
+          :checked="layerVisibility[layer.key]"
+          @change="onToggle(layer.key, $event)"
+        />
         {{ layer.label }}
       </label>
     </div>
@@ -19,8 +21,8 @@
     <!-- 振动场分析（PPV 振动 / σ_vm 应力 / 损伤分区 三模式） -->
     <div class="panel-section-title vibration-section-title">振动场分析</div>
     <div class="hint-text">
-      实时振动场体积渲染，切换 PPV 振动速度 / σ_vm 等效应力 / 损伤分区。
-      数据由后端 WebSocket 同帧推送（萨道夫斯基正演 + 弹性球面波应力反演 + Persson 损伤分区）。
+      实时振动场体积渲染，切换 PPV 振动速度 / σ_vm 等效应力 / 损伤分区。 数据由后端 WebSocket
+      同帧推送（萨道夫斯基正演 + 弹性球面波应力反演 + Persson 损伤分区）。
     </div>
 
     <!-- 三模式切换按钮 -->
@@ -43,23 +45,31 @@
       <!-- PPV 色阶（GB6722-2014） -->
       <template v-if="vibrationMode === 'ppv'">
         <div class="legend-title">PPV 峰值速度 (cm/s) · GB6722-2014</div>
-        <div class="legend-bar" :style="{ background: `linear-gradient(to right, ${ppvGradient})` }"></div>
+        <div
+          class="legend-bar"
+          :style="{ background: `linear-gradient(to right, ${ppvGradient})` }"
+        ></div>
         <div class="legend-ticks">
           <span v-for="t in ppvTicks" :key="t">{{ t }}</span>
         </div>
         <div class="legend-thresholds">
-          <span>1 住宅安全</span><span>2 民用</span><span>4 商业</span><span>7 软岩巷道</span><span>10 硬岩</span>
+          <span>1 住宅安全</span><span>2 民用</span><span>4 商业</span><span>7 软岩巷道</span
+          ><span>10 硬岩</span>
         </div>
       </template>
       <!-- σ_vm 应力色阶（弹性球面波反演） -->
       <template v-else-if="vibrationMode === 'stress'">
         <div class="legend-title">σ_vm 等效应力 (MPa) · 弹性球面波反演</div>
-        <div class="legend-bar" :style="{ background: `linear-gradient(to right, ${stressGradient})` }"></div>
+        <div
+          class="legend-bar"
+          :style="{ background: `linear-gradient(to right, ${stressGradient})` }"
+        ></div>
         <div class="legend-ticks">
           <span v-for="t in stressTicks" :key="t">{{ t }}</span>
         </div>
         <div class="legend-thresholds">
-          <span>3 近起裂</span><span class="hl">6 抗拉下限</span><span>10 抗拉上限</span><span>20 严重</span><span>30 破碎</span>
+          <span>3 近起裂</span><span class="hl">6 抗拉下限</span><span>10 抗拉上限</span
+          ><span>20 严重</span><span>30 破碎</span>
         </div>
       </template>
       <!-- 损伤分区（Persson 模型） -->
@@ -67,7 +77,10 @@
         <div class="legend-title">Persson 损伤分区</div>
         <div class="damage-legend-grid">
           <div v-for="d in damageLegend" :key="d.zone" class="damage-legend-item">
-            <span class="damage-swatch" :style="{ background: d.c, opacity: d.zone === 0 ? 0.35 : 1 }"></span>
+            <span
+              class="damage-swatch"
+              :style="{ background: d.c, opacity: d.zone === 0 ? 0.35 : 1 }"
+            ></span>
             <span class="damage-zone">{{ d.zone }}</span>
             <span class="damage-label">{{ d.label }}</span>
           </div>
@@ -152,7 +165,6 @@ function formatT(t) {
 const ppvTicks = PPV_TICKS
 const stressTicks = STRESS_TICKS
 const damageLegend = DAMAGE_LEGEND
-
 
 const ppvGradient = gradientCss(PPV_LEGEND_STOPS, PPV_LEGEND_MAX)
 const stressGradient = gradientCss(STRESS_LEGEND_STOPS, STRESS_LEGEND_MAX)

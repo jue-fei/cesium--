@@ -94,7 +94,5 @@ export const DAMAGE_LEGEND = DAMAGE_ZONES.map(z => ({
 
 // ─── CSS gradient 生成工具（VisualOptions.vue 使用）───
 export function gradientCss(stops, max) {
-  return stops
-    .map(s => `${s.c} ${((s.v / max) * 100).toFixed(2)}%`)
-    .join(', ')
+  return stops.map(s => `${s.c} ${((s.v / max) * 100).toFixed(2)}%`).join(', ')
 }

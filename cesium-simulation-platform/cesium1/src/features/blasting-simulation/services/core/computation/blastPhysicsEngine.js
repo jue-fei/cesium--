@@ -44,12 +44,12 @@
 const GRAVITY = 9.8
 
 // 碎片间碰撞参数
-const SPATIAL_HASH_CELL = 0.6  // 空间散列网格尺寸 ≈ 最大碎片直径
+const SPATIAL_HASH_CELL = 0.6 // 空间散列网格尺寸 ≈ 最大碎片直径
 const RESTITUTION_INTER = 0.12 // 碎片间恢复系数（岩屑低弹性，快速堆积）
-const FRICTION_INTER = 0.6     // 碎片间摩擦系数（高摩擦稳定堆积）
-const ANGLE_OF_REPOSE = 37 * Math.PI / 180  // 安息角
-const SETTLE_SPEED = 0.8       // 冻结速度阈值(m/s)（提高以加速堆积冻结）
-const SETTLE_FRAMES = 3        // 持续低速帧数才冻结（降低以加速堆积冻结）
+const FRICTION_INTER = 0.6 // 碎片间摩擦系数（高摩擦稳定堆积）
+const ANGLE_OF_REPOSE = (37 * Math.PI) / 180 // 安息角
+const SETTLE_SPEED = 0.8 // 冻结速度阈值(m/s)（提高以加速堆积冻结）
+const SETTLE_FRAMES = 3 // 持续低速帧数才冻结（降低以加速堆积冻结）
 
 // 能量统计采样间隔（秒）：每 100ms 采样一次动能与堆积质量比，避免数组过大
 const ENERGY_SAMPLE_INTERVAL = 0.1
@@ -188,11 +188,18 @@ export class BlastPhysicsEngine {
       const mass = density * (4 / 3) * Math.PI * Math.pow(physSize / 2, 3)
 
       const body = {
-        posX: p.x, posY: p.y, posZ: p.z,
-        velX: v.x, velY: v.y, velZ: v.z,
+        posX: p.x,
+        posY: p.y,
+        posZ: p.z,
+        velX: v.x,
+        velY: v.y,
+        velZ: v.z,
         physSize,
         mass,
-        quatX: 0, quatY: 0, quatZ: 0, quatW: 1,
+        quatX: 0,
+        quatY: 0,
+        quatZ: 0,
+        quatW: 1,
         angVelX: (this._rng() - 0.5) * 8,
         angVelY: (this._rng() - 0.5) * 8,
         angVelZ: (this._rng() - 0.5) * 8,
@@ -243,7 +250,7 @@ export class BlastPhysicsEngine {
     // 每子步最大位移限制为 0.3m（小于空间散列网格 0.6m 的一半）
     let maxV2 = 0
     for (const b of this.bodies) {
-      if (!(b.flags & FLAG_ALIVE) || (b.flags & FLAG_LANDED)) continue
+      if (!(b.flags & FLAG_ALIVE) || b.flags & FLAG_LANDED) continue
       const v2 = b.velX * b.velX + b.velY * b.velY + b.velZ * b.velZ
       if (v2 > maxV2) maxV2 = v2
     }
@@ -339,8 +346,8 @@ export class BlastPhysicsEngine {
             b.bounceCount++
             const restitutionScale = Math.pow(0.75, b.bounceCount - 1)
             b.velY = -b.velY * b.restitution * restitutionScale
-            b.velX *= (1 - b.friction * 0.5)
-            b.velZ *= (1 - b.friction * 0.5)
+            b.velX *= 1 - b.friction * 0.5
+            b.velZ *= 1 - b.friction * 0.5
             const speed = Math.sqrt(b.velX * b.velX + b.velY * b.velY + b.velZ * b.velZ)
             if (b.bounceCount >= b.maxBounces || speed < 1.5) {
               b.flags |= FLAG_LANDED
@@ -473,7 +480,8 @@ export class BlastPhysicsEngine {
       a.posZ -= nz * overlap
     } else if (!aStatic && !bStatic) {
       // 守卫：mass <= 0 时跳过位置修正（避免 0/0 = NaN 扩散）
-      const ma = a.mass, mb = b.mass
+      const ma = a.mass,
+        mb = b.mass
       const total = ma + mb
       if (total > 1e-9) {
         a.posX -= nx * overlap * (mb / total)
@@ -490,16 +498,16 @@ export class BlastPhysicsEngine {
     const rvy = b.velY - a.velY
     const rvz = b.velZ - a.velZ
     const velAlongNormal = rvx * nx + rvy * ny + rvz * nz
-    if (velAlongNormal > 0) return  // 已分离
+    if (velAlongNormal > 0) return // 已分离
 
     // 冲量计算（静态碎片视为无限质量，invMass=0）
     // 守卫：mass <= 0 时 invMass 视为 0，避免 1/0 = Infinity 产生 NaN
-    const invMassA = (aStatic || !(a.mass > 0)) ? 0 : 1 / a.mass
-    const invMassB = (bStatic || !(b.mass > 0)) ? 0 : 1 / b.mass
+    const invMassA = aStatic || !(a.mass > 0) ? 0 : 1 / a.mass
+    const invMassB = bStatic || !(b.mass > 0) ? 0 : 1 / b.mass
     const invSum = invMassA + invMassB
     if (invSum < 1e-6) return
 
-    const j = -(1 + RESTITUTION_INTER) * velAlongNormal / invSum
+    const j = (-(1 + RESTITUTION_INTER) * velAlongNormal) / invSum
     a.velX -= j * nx * invMassA
     a.velY -= j * ny * invMassA
     a.velZ -= j * nz * invMassA
@@ -514,8 +522,8 @@ export class BlastPhysicsEngine {
     const tz = rvz - velAlongNormal * nz
     const tLen = Math.sqrt(tx * tx + ty * ty + tz * tz)
     if (tLen > 1e-6) {
-      const jtRaw = -tLen / invSum            // 无系数切向冲量
-      const jtMax = FRICTION_INTER * Math.abs(j)  // 库仑锥上限 μ·|j_n|
+      const jtRaw = -tLen / invSum // 无系数切向冲量
+      const jtMax = FRICTION_INTER * Math.abs(j) // 库仑锥上限 μ·|j_n|
       // 夹紧：库仑锥内取 jtRaw，锥外取 ±jtMax
       const jt = Math.max(-jtMax, Math.min(jtMax, jtRaw))
       a.velX -= (tx / tLen) * jt * invMassA
@@ -546,9 +554,12 @@ export class BlastPhysicsEngine {
         for (const n of neighbors) {
           if (n === b) continue
           if (!(n.flags & FLAG_LANDED)) continue
-          if (n.posY >= b.posY) continue  // 仅看下方
+          if (n.posY >= b.posY) continue // 仅看下方
           const horiz = Math.sqrt((n.posX - b.posX) ** 2 + (n.posZ - b.posZ) ** 2)
-          if (horiz < minHoriz) { minHoriz = horiz; support = n }
+          if (horiz < minHoriz) {
+            minHoriz = horiz
+            support = n
+          }
         }
         if (support && minHoriz > 0.01) {
           const radiusSum = b.physSize * 0.5 + support.physSize * 0.5
@@ -572,7 +583,9 @@ export class BlastPhysicsEngine {
           const floorY = tb ? tb.floorY : 0
           if (b.posY > floorY + fragR + 0.1) {
             b.flags &= ~FLAG_LANDED
-            b.velX = 0; b.velY = 0; b.velZ = 0
+            b.velX = 0
+            b.velY = 0
+            b.velZ = 0
             b.lowSpeedFrames = 0
           }
         }
@@ -584,7 +597,9 @@ export class BlastPhysicsEngine {
           if (b.lowSpeedFrames >= SETTLE_FRAMES) {
             b.flags |= FLAG_LANDED
             b.velX = b.velY = b.velZ = 0
-            b.angVelX *= 0.1; b.angVelY *= 0.1; b.angVelZ *= 0.1
+            b.angVelX *= 0.1
+            b.angVelY *= 0.1
+            b.angVelZ *= 0.1
           }
         } else {
           b.lowSpeedFrames = 0
@@ -619,12 +634,12 @@ export class BlastPhysicsEngine {
         const newDy = dy * scale
         const dLat = newLat - lateral
         b.posX += tb.rightX * dLat
-        b.posY += -dy + newDy  // 更准确：修正 y 偏移
+        b.posY += -dy + newDy // 更准确：修正 y 偏移
         b.posZ += tb.rightZ * dLat
         // 反射速度
-        const nx = lateral / dist * tb.rightX
+        const nx = (lateral / dist) * tb.rightX
         const ny = dy / dist
-        const nz = lateral / dist * tb.rightZ
+        const nz = (lateral / dist) * tb.rightZ
         const vn = b.velX * nx + b.velY * ny + b.velZ * nz
         if (vn < 0) {
           const refl = b.restitution * 0.6
@@ -641,8 +656,9 @@ export class BlastPhysicsEngine {
       const topY = tb.floorY + tb.wallHeight - fragR
       if (lateral > halfW) {
         const d = -(lateral - halfW)
-        b.posX += tb.rightX * d; b.posZ += tb.rightZ * d
-        const latVel = b.velX * tb.rightX + b.velZ * tb.rightZ  // 先缓存，避免修改后复用
+        b.posX += tb.rightX * d
+        b.posZ += tb.rightZ * d
+        const latVel = b.velX * tb.rightX + b.velZ * tb.rightZ // 先缓存，避免修改后复用
         if (latVel > 0) {
           b.velX -= tb.rightX * latVel * (1 + b.restitution * 0.6)
           b.velZ -= tb.rightZ * latVel * (1 + b.restitution * 0.6)
@@ -650,7 +666,8 @@ export class BlastPhysicsEngine {
       }
       if (lateral < -halfW) {
         const d = -(lateral + halfW)
-        b.posX += tb.rightX * d; b.posZ += tb.rightZ * d
+        b.posX += tb.rightX * d
+        b.posZ += tb.rightZ * d
         const latVel = b.velX * tb.rightX + b.velZ * tb.rightZ
         if (latVel < 0) {
           b.velX -= tb.rightX * latVel * (1 + b.restitution * 0.6)
@@ -670,7 +687,8 @@ export class BlastPhysicsEngine {
       const wallLimit = tb.halfWidth - fragR
       if (lateral > wallLimit) {
         const d = -(lateral - wallLimit)
-        b.posX += tb.rightX * d; b.posZ += tb.rightZ * d
+        b.posX += tb.rightX * d
+        b.posZ += tb.rightZ * d
         const latVel = b.velX * tb.rightX + b.velZ * tb.rightZ
         if (latVel > 0) {
           b.velX -= tb.rightX * latVel * (1 + b.restitution * 0.6)
@@ -678,7 +696,8 @@ export class BlastPhysicsEngine {
         }
       } else if (lateral < -wallLimit) {
         const d = -(lateral + wallLimit)
-        b.posX += tb.rightX * d; b.posZ += tb.rightZ * d
+        b.posX += tb.rightX * d
+        b.posZ += tb.rightZ * d
         const latVel = b.velX * tb.rightX + b.velZ * tb.rightZ
         if (latVel < 0) {
           b.velX -= tb.rightX * latVel * (1 + b.restitution * 0.6)
@@ -701,8 +720,8 @@ export class BlastPhysicsEngine {
         b.posZ += tb.rightZ * dLat
         b.posY = y0 + newArchDY
         // 法向反射
-        const nx = lateral / dist * tb.rightX
-        const nz = lateral / dist * tb.rightZ
+        const nx = (lateral / dist) * tb.rightX
+        const nz = (lateral / dist) * tb.rightZ
         const ny = archDY / dist
         const vn = b.velX * nx + b.velY * ny + b.velZ * nz
         if (vn < 0) {
@@ -729,8 +748,8 @@ export class BlastPhysicsEngine {
         b.bounceCount++
         const restitutionScale = Math.pow(0.75, b.bounceCount - 1)
         b.velY = -b.velY * b.restitution * restitutionScale
-        b.velX *= (1 - b.friction * 0.5)
-        b.velZ *= (1 - b.friction * 0.5)
+        b.velX *= 1 - b.friction * 0.5
+        b.velZ *= 1 - b.friction * 0.5
         // 随机水平偏转（模拟撞击不平整面）
         const speed = Math.sqrt(b.velX * b.velX + b.velY * b.velY + b.velZ * b.velZ)
         const deflectAngle = this._rng() * Math.PI * 2
@@ -741,7 +760,9 @@ export class BlastPhysicsEngine {
         if (b.bounceCount >= b.maxBounces || (Math.abs(b.velY) < 0.8 && speed < 1.5)) {
           b.flags |= FLAG_LANDED
           b.velX = b.velY = b.velZ = 0
-          b.angVelX *= 0.1; b.angVelY *= 0.1; b.angVelZ *= 0.1
+          b.angVelX *= 0.1
+          b.angVelY *= 0.1
+          b.angVelZ *= 0.1
           if (this.onBodyLanded && !b.landTriggered) {
             b.landTriggered = true
             this.onBodyLanded(b, speed)
@@ -757,8 +778,13 @@ export class BlastPhysicsEngine {
    */
   getBodyStates() {
     return this.bodies.map(b => ({
-      posX: b.posX, posY: b.posY, posZ: b.posZ,
-      quatX: b.quatX, quatY: b.quatY, quatZ: b.quatZ, quatW: b.quatW,
+      posX: b.posX,
+      posY: b.posY,
+      posZ: b.posZ,
+      quatX: b.quatX,
+      quatY: b.quatY,
+      quatZ: b.quatZ,
+      quatW: b.quatW,
       alive: !!(b.flags & FLAG_ALIVE),
       landed: !!(b.flags & FLAG_LANDED),
       physSize: b.physSize
