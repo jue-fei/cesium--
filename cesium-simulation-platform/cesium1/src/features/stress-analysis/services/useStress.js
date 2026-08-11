@@ -70,6 +70,7 @@ const createIdleRenderProgress = () => ({
 })
 const renderProgress = ref(createIdleRenderProgress())
 const knownPointStressVisible = ref(false)
+const whiteModelEnabled = ref(false)
 const knownPointOverlayRuntime = {
   dataSource: null,
   attached: false
@@ -151,7 +152,7 @@ function createStressRuntimeContext({ viewer, geologyStore, tileset, showMessage
   }
 }
 
-function buildStressServiceResult({ runtime, computedState, setKnownPointStressVisible }) {
+function buildStressServiceResult({ runtime, computedState, setKnownPointStressVisible, setWhiteModel }) {
   const state = buildStressState({
     config,
     currentTime,
@@ -173,6 +174,7 @@ function buildStressServiceResult({ runtime, computedState, setKnownPointStressV
     pickedPointSeries,
     heatmapDisplay,
     knownPointStressVisible,
+    whiteModelEnabled,
     renderProgress,
     safetyContext,
     ...computedState
@@ -189,6 +191,7 @@ function buildStressServiceResult({ runtime, computedState, setKnownPointStressV
     confirmPointInterpolationFinalPass: runtime.dataActions.confirmPointInterpolationFinalPass,
     keepPointInterpolationPreview: runtime.dataActions.keepPointInterpolationPreview,
     setKnownPointStressVisible,
+    setWhiteModel,
     getCurrentValueRange: runtime.samplingActions.getCurrentValueRange,
     parseAndSetStressFile: runtime.importActions.parseAndSetStressFile,
     setHeatmapDisplay: runtime.dataActions.setHeatmapDisplay,
@@ -244,9 +247,16 @@ export default function useStress() {
     applyToModel: runtime.coreActions.applyToModel
   })
 
+  const setWhiteModel = enabled => {
+    whiteModelEnabled.value = !!enabled
+    if (manager.value && tileset.value) {
+      manager.value.setWhiteModel(tileset.value, !!enabled)
+    }
+  }
+
   onUnmounted(() => {
     runtime.playback.cleanupPlayback()
     destroyKnownPointStressOverlay()
   })
-  return buildStressServiceResult({ runtime, computedState, setKnownPointStressVisible })
+  return buildStressServiceResult({ runtime, computedState, setKnownPointStressVisible, setWhiteModel })
 }

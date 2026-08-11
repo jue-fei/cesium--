@@ -44,14 +44,23 @@ function emitToConsole(entry) {
   if (!import.meta.env.DEV) return
 
   const style = LOG_LEVEL_STYLES[entry.level] || LOG_LEVEL_STYLES.info
-  const summary = `[${entry.scope}] ${entry.message}`
-  const detail = {}
+  // 将 error 的 name/message 附加到 summary 行，避免浏览器控制台折叠 {error: Object}
+  // 导致用户看不到具体错误类型与消息
+  let summary = `[${entry.scope}] ${entry.message}`
+  if (entry.error) {
+    summary += ` — ${entry.error.name || 'Error'}: ${entry.error.message || ''}`
+  }
 
+  const detail = {}
   if (entry.meta) detail.meta = entry.meta
   if (entry.error) detail.error = entry.error
 
   if (entry.level === 'error') {
     console.error(`%c${summary}`, style, detail)
+    // 单独输出原始堆栈，便于在控制台点击跳转到出错源码
+    if (entry.error?.stack) {
+      console.error(entry.error.stack)
+    }
     return
   }
   if (entry.level === 'warn') {

@@ -8,3 +8,13 @@ node_modules/
 .env
 __pycache__/
 *.pyc
+
+# IDE / tooling
+.trae/
+*.trae-html-share-packages/
+
+# Backups
+*.bak
+
+# Non-project
+thesis-guidance/

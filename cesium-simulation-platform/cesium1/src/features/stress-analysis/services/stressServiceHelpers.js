@@ -23,6 +23,7 @@ import {
 } from './core/safety/index.js'
 import { buildStressSafetyContext } from './core/safety/projection.js'
 import { DEFAULT_STRESS_UNIT } from '../types/stressDefaults.js'
+import { getRenderEnhancementManager } from '@/features/lod-optimization/services/renderEnhancementManager.js'
 
 export function createStressComputedState({
   getGridSource,
@@ -134,6 +135,7 @@ export function buildStressState(state) {
     importStatus: state.importStatus,
     heatmapDisplay: state.heatmapDisplay,
     knownPointStressVisible: state.knownPointStressVisible,
+    whiteModelEnabled: state.whiteModelEnabled,
     renderProgress: state.renderProgress,
     safetyContext: state.safetyContext,
     safetySummary: state.safetySummary,
@@ -269,6 +271,19 @@ export function createStressCoreActions({
     clearKnownPointStressOverlay()
     clearStressSourceState()
     await loadConfig()
+
+    // 恢复渲染增强：应力分析的 customShader 覆盖已被清除（model.customShader = null），
+    // 需要重新挂载渲染增强的光照 shader，否则模型会变回扁平外观
+    try {
+      const enhancement = getRenderEnhancementManager()
+      if (enhancement.state.attached && tileset.value) {
+        enhancement.applyToTileset(tileset.value)
+        enhancement.applyAll()
+      }
+    } catch (e) {
+      // 安全忽略：渲染增强恢复失败不影响应力分析退出流程
+    }
+
     showMessage('已退出应力分析', 'success')
   }
 

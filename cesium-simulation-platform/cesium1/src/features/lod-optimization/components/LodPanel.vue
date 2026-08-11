@@ -76,6 +76,140 @@
       </div>
     </section>
 
+    <!-- ====== 渲染增强 ====== -->
+    <section class="panel-card render-enhancement-card">
+      <div class="card-header">
+        <span class="header-icon">✨</span>
+        <span class="header-title">渲染增强</span>
+        <span
+          class="header-badge"
+          :class="renderEnhancementState.config.enabled ? 'active' : 'idle'"
+        >
+          {{ renderEnhancementState.config.enabled ? '已启用' : '已关闭' }}
+        </span>
+      </div>
+      <div class="card-sub">
+        环境光遮蔽 + 太阳光照 + 阴影，凸显单色模型的几何细节
+      </div>
+
+      <!-- 总开关 -->
+      <div class="render-master-toggle">
+        <span class="render-master-label">总开关</span>
+        <el-switch
+          :model-value="renderEnhancementState.config.enabled"
+          size="small"
+          @update:model-value="v => setRenderEnhancementEnabled(v)"
+        />
+      </div>
+
+      <!-- 各效果折叠面板 -->
+      <el-collapse v-model="renderOpenIds" class="param-collapse">
+        <el-collapse-item
+          v-for="group in renderEffectGroups"
+          :key="group.id"
+          :name="group.id"
+          class="param-group"
+        >
+          <template #title>
+            <div class="param-group-title">
+              <span class="param-group-icon">{{ group.icon }}</span>
+              <span class="param-group-name">{{ group.title }}</span>
+              <span
+                class="effect-state-dot"
+                :class="
+                  renderEnhancementState.config[group.effectKey]?.enabled
+                    ? 'on'
+                    : 'off'
+                "
+              />
+            </div>
+          </template>
+          <div class="param-fields">
+            <!-- 单项开关 -->
+            <div class="param-field">
+              <div class="field-info">
+                <span class="field-label">启用</span>
+              </div>
+              <div class="field-control">
+                <el-switch
+                  :model-value="renderEnhancementState.config[group.effectKey]?.enabled"
+                  size="small"
+                  :disabled="!renderEnhancementState.config.enabled"
+                  @update:model-value="v => setRenderEffectEnabled(group.effectKey, v)"
+                />
+              </div>
+            </div>
+            <!-- 参数字段 -->
+            <div v-for="field in group.fields" :key="field.key" class="param-field">
+              <div class="field-info">
+                <div class="field-label-row">
+                  <span class="field-label">{{ field.label }}</span>
+                  <el-tooltip
+                    v-if="field.hint"
+                    :content="field.hint"
+                    placement="top"
+                    effect="dark"
+                    :show-after="300"
+                  >
+                    <el-icon class="field-hint-icon"><InfoFilled /></el-icon>
+                  </el-tooltip>
+                </div>
+                <span v-if="field.type !== 'checkbox'" class="field-value">
+                  {{ formatRenderParam(field, getRenderEffectValue(group.effectKey, field.key)) }}
+                </span>
+              </div>
+              <div class="field-control">
+                <el-switch
+                  v-if="field.type === 'checkbox'"
+                  :model-value="Boolean(getRenderEffectValue(group.effectKey, field.key))"
+                  size="small"
+                  :disabled="
+                    !renderEnhancementState.config.enabled ||
+                    !renderEnhancementState.config[group.effectKey]?.enabled
+                  "
+                  @update:model-value="v => onRenderEffectParamChange(group.effectKey, field, v)"
+                />
+                <template v-else>
+                  <el-slider
+                    class="field-slider"
+                    :disabled="
+                      !renderEnhancementState.config.enabled ||
+                      !renderEnhancementState.config[group.effectKey]?.enabled
+                    "
+                    :min="field.min"
+                    :max="field.max"
+                    :step="field.step"
+                    :model-value="Number(getRenderEffectValue(group.effectKey, field.key) || 0)"
+                    @update:model-value="v => onRenderEffectParamChange(group.effectKey, field, v)"
+                  />
+                  <el-input-number
+                    class="field-input"
+                    :disabled="
+                      !renderEnhancementState.config.enabled ||
+                      !renderEnhancementState.config[group.effectKey]?.enabled
+                    "
+                    :min="field.min"
+                    :max="field.max"
+                    :step="field.step"
+                    :controls="false"
+                    :model-value="Number(getRenderEffectValue(group.effectKey, field.key) || 0)"
+                    @update:model-value="v => onRenderEffectParamChange(group.effectKey, field, v)"
+                  />
+                </template>
+              </div>
+            </div>
+            <div class="render-hint">{{ group.hint }}</div>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
+
+      <div class="action-row">
+        <button class="action-btn ghost" @click="resetRenderEnhancement">
+          重置渲染增强
+        </button>
+      </div>
+    </section>
+
     <!-- ====== 参数 ====== -->
     <section class="panel-card">
       <div class="card-header">
@@ -389,7 +523,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { useLodPanelController, STAGE_COLORS } from '../services/panel/useLodPanelController.js'
 
@@ -434,7 +568,12 @@ const {
   setFieldBoolean,
   apply,
   rollback,
-  reset
+  reset,
+  renderEnhancementState,
+  setRenderEnhancementEnabled,
+  setRenderEffectEnabled,
+  setRenderEffectParam,
+  resetRenderEnhancement
 } = useLodPanelController()
 
 const groupIcons = {
@@ -444,6 +583,75 @@ const groupIcons = {
   skip: '⏭️',
   culling: '✂️',
   visual: '🔍'
+}
+
+// ---- 渲染增强：折叠面板与参数定义 ----
+const renderOpenIds = ref(['ao'])
+const renderEffectGroups = [
+  {
+    id: 'ao',
+    effectKey: 'ambientOcclusion',
+    title: '环境光遮蔽 (AO)',
+    icon: '🌑',
+    hint: '凹陷与缝隙处变暗，凸显几何细节（最关键）',
+    fields: [
+      { key: 'intensity', label: '强度', min: 0, max: 6, step: 0.1 },
+      { key: 'bias', label: '偏置', min: 0, max: 1, step: 0.01 },
+      { key: 'lengthCap', label: '采样半径', min: 0, max: 0.2, step: 0.005 },
+      { key: 'stepSize', label: '步长', min: 0.5, max: 4, step: 0.1 },
+      { key: 'blurStepSize', label: '模糊步长', min: 0, max: 2, step: 0.01 }
+    ]
+  },
+  {
+    id: 'light',
+    effectKey: 'lighting',
+    title: '太阳光照',
+    icon: '☀️',
+    hint: '不同朝向面产生明暗对比，增强立体感',
+    fields: [
+      { key: 'brightness', label: '亮度系数', min: 0.2, max: 2, step: 0.05 },
+      {
+        key: 'dynamicAtmosphereLighting',
+        label: '大气散射',
+        type: 'checkbox',
+        hint: '工业模型场景建议关闭'
+      }
+    ]
+  },
+  {
+    id: 'shadow',
+    effectKey: 'shadow',
+    title: '阴影',
+    icon: '🌗',
+    hint: '增加深度感与空间层次',
+    fields: [
+      { key: 'size', label: '阴影贴图尺寸', min: 512, max: 4096, step: 512, options: [512, 1024, 2048, 4096] },
+      { key: 'darkness', label: '阴影浓度', min: 0, max: 1, step: 0.05 },
+      { key: 'softShadows', label: '柔和阴影', type: 'checkbox' }
+    ]
+  }
+]
+
+function getRenderEffectValue(effectKey, paramKey) {
+  return renderEnhancementState.config[effectKey]?.[paramKey]
+}
+
+function onRenderEffectParamChange(effectKey, field, value) {
+  let v = value
+  if (field.type !== 'checkbox') {
+    v = field.step < 1 ? Number(value) : Math.round(Number(value))
+  } else {
+    v = Boolean(value)
+  }
+  setRenderEffectParam(effectKey, field.key, v)
+}
+
+function formatRenderParam(field, value) {
+  if (field.type === 'checkbox') return value ? '开' : '关'
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '0'
+  if (field.step < 1) return n.toFixed(2)
+  return String(n)
 }
 
 const dominantStageKey = computed(() => {
@@ -1275,5 +1483,57 @@ function fmtNum(v) {
 }
 .rt-val.low {
   color: #66bb6a;
+}
+
+/* ---- 渲染增强 ---- */
+.render-enhancement-card {
+  border-color: rgba(139, 92, 246, 0.18);
+}
+.render-enhancement-card:hover {
+  border-color: rgba(139, 92, 246, 0.32);
+}
+.render-master-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  margin: 10px 0 6px;
+  border-radius: 6px;
+  background: rgba(139, 92, 246, 0.06);
+  border: 1px solid rgba(139, 92, 246, 0.18);
+}
+.render-master-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #c4b5fd;
+  letter-spacing: 0.02em;
+}
+.effect-state-dot {
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.effect-state-dot.on {
+  background: #66bb6a;
+  box-shadow: 0 0 5px #66bb6a;
+}
+.effect-state-dot.off {
+  background: rgba(255, 255, 255, 0.15);
+}
+.render-hint {
+  margin-top: 6px;
+  padding: 5px 8px;
+  font-size: 10px;
+  color: #888;
+  background: rgba(255, 255, 255, 0.012);
+  border-left: 2px solid rgba(139, 92, 246, 0.35);
+  border-radius: 0 4px 4px 0;
+  line-height: 1.5;
+}
+.header-badge.idle {
+  background: rgba(255, 255, 255, 0.04);
+  color: #888;
 }
 </style>

@@ -5,6 +5,7 @@ import {
   getPreset,
   resolveTilesetPath
 } from './modelServiceHelpers.js'
+import { getRenderEnhancementManager } from '@/features/lod-optimization/services/renderEnhancementManager.js'
 
 function clearLoadedTileset(viewer, tilesetRef, runtimeState) {
   if (tilesetRef.value && viewer.scene.primitives.contains(tilesetRef.value)) {
@@ -100,6 +101,19 @@ export async function load3DModel({
         runtimeState.originalBoundingSphereCenter
       )
       await resetViewToModel(tileset)
+
+      // tileset 加载完成后触发渲染增强重新应用
+      try {
+        const enhancement = getRenderEnhancementManager()
+        if (enhancement.state.attached) {
+          tileset.shadows = Cesium.ShadowMode.ENABLED
+          enhancement.applyToTileset(tileset)
+          enhancement.applyAll()
+        }
+      } catch (e) {
+        // 安全忽略：渲染增强应用失败不影响模型加载
+      }
+
       return buildLoadSuccessResult(defaultPosition, defaultTransform, lodConfig, presetName)
     } catch (error) {
       console.error(`Model load failed (${path}):`, error)

@@ -3,6 +3,7 @@ import * as Cesium from 'cesium'
 import { useViewerStore } from '@/stores/viewerStore.js'
 import { getDisplayQualityProfile, getTerrainQualityProfile } from '@/features/shared/index.js'
 import { logger } from '@/utils/logger.js'
+import { getRenderEnhancementManager } from '@/features/lod-optimization/services/renderEnhancementManager.js'
 
 const VIEWER_INIT_MARK_START = 'viewer-init:start'
 const VIEWER_INIT_MARK_END = 'viewer-init:end'
@@ -63,6 +64,7 @@ export default function useViewer() {
     const cc = v.cesiumWidget.creditContainer
     if (cc) cc.style.display = 'none'
 
+    // 初始保持光照关闭；渲染增强管理器 attach 后会按配置启用
     v.scene.globe.enableLighting = false
     v.scene.globe.dynamicAtmosphereLighting = false
     v.scene.globe.dynamicAtmosphereLightingFromSun = false
@@ -70,6 +72,20 @@ export default function useViewer() {
     applyDisplayQuality(displayQuality.value)
     applyTerrainQuality(terrainQuality.value)
     store.setViewer(v)
+
+    // 接入渲染增强（AO / 太阳光照 / 阴影）——解决单色模型细节看不清的问题
+    try {
+      const enhancement = getRenderEnhancementManager()
+      enhancement.attach(v)
+      logger.info('viewer', '渲染增强已挂载', {
+        ambientOcclusion: enhancement.state.config.ambientOcclusion.enabled,
+        lighting: enhancement.state.config.lighting.enabled,
+        shadow: enhancement.state.config.shadow.enabled
+      })
+    } catch (err) {
+      logger.warn('viewer', '渲染增强挂载失败', null, err)
+    }
+
     performance.mark(VIEWER_INIT_MARK_END)
     performance.measure('viewer-init', VIEWER_INIT_MARK_START, VIEWER_INIT_MARK_END)
     logger.info('viewer', 'Cesium Viewer 初始化完成', {
@@ -121,6 +137,7 @@ export default function useViewer() {
     applyTerrainQuality,
     updateDisplayQuality,
     updateTerrainQuality,
-    updateCoordinateSystem: store.setCoordinateSystem
+    updateCoordinateSystem: store.setCoordinateSystem,
+    renderEnhancement: getRenderEnhancementManager()
   }
 }
