@@ -20,7 +20,7 @@ const DEFAULT_PLAYBACK_SPEED_MS = 50
 // ─── 统一高性能模式 ───
 // 取消双档切换，始终使用高保真模式：开碰撞、无渲染上限
 const PERFORMANCE_PROFILE = {
-  fragmentCountRenderLimit: Infinity,
+  fragmentCountRenderLimit: 3000,
   enableInterCollision: true
 }
 

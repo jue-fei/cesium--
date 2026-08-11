@@ -685,7 +685,13 @@ function applyKcoAndReplay() {
 }
 
 watch(
-  () => props.kcoParams,
+  () => {
+    const p = props.kcoParams
+    if (!p) return p
+    // 排除 sourceMode：watch 回调内会修改 sourceMode，deep watch 会捕获该修改形成循环
+    const { sourceMode, ...rest } = p
+    return JSON.stringify(rest)
+  },
   () => {
     if (!props.dataset) return
     if (kcoReplaying.value) {
@@ -712,8 +718,7 @@ watch(
         }
       }, 600)
     }, 800)
-  },
-  { deep: true }
+  }
 )
 
 // ─── 方案保存与加载 ───────────────────────

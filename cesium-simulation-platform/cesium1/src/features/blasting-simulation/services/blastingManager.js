@@ -292,6 +292,13 @@ export class BlastingManager {
    *   - result（替代旧 design.blastEffect）→ 爆破效果可视化
    */
   _initThreeBridge(kcoOverride = {}) {
+    // 防重复：500ms 内只执行一次，避免 watch 循环导致多次创建 WebGL 上下文
+    const now = Date.now()
+    if (this._lastInitTime && now - this._lastInitTime < 500) {
+      console.warn('[BlastingManager] _initThreeBridge 防抖：500ms 内重复调用已忽略')
+      return
+    }
+    this._lastInitTime = now
     if (!this.dataset?.event || !this.renderConfig.threeJsEnabled) {
       console.warn('[BlastingManager] three.js 桥接器未启动', {
         hasEvent: !!this.dataset?.event,
@@ -375,13 +382,20 @@ export class BlastingManager {
     // 启动爆破粒子效果
     const chargeKg = Number(event.chargeKg || 100)
     const fragmentCountTarget = Number(this.dataset.result?.fragmentCount || 200)
+    // 默认碎片渲染上限 3000：与 useBlasting.js 的 PERFORMANCE_PROFILE 保持一致，
+    // 防止 setDataset（无 kcoOverride）路径下因 Infinity 导致碎片数爆增（如 25022），
+    // 触发 Cesium "Invalid array length" 与 WebGL 上下文丢失。
+    const DEFAULT_FRAGMENT_RENDER_LIMIT = 3000
     const blastParams = {
       chargeKg,
       fragmentCountTarget,
       fragmentCountRenderLimit: Number.isFinite(Number(kcoOverride.fragmentCountRenderLimit))
         ? Number(kcoOverride.fragmentCountRenderLimit)
-        : Infinity,
-      enableInterCollision: kcoOverride.enableInterCollision,
+        : DEFAULT_FRAGMENT_RENDER_LIMIT,
+      enableInterCollision:
+        kcoOverride.enableInterCollision != null
+          ? kcoOverride.enableInterCollision
+          : true,
       randomSeed: kcoOverride.randomSeed,
       generationMetrics: buildGenerationMetrics(this.dataset)
     }
