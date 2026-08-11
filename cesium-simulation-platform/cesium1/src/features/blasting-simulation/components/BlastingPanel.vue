@@ -107,6 +107,7 @@
         :kco-params="kcoParams"
         @replay-blast="replayBlast"
         @reset-kco="resetKcoParams"
+        @update-section="updateSection"
       />
 
       <!-- 块度分布 Tab -->
@@ -176,6 +177,7 @@ const {
   LAYER_DEFS,
   layerVisibility,
   setLayerVisible,
+  updateSection,
   syncLayerVisibility,
   VIBRATION_MODES,
   vibrationDisplayMode,

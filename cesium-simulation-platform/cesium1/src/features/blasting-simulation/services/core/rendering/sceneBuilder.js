@@ -664,14 +664,30 @@ export class SceneBuilder {
 
   // ─── 回退模式：硬编码典型布孔（菱形掏槽 + 辅助 + 周边）
   _collectFallbackHoles(cy0, W, Hw, R) {
-    const cutR = 1.0
-    const holeDepth = Number(this.designParams?.holeDepth) || 2.5
+    // ─ 参数化：B/S/q/cutPattern 从 designParams/kcoParams 读取 ─
+    const B = Math.max(0.3, Number(this.designParams?.burden) || Number(this.kcoParams?.B) || 1.5)
+    const S = Math.max(0.3, Number(this.designParams?.spacing) || Number(this.kcoParams?.S) || 2.0)
+    const q = Math.max(0.05, Number(this.kcoParams?.q) || 0.8)
+    const cutPattern = this.designParams?.cutPattern || 'diamond'
+    const holeDepth = Math.max(0.5, Number(this.designParams?.holeDepth) || 2.5)
     const realDia = Number(this.designParams?.holeDiameter) || 0.04
     const visRadius = Math.max(0.08, realDia * 4)
     const emptyVisRadius = visRadius * 1.6
-    const holes = []
+    const totalH = this.tunnelHeight
 
-    // 中心空孔
+    // 单孔药量 = q × B × S × holeDepth × 孔型系数
+    const chargeKg = (factor) => q * B * S * holeDepth * factor
+
+    const holes = []
+    let series = 1
+    const nextSeries = () => {
+      series = (series % 20) + 1
+      return series
+    }
+
+    // ─ 1. 掏槽孔（按 cutPattern 分发） ─
+    const cutR = B * 0.6 // 抵抗线驱动，替代硬编码 1.0
+    // 中心空孔（所有掏槽形式共用）
     holes.push({
       x: 0,
       y: cy0,
@@ -688,38 +704,91 @@ export class SceneBuilder {
       delayMs: 0,
       id: 'CUT-EMPTY'
     })
-    // 菱形 4 孔装药掏槽
-    const cutPos = [
-      [cutR, cy0],
-      [-cutR, cy0],
-      [0, cy0 + cutR],
-      [0, cy0 - cutR]
-    ]
-    cutPos.forEach((p, i) => {
-      holes.push({
-        x: p[0],
-        y: p[1],
-        type: 'cut',
-        isEmpty: false,
-        depth: holeDepth,
-        visRadius,
-        inclination: 0,
-        azimuth: 0,
-        chargeKg: holeDepth * 0.8 * 1.2,
-        chargeLength: holeDepth * 0.8,
-        explosiveType: 'emulsion',
-        detonatorSeries: i + 2,
-        delayMs: (i + 2) * 100,
-        id: `CUT-${i + 1}`
+
+    if (cutPattern === 'spiral') {
+      // 螺旋掏槽：4 孔螺旋递进，半径从 B×0.4 到 B×0.7
+      const spiralSteps = 4
+      for (let i = 0; i < spiralSteps; i++) {
+        const r = B * (0.4 + 0.1 * i)
+        const a = (i / spiralSteps) * Math.PI * 2
+        holes.push({
+          x: Math.cos(a) * r,
+          y: cy0 + Math.sin(a) * r,
+          type: 'cut',
+          isEmpty: false,
+          depth: holeDepth,
+          visRadius,
+          inclination: 0,
+          azimuth: 0,
+          chargeKg: chargeKg(1.2),
+          chargeLength: holeDepth * 0.8,
+          explosiveType: 'emulsion',
+          detonatorSeries: nextSeries(),
+          delayMs: 50 * (i + 1),
+          id: `CUT-S${i + 1}`
+        })
+      }
+    } else if (cutPattern === 'wedge') {
+      // 楔形掏槽：2 排斜孔 V 形开口，角度 70-60°
+      const wedgeN = 3
+      for (let i = 0; i < wedgeN; i++) {
+        const offset = B * (0.5 + 0.15 * i)
+        const incline = 70 - i * 5
+        for (const side of [-1, 1]) {
+          holes.push({
+            x: side * offset,
+            y: cy0,
+            type: 'cut',
+            isEmpty: false,
+            depth: holeDepth,
+            visRadius,
+            inclination: incline,
+            azimuth: side > 0 ? 90 : -90,
+            chargeKg: chargeKg(1.2),
+            chargeLength: holeDepth * 0.8,
+            explosiveType: 'emulsion',
+            detonatorSeries: nextSeries(),
+            delayMs: 100 * (i + 1),
+            id: `CUT-W${i + 1}-${side > 0 ? 'R' : 'L'}`
+          })
+        }
+      }
+    } else {
+      // 菱形掏槽（默认）：4 孔 + 1 空孔
+      const cutPos = [
+        [cutR, cy0],
+        [-cutR, cy0],
+        [0, cy0 + cutR],
+        [0, cy0 - cutR]
+      ]
+      cutPos.forEach((p, i) => {
+        holes.push({
+          x: p[0],
+          y: p[1],
+          type: 'cut',
+          isEmpty: false,
+          depth: holeDepth,
+          visRadius,
+          inclination: 0,
+          azimuth: 0,
+          chargeKg: chargeKg(1.2),
+          chargeLength: holeDepth * 0.8,
+          explosiveType: 'emulsion',
+          detonatorSeries: nextSeries(),
+          delayMs: 100 * (i + 2),
+          id: `CUT-${i + 1}`
+        })
       })
-    })
-    // 辅助孔 2 圈
-    const helperRings = [
-      { r: 2.6, n: 8 },
-      { r: 4.2, n: 12 }
-    ]
-    let auxSeries = 6
-    helperRings.forEach(({ r, n }) => {
+    }
+
+    // ─ 2. 辅助孔（圈数/半径/孔数由 B/S/断面驱动） ─
+    const cutZone = 2 * cutR
+    const maxR = Math.min(W, totalH) * 0.45
+    const ringCount = Math.max(1, Math.ceil((maxR - cutZone) / (2 * B)))
+    for (let ring = 1; ring <= ringCount; ring++) {
+      const r = cutZone + 2 * B * ring
+      if (r > maxR) break
+      const n = Math.max(6, Math.floor((2 * Math.PI * r) / S))
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2
         const x = Math.cos(a) * r
@@ -734,20 +803,22 @@ export class SceneBuilder {
             visRadius,
             inclination: 0,
             azimuth: 0,
-            chargeKg: holeDepth * 0.7 * 1.0,
+            chargeKg: chargeKg(1.0),
             chargeLength: holeDepth * 0.7,
             explosiveType: 'emulsion',
-            detonatorSeries: auxSeries,
-            delayMs: auxSeries * 100,
-            id: `AUX-${auxSeries}`
+            detonatorSeries: nextSeries(),
+            delayMs: series * 100,
+            id: `AUX-${ring}-${i}`
           })
-          auxSeries = (auxSeries % 20) + 1
         }
       }
-    })
-    // 周边孔：沿马蹄形轮廓
-    const perimSpacing = Number(this.designParams?.perimeterSpacing) || 1.2
-    let perimSeries = auxSeries
+    }
+    // ─ 3. 周边孔（间距 = 0.8 × S，光面爆破经验） ─
+    const perimSpacing =
+      Number(this.designParams?.perimeterSpacing) > 0
+        ? Number(this.designParams.perimeterSpacing)
+        : 0.8 * S
+    let perimSeries = series
     for (let y = 1.0; y <= Hw - 0.3; y += perimSpacing) {
       for (const x of [-W / 2 + 0.35, W / 2 - 0.35]) {
         holes.push({
@@ -759,7 +830,7 @@ export class SceneBuilder {
           visRadius,
           inclination: 3,
           azimuth: x > 0 ? 90 : -90,
-          chargeKg: holeDepth * 0.6 * 0.5,
+          chargeKg: chargeKg(0.5),
           chargeLength: holeDepth * 0.6,
           explosiveType: 'emulsion',
           detonatorSeries: perimSeries,
@@ -783,7 +854,7 @@ export class SceneBuilder {
         visRadius,
         inclination: 3,
         azimuth: (Math.atan2(x, y - Hw) * 180) / Math.PI,
-        chargeKg: holeDepth * 0.6 * 0.5,
+        chargeKg: chargeKg(0.5),
         chargeLength: holeDepth * 0.6,
         explosiveType: 'emulsion',
         detonatorSeries: perimSeries,
@@ -801,7 +872,7 @@ export class SceneBuilder {
       visRadius,
       inclination: 5,
       azimuth: -90,
-      chargeKg: holeDepth * 0.7 * 0.5,
+      chargeKg: chargeKg(0.5),
       chargeLength: holeDepth * 0.7,
       explosiveType: 'emulsion',
       detonatorSeries: perimSeries,
@@ -817,7 +888,7 @@ export class SceneBuilder {
       visRadius,
       inclination: 5,
       azimuth: 90,
-      chargeKg: holeDepth * 0.7 * 0.5,
+      chargeKg: chargeKg(0.5),
       chargeLength: holeDepth * 0.7,
       explosiveType: 'emulsion',
       detonatorSeries: perimSeries,

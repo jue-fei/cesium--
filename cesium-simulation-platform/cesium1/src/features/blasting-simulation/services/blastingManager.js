@@ -551,6 +551,35 @@ export class BlastingManager {
     renderer?.setLayersVisible?.(map)
   }
 
+  /**
+   * 运行时更新隧道断面与掏槽形式（UI 编辑入口）
+   * 更新断面参数 + designParams.cutPattern，下次 buildScene 时生效
+   * @param {Object} payload - { width, wallHeight, archRadius, shape, cutPattern }
+   */
+  updateSection(payload) {
+    const renderer = this.threeBridge?.getThreeRenderer?.()
+    if (!renderer) return
+    // 1) 更新断面参数
+    renderer.setTunnelSection({
+      width: payload.width,
+      wallHeight: payload.wallHeight,
+      archRadius: payload.archRadius,
+      shape: payload.shape
+    })
+    // 2) 更新 designParams.cutPattern（清空数据库孔位，走参数化回退布孔）
+    const designParams = { cutPattern: payload.cutPattern || 'diamond' }
+    renderer.setBlastHoleDesign(null, designParams)
+    // 3) 同步到 dataset.design 供后续 initBlast 读取
+    if (this.dataset) {
+      if (!this.dataset.design) this.dataset.design = {}
+      this.dataset.design.tunnelWidth = payload.width
+      this.dataset.design.tunnelWallHeight = payload.wallHeight
+      this.dataset.design.tunnelArchRadius = payload.archRadius
+      this.dataset.design.tunnelShape = payload.shape
+      this.dataset.design.cutPattern = payload.cutPattern
+    }
+  }
+
   /** 获取当前图层可见性状态 */
   getLayerVisibility() {
     const renderer = this.threeBridge?.getThreeRenderer?.()

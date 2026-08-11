@@ -491,8 +491,8 @@ export default function useBlasting() {
       ...dataset.value.result,
       // 仅在算法侧未提供 fragmentCount 时兜底使用生成数，避免用渲染统计污染设计结果语义。
       ...(stats &&
-      typeof stats.fragmentCountGenerated === 'number' &&
-      !Number.isFinite(Number(dataset.value.result?.fragmentCount))
+        typeof stats.fragmentCountGenerated === 'number' &&
+        !Number.isFinite(Number(dataset.value.result?.fragmentCount))
         ? { fragmentCount: stats.fragmentCountGenerated }
         : {})
     }
@@ -880,6 +880,12 @@ export default function useBlasting() {
     blastingManager?.setLayerVisible(layer, !!visible)
   }
 
+  // 运行时更新断面参数 + cutPattern，并自动重播以重建布孔
+  const updateSection = (payload) => {
+    blastingManager?.updateSection(payload)
+    replayBlast()
+  }
+
   // 将 Vue 的图层可见性状态推送到渲染器（数据加载后调用，保持用户设置不被覆盖）
   const syncLayerVisibility = () => {
     // 推送当前 Vue 状态到渲染器，而非从渲染器回读
@@ -925,6 +931,7 @@ export default function useBlasting() {
     LAYER_DEFS,
     layerVisibility,
     setLayerVisible,
+    updateSection,
     syncLayerVisibility,
     // 振动场显示模式（PPV/应力/损伤）
     VIBRATION_MODES,

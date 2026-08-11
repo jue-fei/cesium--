@@ -156,7 +156,70 @@
         调整参数后碎片尺寸与抛掷效果将动态更新。
       </div>
 
-      <div class="kco-group-title">场地预设</div>
+      <div class="kco-group-title">断面尺寸与掏槽形式</div>
+      <div class="kco-grid">
+        <label class="kco-field">
+          <span class="kco-label">断面形状</span>
+          <select v-model="sectionForm.shape" class="db-event-select">
+            <option value="horseshoe">马蹄形</option>
+            <option value="circular">圆形</option>
+            <option value="rectangular">矩形</option>
+          </select>
+        </label>
+        <label class="kco-field">
+          <span class="kco-label">宽度 W (m)</span>
+          <el-input-number
+            v-model="sectionForm.width"
+            :min="4"
+            :max="30"
+            :step="0.5"
+            :precision="1"
+            :controls="false"
+            size="small"
+          />
+        </label>
+        <label class="kco-field">
+          <span class="kco-label">直墙高 (m)</span>
+          <el-input-number
+            v-model="sectionForm.wallHeight"
+            :min="2"
+            :max="15"
+            :step="0.5"
+            :precision="1"
+            :controls="false"
+            size="small"
+          />
+        </label>
+        <label class="kco-field">
+          <span class="kco-label">拱半径 (m)</span>
+          <el-input-number
+            v-model="sectionForm.archRadius"
+            :min="2"
+            :max="15"
+            :step="0.5"
+            :precision="1"
+            :controls="false"
+            size="small"
+          />
+        </label>
+        <label class="kco-field">
+          <span class="kco-label">掏槽形式</span>
+          <select v-model="cutPattern" class="db-event-select">
+            <option value="diamond">菱形掏槽</option>
+            <option value="spiral">螺旋掏槽</option>
+            <option value="wedge">楔形掏槽</option>
+          </select>
+        </label>
+      </div>
+      <div class="hint-text kco-desc">
+        总高度 {{ sectionDerived.totalH.toFixed(1) }}m · 断面积
+        {{ sectionDerived.area.toFixed(2) }}m²
+        <button class="compact-action-btn primary" style="margin-left: 12px" @click="applySection">
+          应用断面并重布孔
+        </button>
+      </div>
+
+      <div class="kco-group-title mt-3">场地预设</div>
       <div class="controls-row">
         <select v-model="selectedPresetKey" class="db-event-select">
           <option value="">-- 选择场地预设 --</option>
@@ -569,7 +632,47 @@ const props = defineProps({
   kcoParams: { type: Object, required: true }
 })
 
-const emit = defineEmits(['replay-blast', 'reset-kco'])
+const emit = defineEmits(['replay-blast', 'reset-kco', 'update-section'])
+
+// ─── 断面尺寸编辑 ───────────────────────
+const sectionForm = ref({
+  width: 12,
+  wallHeight: 5,
+  archRadius: 6,
+  shape: 'horseshoe'
+})
+const cutPattern = ref('diamond')
+
+// 从 blastDesign.section 同步初始值（外部更新时跟随）
+watch(
+  () => props.blastDesign?.section,
+  (s) => {
+    if (!s) return
+    if (s.W != null) sectionForm.value.width = s.W
+    if (s.wallHeight != null) sectionForm.value.wallHeight = s.wallHeight
+    if (s.archRadius != null) sectionForm.value.archRadius = s.archRadius
+    if (s.shape != null) sectionForm.value.shape = s.shape
+  },
+  { immediate: true }
+)
+
+// 派生值：总高度 + 断面积（马蹄形 = 直墙矩形 + 半圆拱）
+const sectionDerived = computed(() => {
+  const { width: w, wallHeight: hw, archRadius: r } = sectionForm.value
+  const totalH = hw + r
+  const area = w * hw + (Math.PI * r * r) / 2
+  return { totalH, area }
+})
+
+function applySection() {
+  emit('update-section', {
+    width: Number(sectionForm.value.width),
+    wallHeight: Number(sectionForm.value.wallHeight),
+    archRadius: Number(sectionForm.value.archRadius),
+    shape: sectionForm.value.shape,
+    cutPattern: cutPattern.value
+  })
+}
 
 // 格式化带符号的轴向偏置（正数前加 +，零与负数原样输出）
 function formatSignedBias(n) {

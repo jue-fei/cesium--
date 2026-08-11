@@ -44,6 +44,7 @@ export function useBlastingPanelController() {
     LAYER_DEFS,
     layerVisibility,
     setLayerVisible,
+    updateSection,
     syncLayerVisibility,
     // 振动场显示模式（PPV/应力/损伤）
     VIBRATION_MODES,
@@ -183,6 +184,7 @@ export function useBlastingPanelController() {
     LAYER_DEFS,
     layerVisibility,
     setLayerVisible,
+    updateSection,
     syncLayerVisibility,
     // 振动场显示模式（PPV/应力/损伤）
     VIBRATION_MODES,
