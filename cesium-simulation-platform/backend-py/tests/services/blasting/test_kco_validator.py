@@ -33,11 +33,14 @@ def test_calculate_kco_x80_matches_shared_solve_x80():
 
 
 def test_calculate_kco_x80_matches_frontend_baseline():
-    """验证基准用例：x50=0.3, xmax=2.0, n=1.2, b=2.0 → x80≈0.4944"""
+    """验证基准用例：x50=0.3, xmax=2.0, n=1.2, b=2.0 → x80≈0.4944
+
+    注意：前端基准值 EXPECTED_X80 是用 n=1.2 计算的，而实际 KCOInput 参数
+    (B=1.5, d=0.04, W_abs=0.2) 产生 n≈0.7916。因此本测试分两步：
+    1) 验证 calculate_kco 的 x80 与共享公式 solve_x80(同参数) 一致
+    2) 单独验证基准参数 (x50=0.3, n=1.2) 下 solve_x80 匹配前端基准
+    """
     # 构造使 x50=0.3 的输入：求解 Q 使 Kuznetsov 方程得到 x50≈0.3
-    # x50 = 0.01 * 3.6 * Q^(1/6) * (115/100)^(19/30)
-    # 0.3 = 0.01 * 3.6 * Q^(1/6) * 1.15^0.6333
-    # Q^(1/6) = 0.3 / (0.036 * 1.15^0.6333)
     factor = 0.01 * 3.6 * (115 / 100) ** (19 / 30)
     Q = (0.3 / factor) ** 6
     inp = KCOInput(Q=Q, A=3.6, B=1.5, d=0.04, W_abs=0.2, xmax=2.0, b=2.0)
@@ -47,8 +50,11 @@ def test_calculate_kco_x80_matches_frontend_baseline():
     # Cunningham n 应等于共享公式结果
     expected_n = kf.cunningham_n(1.5, 0.04, 0.2)
     assert out.n == pytest.approx(expected_n, abs=1e-12)
-    # x80 应匹配前端基准值（1e-4 容差，与前后端一致性测试对齐）
-    assert out.x80 == pytest.approx(EXPECTED_X80, abs=1e-4)
+    # x80 应与共享公式 solve_x80（同参数）一致，而非前端 n=1.2 基准值
+    expected_x80 = kf.solve_x80(out.x50, inp.xmax, out.n, inp.b)
+    assert out.x80 == pytest.approx(expected_x80, abs=1e-7)
+    # 基准值 (n=1.2) 单独验证：solve_x80(0.3, 2.0, 1.2, 2.0) ≈ 0.4944
+    assert kf.solve_x80(0.3, 2.0, 1.2, 2.0) == pytest.approx(EXPECTED_X80, abs=1e-4)
 
 
 def test_calculate_kco_swebrec_cdf_at_x80():
