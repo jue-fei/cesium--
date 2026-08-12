@@ -158,6 +158,15 @@ export class ThreeBlastingRenderer {
     })
 
     this._physicsEngine = new BlastPhysicsEngineWorker()
+    // 将 15 种碎片几何体的顶点数据注入物理引擎（供 Rapier 凸包碰撞体使用）
+    // 提取 position attribute 的 Float32Array，复制以避免 Worker 结构化克隆影响主线程渲染
+    {
+      const verts = this.rockGeometries.map((geo) => {
+        const arr = geo.attributes.position.array
+        return arr instanceof Float32Array ? arr.slice() : new Float32Array(arr)
+      })
+      this._physicsEngine.setGeometryVertices(verts)
+    }
     this._fragmentRenderer = new FragmentRenderer(
       this.scene,
       this.rockGeometries,

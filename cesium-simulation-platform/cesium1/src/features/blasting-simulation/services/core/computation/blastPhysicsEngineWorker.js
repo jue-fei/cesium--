@@ -191,6 +191,19 @@ export class BlastPhysicsEngineWorker {
   }
 
   /**
+   * 设置 15 种几何体变体的顶点数据（供 Rapier 凸包碰撞体使用）
+   * 必须在 init 之前调用。顶点数据通过结构化克隆传输（非 Transferable，
+   * 因为主线程渲染仍需保留原始几何体）。
+   * @param {Array<Float32Array>} vertices - 15 个 Float32Array [x,y,z,...]
+   */
+  setGeometryVertices(vertices) {
+    if (this._useWorker) {
+      this._postMessage({ type: 'setGeometryVertices', vertices })
+    }
+    // 同步模式（手写引擎）不需要几何顶点，碰撞按等效球体计算
+  }
+
+  /**
    * 用碎片规格初始化物理引擎（异步，立即返回）
    * @param {FragmentSpec[]} specs
    * @param {Array<{x,y,z}>} positions

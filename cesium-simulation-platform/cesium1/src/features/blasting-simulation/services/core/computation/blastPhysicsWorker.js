@@ -1,10 +1,8 @@
 /**
- * 爆破物理引擎 Web Worker 入口
+ * 爆破物理引擎 Web Worker 入口（Rapier 版）
  *
- * 在 Worker 线程中执行碎片物理模拟，避免 200+ 碎片的 step 计算和
- * seekTo 快进（最多 400 步）阻塞主线程渲染。
- *
- * 依赖：blastPhysicsEngine.js（纯 JavaScript 数学计算，无 Three.js 依赖）
+ * 在 Worker 线程中执行碎片物理模拟，使用 Rapier 凸包碰撞体 + PGS 求解器。
+ * RAPIER.init() 完成后才注册 onmessage，之前的消息由浏览器队列缓冲。
  *
  * 消息协议（主线程 → Worker）：
  *   { type: 'init', specs: Float32Array, positions: Float32Array, velocities: Float32Array, bounds: object, randomSeed: number, requestId: number }
@@ -13,6 +11,8 @@
  *   { type: 'activateAll' }
  *   { type: 'reset' }
  *   { type: 'setOnBodyLanded', enabled: boolean }
+ *   { type: 'setGeometryVertices', vertices: Array<Float32Array> }
+ *   { type: 'setConfig', enableInterCollision: boolean }
  *   { type: 'getStats', requestId: number }
  *
  * 消息协议（Worker → 主线程）：
@@ -28,21 +28,20 @@
  *   [posX, posY, posZ, quatX, quatY, quatZ, quatW, velX, velY, velZ, flags, physSize, bounceCount]
  */
 
-import { BlastPhysicsEngine } from './blastPhysicsEngine.js'
+import RAPIER from '@dimforge/rapier3d-compat'
+import { RapierPhysicsEngine } from './rapierPhysicsEngine.js'
 // 共享 LCG RNG（utils/rng.js 无 Three.js 依赖，可在 Worker/computation 层安全引入）
 import { makeRng } from '../utils/rng.js'
 
-const engine = new BlastPhysicsEngine()
+const FLAG_ALIVE = 0x01
+const FLAG_LANDED = 0x02
+
+let engine = null
 let bodyLandedEnabled = false
-// 上次推送的能量时间序列长度，仅在新采样产生时推送以减少消息频率
 let lastEnergySeriesLen = 0
+let cachedGeometryVertices = null
 
 // ─── 工具：解包主线程传来的 Float32Array ─────────────────
-/**
- * 解包 specs Float32Array 为 FragmentSpec 对象数组
- * 布局：每碎片 9 个 float [physSize, density, restitution, friction, maxBounces, variantIndex, dispSize, colorR, delayTime]
- * 注：colorG/colorB 在主线程渲染时按 variantIndex 派生，不传输以减小带宽
- */
 function unpackSpecs(buf) {
   const N = buf.length / 9
   const out = new Array(N)
@@ -63,7 +62,6 @@ function unpackSpecs(buf) {
   return out
 }
 
-/** 解包 vec3 Float32Array 为 {x,y,z} 数组 */
 function unpackVec3(buf) {
   const N = buf.length / 3
   const out = new Array(N)
@@ -75,7 +73,6 @@ function unpackVec3(buf) {
 }
 
 // ─── 工具：打包 bodyStates 为 Float32Array ───────────────
-/** 打包 bodies 数组为 Float32Array（Transferable 零拷贝传输） */
 function packBodyStates(bodies) {
   const N = bodies.length
   const buf = new Float32Array(N * 13)
@@ -95,21 +92,18 @@ function packBodyStates(bodies) {
     buf[o + 10] = b.flags
     buf[o + 11] = b.physSize
     buf[o + 12] = b.bounceCount
-    b._idx = i // 缓存索引供 bodyLanded 回调用
   }
   return buf
 }
 
 function sendBodyStates(requestId) {
-  const buf = packBodyStates(engine.bodies)
-  self.postMessage({ type: 'bodyStates', data: buf, count: engine.bodies.length, requestId }, [
+  const states = engine.getBodyStates()
+  const buf = packBodyStates(states)
+  self.postMessage({ type: 'bodyStates', data: buf, count: states.length, requestId }, [
     buf.buffer
   ])
 }
 
-/**
- * 推送能量统计到主线程（仅当 timeSeries 产生新采样时发送）
- */
 function sendEnergyStats() {
   const stats = engine.getEnergyStats()
   if (stats.timeSeries.length === lastEnergySeriesLen) return
@@ -122,104 +116,116 @@ function sendEnergyStats() {
   })
 }
 
-// ─── Worker 消息处理 ─────────────────────────────────
-self.onmessage = e => {
-  const msg = e.data
-  try {
-    switch (msg.type) {
-      case 'init': {
-        const specs = unpackSpecs(msg.specs)
-        const positions = unpackVec3(msg.positions)
-        const velocities = unpackVec3(msg.velocities)
-        // 注入种子化 RNG（必须在 init 前设置，确保 init 中角速度种子化可复现）
-        if (msg.randomSeed != null) {
-          engine._rng = makeRng(msg.randomSeed)
-        }
-        if (msg.bounds) engine.setTunnelBounds(msg.bounds)
-        engine.init(specs, positions, velocities)
-        lastEnergySeriesLen = 0
-        sendBodyStates(msg.requestId)
-        break
-      }
-      case 'step': {
-        engine.step(msg.dt)
-        sendBodyStates(msg.requestId)
-        sendEnergyStats()
-        break
-      }
-      case 'seekTo': {
-        doSeekTo(msg)
-        break
-      }
-      case 'activateAll': {
-        engine.activateAll()
-        break
-      }
-      case 'setTunnelBounds': {
-        if (msg.bounds) engine.setTunnelBounds(msg.bounds)
-        break
-      }
-      case 'reset': {
-        engine.reset()
-        lastEnergySeriesLen = 0
-        break
-      }
-      case 'setConfig': {
-        if (msg.enableInterCollision !== undefined) {
-          engine.enableInterCollision = !!msg.enableInterCollision
-        }
-        break
-      }
-      case 'setOnBodyLanded': {
-        bodyLandedEnabled = msg.enabled
-        engine.onBodyLanded = bodyLandedEnabled
-          ? (body, speed) => {
-              self.postMessage({
-                type: 'bodyLanded',
-                posX: body.posX,
-                posY: body.posY,
-                posZ: body.posZ,
-                impactSpeed: speed
-              })
-            }
-          : null
-        break
-      }
-      case 'getStats': {
-        self.postMessage({
-          type: 'stats',
-          total: engine.bodies.length,
-          alive: engine.aliveFragmentCount,
-          landed: engine.landedFragmentCount,
-          requestId: msg.requestId
-        })
-        break
-      }
-      default: {
-        console.warn('[BlastPhysicsWorker] 未知消息类型:', msg.type)
-      }
-    }
-  } catch (err) {
-    self.postMessage({
-      type: 'error',
-      message: err.message,
-      stack: err.stack
-    })
+// ─── 初始化 Rapier WASM，完成后注册消息处理 ──────────────
+RAPIER.init().then(() => {
+  engine = new RapierPhysicsEngine()
+  // 如果在 RAPIER.init 期间已收到几何顶点，现在注入
+  if (cachedGeometryVertices) {
+    engine.setGeometryVertices(cachedGeometryVertices)
+    cachedGeometryVertices = null
   }
-}
+
+  self.onmessage = (e) => {
+    const msg = e.data
+    try {
+      switch (msg.type) {
+        case 'init': {
+          const specs = unpackSpecs(msg.specs)
+          const positions = unpackVec3(msg.positions)
+          const velocities = unpackVec3(msg.velocities)
+          if (msg.randomSeed != null) {
+            engine._rng = makeRng(msg.randomSeed)
+          }
+          if (msg.bounds) engine.setTunnelBounds(msg.bounds)
+          engine.init(specs, positions, velocities)
+          lastEnergySeriesLen = 0
+          sendBodyStates(msg.requestId)
+          break
+        }
+        case 'step': {
+          engine.step(msg.dt)
+          sendBodyStates(msg.requestId)
+          sendEnergyStats()
+          break
+        }
+        case 'seekTo': {
+          doSeekTo(msg)
+          break
+        }
+        case 'activateAll': {
+          engine.activateAll()
+          break
+        }
+        case 'setTunnelBounds': {
+          if (msg.bounds) engine.setTunnelBounds(msg.bounds)
+          break
+        }
+        case 'reset': {
+          engine.reset()
+          lastEnergySeriesLen = 0
+          break
+        }
+        case 'setConfig': {
+          if (msg.enableInterCollision !== undefined) {
+            engine.setEnableInterCollision(msg.enableInterCollision)
+          }
+          break
+        }
+        case 'setGeometryVertices': {
+          // 存储 15 种几何体变体的顶点数据（Transferable Float32Array）
+          engine.setGeometryVertices(msg.vertices)
+          break
+        }
+        case 'setOnBodyLanded': {
+          bodyLandedEnabled = msg.enabled
+          engine.onBodyLanded = bodyLandedEnabled
+            ? (body, speed) => {
+                self.postMessage({
+                  type: 'bodyLanded',
+                  posX: body.posX,
+                  posY: body.posY,
+                  posZ: body.posZ,
+                  impactSpeed: speed
+                })
+              }
+            : null
+          break
+        }
+        case 'getStats': {
+          self.postMessage({
+            type: 'stats',
+            total: engine._fragmentBodies.length,
+            alive: engine.aliveFragmentCount,
+            landed: engine.landedFragmentCount,
+            requestId: msg.requestId
+          })
+          break
+        }
+        default: {
+          console.warn('[BlastPhysicsWorker] 未知消息类型:', msg.type)
+        }
+      }
+    } catch (err) {
+      self.postMessage({
+        type: 'error',
+        message: err.message,
+        stack: err.stack
+      })
+    }
+  }
+
+  // 通知主线程 Worker 已就绪
+  self.postMessage({ type: 'ready' })
+})
 
 /**
  * 执行 seekTo 快进：用主线程传来的 specs/positions/velocities 重新 init，
  * 然后循环 step 到 targetTime，最后返回最终 bodyStates。
- *
- * 整个过程在 Worker 线程执行，不阻塞主线程 UI。
  */
 function doSeekTo(msg) {
   const { targetTime, specs, positions, velocities, bounds, requestId, randomSeed } = msg
 
-  // 1. 重新初始化物理引擎
   engine.reset()
-  // 注入种子化 RNG（必须在 init 前设置，确保快进结果与正常播放一致）
   if (randomSeed != null) {
     engine._rng = makeRng(randomSeed)
   }
@@ -231,10 +237,8 @@ function doSeekTo(msg) {
   engine.activateAll()
   lastEnergySeriesLen = 0
 
-  // 2. 后台循环 step 到目标时间（固定步长保证物理稳定性）
   const step = 0.05
   let remaining = Math.max(0, targetTime)
-  // 限制最大快进步数，避免极端值导致 Worker 长时间占用
   const maxSteps = 800
   let stepCount = 0
   while (remaining > 0 && stepCount < maxSteps) {
@@ -244,14 +248,10 @@ function doSeekTo(msg) {
     stepCount++
   }
 
-  // 3. 推送最终状态
-  const buf = packBodyStates(engine.bodies)
-  self.postMessage({ type: 'seekComplete', data: buf, count: engine.bodies.length, requestId }, [
+  const states = engine.getBodyStates()
+  const buf = packBodyStates(states)
+  self.postMessage({ type: 'seekComplete', data: buf, count: states.length, requestId }, [
     buf.buffer
   ])
-  // 4. 推送能量统计（快进期间累计的采样）
   sendEnergyStats()
 }
-
-// 通知主线程 Worker 已就绪
-self.postMessage({ type: 'ready' })
