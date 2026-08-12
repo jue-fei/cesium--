@@ -498,8 +498,9 @@ export class RapierPhysicsEngine {
     const halfWidth = tb.halfWidth
     const wallHeight = tb.wallHeight
     const archRadius = tb.archRadius
-    const halfLen = 32 // 沿轴向半长（总 64m）
-    const tunnelZ = -halfLen // 隧道从 z=0 向 -forward 延伸
+    // 碰撞体以爆心为中心，向掌子面前后各延伸 60m，防止碎片向任意方向飞出
+    const halfLen = 60
+    const tunnelZ = 0 // 碰撞体中心在 fc（爆心），不再偏移
     const wallThick = 0.2
     const tunnelGroups = this.enableInterCollision ? 0xffffffff : TUNNEL_GROUPS
 
