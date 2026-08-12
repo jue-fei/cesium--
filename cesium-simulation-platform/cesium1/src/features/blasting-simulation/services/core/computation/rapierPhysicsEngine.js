@@ -501,7 +501,7 @@ export class RapierPhysicsEngine {
     // 碰撞体以爆心为中心，向掌子面前后各延伸 60m，防止碎片向任意方向飞出
     const halfLen = 60
     const tunnelZ = 0 // 碰撞体中心在 fc（爆心），不再偏移
-    const wallThick = 0.2
+    const wallThick = 0.5
     const tunnelGroups = this.enableInterCollision ? 0xffffffff : TUNNEL_GROUPS
 
     /** 在隧道局部坐标 创建固定 cuboid 碰撞体 */
