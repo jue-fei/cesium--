@@ -482,13 +482,9 @@ export class RapierPhysicsEngine {
     const right = { x: tb.rightX, y: tb.rightY, z: tb.rightZ }
     const forward = { x: tb.forwardX, y: tb.forwardY, z: tb.forwardZ }
     const up = { x: 0, y: 1, z: 0 }
-    // 底板中心 = (centerX, floorY, centerZ)
     const fc = { x: tb.centerX, y: tb.floorY, z: tb.centerZ }
 
-    // 隧道朝向四元数
-    // 注意：[right, up, forward] 当 forward=(0,0,-1) 时行列式=-1（左手系），
-    // basisToQuat 会产生无效旋转。用 -forward 作为 z 轴构成右手系
-    // （right×up = -forward），cuboid 局部 z 对齐 -forward，hz 沿 -forward 方向。
+    // 隧道朝向四元数（右手系：用 -forward 作为 z 轴）
     const quat = basisToQuat(
       right.x, right.y, right.z,
       up.x, up.y, up.z,
@@ -498,68 +494,83 @@ export class RapierPhysicsEngine {
     const halfWidth = tb.halfWidth
     const wallHeight = tb.wallHeight
     const archRadius = tb.archRadius
-    // 碰撞体以爆心为中心，向掌子面前后各延伸 60m，防止碎片向任意方向飞出
     const halfLen = 60
-    const tunnelZ = 0 // 碰撞体中心在 fc（爆心），不再偏移
-    const wallThick = 0.5
     const tunnelGroups = this.enableInterCollision ? 0xffffffff : TUNNEL_GROUPS
-
-    /** 在隧道局部坐标 创建固定 cuboid 碰撞体 */
-    const createFixed = (lx, ly, lz, hx, hy, hz) => {
-      const wx = fc.x + right.x * lx + up.x * ly + forward.x * lz
-      const wy = fc.y + right.y * lx + up.y * ly + forward.y * lz
-      const wz = fc.z + right.z * lx + up.z * ly + forward.z * lz
-      const bodyDesc = RAPIER.RigidBodyDesc.fixed()
-        .setTranslation(wx, wy, wz)
-        .setRotation(quat)
-      const body = this._world.createRigidBody(bodyDesc)
-      const colDesc = RAPIER.ColliderDesc.cuboid(hx, hy, hz)
-      colDesc.setFriction(0.8)
-      colDesc.setRestitution(0.1)
-      colDesc.setCollisionGroups(tunnelGroups)
-      this._world.createCollider(colDesc, body)
-      this._tunnelColliderBodies.push(body)
-    }
-
     const shape = tb.shape || 'horseshoe'
 
-    // 底板（所有形状）
-    createFixed(0, -wallThick, tunnelZ, halfWidth + 1, wallThick, halfLen)
-
+    // 构建马蹄形/圆形/矩形截面轮廓点（局部 x-y，不含底板，逆时针）
+    const points = []
     if (shape === 'rectangular') {
-      createFixed(-halfWidth, wallHeight / 2, tunnelZ, wallThick, wallHeight / 2, halfLen)
-      createFixed(halfWidth, wallHeight / 2, tunnelZ, wallThick, wallHeight / 2, halfLen)
-      createFixed(0, wallHeight + wallThick, tunnelZ, halfWidth + 0.2, wallThick, halfLen)
+      const totalH = wallHeight + (archRadius || 0)
+      points.push([-halfWidth, 0])
+      points.push([-halfWidth, totalH])
+      points.push([halfWidth, totalH])
+      points.push([halfWidth, 0])
     } else if (shape === 'circular') {
-      // 圆形断面：半圆弧段（底板已覆盖底部）
-      const segs = 12
-      const segHalf = archRadius * Math.sin(Math.PI / segs) + 0.05
-      for (let i = 0; i < segs; i++) {
-        const a = (Math.PI * (i + 0.5)) / segs
-        createFixed(
-          archRadius * Math.cos(a),
-          archRadius * Math.sin(a),
-          tunnelZ,
-          segHalf, segHalf, halfLen
-        )
+      // 半圆（底板已覆盖底部）
+      const segs = 24
+      for (let i = 0; i <= segs; i++) {
+        const a = Math.PI * (1 - i / segs) // 从 π 到 0
+        points.push([archRadius * Math.cos(a), archRadius * Math.sin(a)])
       }
     } else {
-      // 马蹄形（默认）
-      createFixed(-halfWidth, wallHeight / 2, tunnelZ, wallThick, wallHeight / 2, halfLen)
-      createFixed(halfWidth, wallHeight / 2, tunnelZ, wallThick, wallHeight / 2, halfLen)
-      // 拱顶弧段（12 段近似半圆）
-      const segs = 12
-      const segHalf = archRadius * Math.sin(Math.PI / segs) + 0.05
-      for (let i = 0; i < segs; i++) {
-        const a = (Math.PI * (i + 0.5)) / segs
-        createFixed(
-          archRadius * Math.cos(a),
-          wallHeight + archRadius * Math.sin(a),
-          tunnelZ,
-          segHalf, segHalf, halfLen
-        )
+      // 马蹄形（默认）：左墙 + 拱顶弧 + 右墙
+      points.push([-halfWidth, 0])
+      points.push([-halfWidth, wallHeight])
+      const segs = 24
+      for (let i = 1; i < segs; i++) {
+        const a = Math.PI - (Math.PI * i / segs) // 从 π 到 0
+        points.push([archRadius * Math.cos(a), wallHeight + archRadius * Math.sin(a)])
       }
+      points.push([halfWidth, wallHeight])
+      points.push([halfWidth, 0])
     }
+
+    // 构建 trimesh 顶点：轮廓 × 2（z=±halfLen），局部坐标
+    const verts = []
+    for (const [px, py] of points) {
+      verts.push(px, py, halfLen)   // 前端面
+      verts.push(px, py, -halfLen)  // 后端面
+    }
+    // 侧面三角形（相邻轮廓点 × 前后 = 2 三角形，法线朝内）
+    const idx = []
+    for (let i = 0; i < points.length; i++) {
+      const next = (i + 1) % points.length
+      const i0 = i * 2
+      const i1 = i * 2 + 1
+      const i2 = next * 2
+      const i3 = next * 2 + 1
+      // 两个三角形（法线朝内，碎片在内部碰撞）
+      idx.push(i0, i2, i1)
+      idx.push(i1, i2, i3)
+    }
+
+    // 创建隧道侧壁 trimesh 碰撞体（固定刚体，位置在 fc，旋转对齐隧道朝向）
+    const wallBodyDesc = RAPIER.RigidBodyDesc.fixed()
+      .setTranslation(fc.x, fc.y, fc.z)
+      .setRotation(quat)
+    const wallBody = this._world.createRigidBody(wallBodyDesc)
+    const wallCol = RAPIER.ColliderDesc.trimesh(
+      new Float32Array(verts),
+      new Uint32Array(idx)
+    )
+    wallCol.setFriction(0.8)
+    wallCol.setRestitution(0.1)
+    wallCol.setCollisionGroups(tunnelGroups)
+    this._world.createCollider(wallCol, wallBody)
+    this._tunnelColliderBodies.push(wallBody)
+
+    // 底板单独用 cuboid（平坦，碎片在上面堆积）
+    const floorBodyDesc = RAPIER.RigidBodyDesc.fixed()
+      .setTranslation(fc.x, fc.y - 0.25, fc.z)
+      .setRotation(quat)
+    const floorBody = this._world.createRigidBody(floorBodyDesc)
+    const floorCol = RAPIER.ColliderDesc.cuboid(halfWidth + 1, 0.25, halfLen)
+    floorCol.setFriction(0.8)
+    floorCol.setRestitution(0.1)
+    floorCol.setCollisionGroups(tunnelGroups)
+    this._world.createCollider(floorCol, floorBody)
+    this._tunnelColliderBodies.push(floorBody)
   }
 }
 
