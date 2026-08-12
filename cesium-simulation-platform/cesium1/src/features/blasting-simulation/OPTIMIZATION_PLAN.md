@@ -79,7 +79,9 @@
 
 ---
 
-### 问题 5：手写球体物理引擎，堆积形态失真 ★重点★
+### 问题 5：手写球体物理引擎，堆积形态失真 ★重点★ ✅ 已完成（commit 8aaa286）
+
+**实现说明**：实际文件名为 `rapierPhysicsEngine.js`（非计划中的 `blastPhysicsEngineRapier.js`）。Worker 不可用时降级为手写引擎（保留 `BlastPhysicsEngine` 作为同步 fallback），而非仅 WebAssembly 不可用时降级。隧道壁用 cuboid 近似（未用 trimesh），足以约束碎片。未实现 `InteractionGroups` 分组（rapier 默认 BVH 已足够）。验证：vite build 通过，vitest 47 项测试全部通过。
 
 **证据**
 - [blastPhysicsEngine.js:14-41](services/core/computation/blastPhysicsEngine.js#L14-L41) "模型保真度声明"自承认未用 cannon-es/rapier
