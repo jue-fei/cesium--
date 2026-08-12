@@ -486,10 +486,13 @@ export class RapierPhysicsEngine {
     const fc = { x: tb.centerX, y: tb.floorY, z: tb.centerZ }
 
     // 隧道朝向四元数
+    // 注意：[right, up, forward] 当 forward=(0,0,-1) 时行列式=-1（左手系），
+    // basisToQuat 会产生无效旋转。用 -forward 作为 z 轴构成右手系
+    // （right×up = -forward），cuboid 局部 z 对齐 -forward，hz 沿 -forward 方向。
     const quat = basisToQuat(
       right.x, right.y, right.z,
       up.x, up.y, up.z,
-      forward.x, forward.y, forward.z
+      -forward.x, -forward.y, -forward.z
     )
 
     const halfWidth = tb.halfWidth
