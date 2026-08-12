@@ -2,7 +2,7 @@
  * 爆破物理引擎 Web Worker 入口（Rapier 版）
  *
  * 在 Worker 线程中执行碎片物理模拟，使用 Rapier 凸包碰撞体 + PGS 求解器。
- * RAPIER.init() 完成后才注册 onmessage，之前的消息由浏览器队列缓冲。
+ * RAPIER.init() 完成前到达的消息由 messageQueue 缓存，完成后按顺序回放。
  *
  * 消息协议（主线程 → Worker）：
  *   { type: 'init', specs: Float32Array, positions: Float32Array, velocities: Float32Array, bounds: object, randomSeed: number, requestId: number }
@@ -39,7 +39,6 @@ const FLAG_LANDED = 0x02
 let engine = null
 let bodyLandedEnabled = false
 let lastEnergySeriesLen = 0
-let cachedGeometryVertices = null
 
 // ─── 工具：解包主线程传来的 Float32Array ─────────────────
 function unpackSpecs(buf) {
@@ -116,104 +115,117 @@ function sendEnergyStats() {
   })
 }
 
-// ─── 初始化 Rapier WASM，完成后注册消息处理 ──────────────
+// ─── 顶层消息缓冲 ───────────────────────────────────────
+// RAPIER WASM 异步加载期间若未注册 onmessage，主线程消息会丢失。
+// 此处 Worker 启动时立即注册 onmessage，将消息缓存到队列，
+// init 完成后按顺序回放。
+const messageQueue = []
+let engineReady = false
+
+self.onmessage = (e) => {
+  if (!engineReady) {
+    messageQueue.push(e.data)
+    return
+  }
+  handleMessage(e.data)
+}
+
+function handleMessage(msg) {
+  try {
+    switch (msg.type) {
+      case 'init': {
+        const specs = unpackSpecs(msg.specs)
+        const positions = unpackVec3(msg.positions)
+        const velocities = unpackVec3(msg.velocities)
+        if (msg.randomSeed != null) {
+          engine._rng = makeRng(msg.randomSeed)
+        }
+        if (msg.bounds) engine.setTunnelBounds(msg.bounds)
+        engine.init(specs, positions, velocities)
+        lastEnergySeriesLen = 0
+        sendBodyStates(msg.requestId)
+        break
+      }
+      case 'step': {
+        engine.step(msg.dt)
+        sendBodyStates(msg.requestId)
+        sendEnergyStats()
+        break
+      }
+      case 'seekTo': {
+        doSeekTo(msg)
+        break
+      }
+      case 'activateAll': {
+        engine.activateAll()
+        break
+      }
+      case 'setTunnelBounds': {
+        if (msg.bounds) engine.setTunnelBounds(msg.bounds)
+        break
+      }
+      case 'reset': {
+        engine.reset()
+        lastEnergySeriesLen = 0
+        break
+      }
+      case 'setConfig': {
+        if (msg.enableInterCollision !== undefined) {
+          engine.setEnableInterCollision(msg.enableInterCollision)
+        }
+        break
+      }
+      case 'setGeometryVertices': {
+        engine.setGeometryVertices(msg.vertices)
+        break
+      }
+      case 'setOnBodyLanded': {
+        bodyLandedEnabled = msg.enabled
+        engine.onBodyLanded = bodyLandedEnabled
+          ? (body, speed) => {
+            self.postMessage({
+              type: 'bodyLanded',
+              posX: body.posX,
+              posY: body.posY,
+              posZ: body.posZ,
+              impactSpeed: speed
+            })
+          }
+          : null
+        break
+      }
+      case 'getStats': {
+        self.postMessage({
+          type: 'stats',
+          total: engine._fragmentBodies.length,
+          alive: engine.aliveFragmentCount,
+          landed: engine.landedFragmentCount,
+          requestId: msg.requestId
+        })
+        break
+      }
+      default: {
+        console.warn('[BlastPhysicsWorker] 未知消息类型:', msg.type)
+      }
+    }
+  } catch (err) {
+    self.postMessage({
+      type: 'error',
+      message: err.message,
+      stack: err.stack
+    })
+  }
+}
+
+// ─── 初始化 Rapier WASM，完成后回放缓存的消息 ────────────
 RAPIER.init().then(() => {
   engine = new RapierPhysicsEngine()
-  // 如果在 RAPIER.init 期间已收到几何顶点，现在注入
-  if (cachedGeometryVertices) {
-    engine.setGeometryVertices(cachedGeometryVertices)
-    cachedGeometryVertices = null
+  engineReady = true
+  // 回放 RAPIER.init() 期间缓存的所有消息（按发送顺序）
+  const queued = messageQueue.splice(0)
+  for (const msg of queued) {
+    handleMessage(msg)
   }
-
-  self.onmessage = (e) => {
-    const msg = e.data
-    try {
-      switch (msg.type) {
-        case 'init': {
-          const specs = unpackSpecs(msg.specs)
-          const positions = unpackVec3(msg.positions)
-          const velocities = unpackVec3(msg.velocities)
-          if (msg.randomSeed != null) {
-            engine._rng = makeRng(msg.randomSeed)
-          }
-          if (msg.bounds) engine.setTunnelBounds(msg.bounds)
-          engine.init(specs, positions, velocities)
-          lastEnergySeriesLen = 0
-          sendBodyStates(msg.requestId)
-          break
-        }
-        case 'step': {
-          engine.step(msg.dt)
-          sendBodyStates(msg.requestId)
-          sendEnergyStats()
-          break
-        }
-        case 'seekTo': {
-          doSeekTo(msg)
-          break
-        }
-        case 'activateAll': {
-          engine.activateAll()
-          break
-        }
-        case 'setTunnelBounds': {
-          if (msg.bounds) engine.setTunnelBounds(msg.bounds)
-          break
-        }
-        case 'reset': {
-          engine.reset()
-          lastEnergySeriesLen = 0
-          break
-        }
-        case 'setConfig': {
-          if (msg.enableInterCollision !== undefined) {
-            engine.setEnableInterCollision(msg.enableInterCollision)
-          }
-          break
-        }
-        case 'setGeometryVertices': {
-          // 存储 15 种几何体变体的顶点数据（Transferable Float32Array）
-          engine.setGeometryVertices(msg.vertices)
-          break
-        }
-        case 'setOnBodyLanded': {
-          bodyLandedEnabled = msg.enabled
-          engine.onBodyLanded = bodyLandedEnabled
-            ? (body, speed) => {
-                self.postMessage({
-                  type: 'bodyLanded',
-                  posX: body.posX,
-                  posY: body.posY,
-                  posZ: body.posZ,
-                  impactSpeed: speed
-                })
-              }
-            : null
-          break
-        }
-        case 'getStats': {
-          self.postMessage({
-            type: 'stats',
-            total: engine._fragmentBodies.length,
-            alive: engine.aliveFragmentCount,
-            landed: engine.landedFragmentCount,
-            requestId: msg.requestId
-          })
-          break
-        }
-        default: {
-          console.warn('[BlastPhysicsWorker] 未知消息类型:', msg.type)
-        }
-      }
-    } catch (err) {
-      self.postMessage({
-        type: 'error',
-        message: err.message,
-        stack: err.stack
-      })
-    }
-  }
-
   // 通知主线程 Worker 已就绪
   self.postMessage({ type: 'ready' })
 })
