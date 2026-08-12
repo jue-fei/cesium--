@@ -205,16 +205,17 @@ export class RapierPhysicsEngine {
       colDesc.setCollisionGroups(fragGroups)
 
       // 创建动态刚体（初始禁用，等 activateAll 激活）
+      // 注意：RAPIER.RigidBodyDesc 无 enabled() 方法，需在 createRigidBody 后调用 setEnabled
       const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(p.x, p.y, p.z)
         .setLinvel(v.x, v.y, v.z)
         .setAngularDamping(0.5)
         .setLinearDamping(0) // 空气阻力手动施加
         .setCcdEnabled(true) // 连续碰撞检测防穿墙
-        .enabled(false)
 
       const body = this._world.createRigidBody(bodyDesc)
       this._world.createCollider(colDesc, body)
+      body.setEnabled(false)
 
       const entry = {
         rigidBody: body,
