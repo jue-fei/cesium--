@@ -386,6 +386,8 @@ export class RapierPhysicsEngine {
         velX: vel.x,
         velY: vel.y,
         velZ: vel.z,
+        // packBodyStates 读取 b.flags（数字），必须返回 flags 字段而非布尔 alive
+        flags: b.flags,
         alive: !!(b.flags & FLAG_ALIVE),
         landed: !!(b.flags & FLAG_LANDED),
         physSize: b.physSize,
