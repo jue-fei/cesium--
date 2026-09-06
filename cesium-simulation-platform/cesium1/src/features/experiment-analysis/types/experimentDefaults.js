@@ -7,12 +7,13 @@ export const EXPERIMENT_DEFAULT_CONFIG = {
     noiseLevel: 0.05,
     anomalyCount: 8,
     anomalyMagnitude: 2.0,
-    trendType: 'gaussian_mixture'
+    // 默认"梯度+峰"场（深度自重应力梯度 + 构造异常），更贴近矿山应力分布
+    trendType: 'gradient_peak'
   },
   comparison: {
     krigingModels: ['exponential'],
     idwConfig: {
-      optimizeParameters: false,
+      optimizeParameters: true,
       neighborPolicy: 'sector',
       sectorCount: 8
     },
@@ -21,9 +22,12 @@ export const EXPERIMENT_DEFAULT_CONFIG = {
     },
     gridResolution: 32,
     crossValidationFolds: 5,
-    repeatCount: 5
+    repeatCount: 3,
+    // 严谨交叉验证模式：K 折 × R 次重复 + 配对显著性检验
+    cvMode: 'kfold',
+    kFold: 5
   },
-  metrics: ['rmse', 'mae', 'r2', 'maxError', 'mape'],
+  metrics: ['rmse', 'mae', 'bias', 'variance', 'r2', 'maxError', 'mape'],
   chart: {
     colors: {
       idw: '#409EFF',
@@ -186,6 +190,16 @@ export const METRIC_INTRO = {
     label: 'MAPE 百分比误差',
     description: '相对误差的均值百分比，便于跨尺度对比。',
     ranking: '越小越好'
+  },
+  bias: {
+    label: 'Bias 平均偏差',
+    description: '预测值相对真值的系统偏差均值（有符号），反映插值是否存在系统性高估/低估。',
+    ranking: '越接近 0 越好'
+  },
+  variance: {
+    label: 'Variance 预测方差',
+    description: '插值预测值的离散程度，反映结果稳定性。',
+    ranking: '越小越好'
   }
 }
 
@@ -200,6 +214,8 @@ export const PARAM_INTRO = {
 export const METRIC_LABELS = {
   rmse: 'RMSE（均方根误差）',
   mae: 'MAE（平均绝对误差）',
+  bias: 'Bias（平均偏差）',
+  variance: 'Variance（预测方差）',
   r2: 'R²（决定系数）',
   maxError: '最大误差',
   mape: 'MAPE（平均绝对百分比误差）'
@@ -208,6 +224,8 @@ export const METRIC_LABELS = {
 export const METRIC_UNITS = {
   rmse: 'MPa',
   mae: 'MPa',
+  bias: 'MPa',
+  variance: 'MPa²',
   r2: '',
   maxError: 'MPa',
   mape: '%'

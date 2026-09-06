@@ -1,0 +1,99 @@
+{
+  "_说明": "现场调度（井下LHD出矿）场景配置 —— 单一事实来源：后端仿真器与前端渲染/算法均从此文件构建。新增/替换巷道、装载点、设备、分层、布局只需修改本文件，无需改代码。复制本文件为 scenario_<新场景名>.json 即可新增一个场景。",
+  "scenario": "underground-LHD-ashale",
+  "engine": "井下LHD巷道调度仿真",
+
+  "nodeDump": "S0",
+  "tunnelNodes": ["S0", "N1", "N2", "N3", "M1", "N5", "N4", "M2", "N6", "M3", "N7", "M4", "S1"],
+
+  "segments": [
+    { "id": "SEG-01", "a": "S0", "b": "N1", "lengthM": 180, "clearWidthM": 4.8, "clearHeightM": 4.0, "maxGradePct": 8.0, "minTurnRadiusM": 30.0, "smokeBad": false, "rockburstTend": 0.15, "type": "主运输巷" },
+    { "id": "SEG-02", "a": "N1", "b": "N2", "lengthM": 150, "clearWidthM": 4.8, "clearHeightM": 4.0, "maxGradePct": 9.0, "minTurnRadiusM": 26.0, "smokeBad": false, "rockburstTend": 0.20, "type": "主运输巷" },
+    { "id": "SEG-03", "a": "N2", "b": "N3", "lengthM": 160, "clearWidthM": 4.8, "clearHeightM": 4.0, "maxGradePct": 10.0, "minTurnRadiusM": 24.0, "smokeBad": false, "rockburstTend": 0.25, "type": "主运输巷" },
+    { "id": "SEG-04", "a": "M1", "b": "N5", "lengthM": 140, "clearWidthM": 4.8, "clearHeightM": 4.0, "maxGradePct": 9.0, "minTurnRadiusM": 25.0, "smokeBad": false, "rockburstTend": 0.22, "type": "主运输巷" },
+    { "id": "SEG-05", "a": "S0", "b": "N4", "lengthM": 200, "clearWidthM": 4.4, "clearHeightM": 3.8, "maxGradePct": 12.0, "minTurnRadiusM": 16.0, "smokeBad": false, "rockburstTend": 0.30, "type": "中段斜坡道" },
+    { "id": "SEG-06", "a": "N4", "b": "N5", "lengthM": 120, "clearWidthM": 4.4, "clearHeightM": 3.8, "maxGradePct": 11.0, "minTurnRadiusM": 15.0, "smokeBad": false, "rockburstTend": 0.28, "type": "中段斜坡道" },
+    { "id": "SEG-07", "a": "N3", "b": "M2", "lengthM": 150, "clearWidthM": 4.4, "clearHeightM": 3.8, "maxGradePct": 12.0, "minTurnRadiusM": 15.0, "smokeBad": false, "rockburstTend": 0.32, "type": "中段斜坡道" },
+    { "id": "SEG-08", "a": "N2", "b": "M1", "lengthM": 90, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 20.0, "minTurnRadiusM": 9.0, "smokeBad": true, "rockburstTend": 0.45, "type": "采场出矿道" },
+    { "id": "SEG-09", "a": "N5", "b": "M2", "lengthM": 85, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 13.0, "minTurnRadiusM": 8.0, "smokeBad": false, "rockburstTend": 0.40, "type": "采场出矿道" },
+    { "id": "SEG-10", "a": "M3", "b": "N6", "lengthM": 80, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 13.5, "minTurnRadiusM": 7.5, "smokeBad": true, "rockburstTend": 0.50, "type": "采场出矿道" },
+    { "id": "SEG-11", "a": "N6", "b": "M4", "lengthM": 70, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 20.0, "minTurnRadiusM": 9.0, "smokeBad": true, "rockburstTend": 0.48, "type": "采场出矿道" },
+    { "id": "SEG-12", "a": "N3", "b": "N6", "lengthM": 110, "clearWidthM": 4.0, "clearHeightM": 3.4, "maxGradePct": 14.0, "minTurnRadiusM": 7.0, "smokeBad": true, "rockburstTend": 0.78, "type": "高应力修复段" },
+    { "id": "SEG-13", "a": "N7", "b": "M3", "lengthM": 95, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 12.5, "minTurnRadiusM": 8.5, "smokeBad": true, "rockburstTend": 0.70, "type": "采场出矿道" },
+    { "id": "SEG-14", "a": "S1", "b": "N7", "lengthM": 130, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 12.0, "minTurnRadiusM": 9.5, "smokeBad": false, "rockburstTend": 0.35, "type": "联络通道" },
+    { "id": "SEG-15", "a": "M4", "b": "S1", "lengthM": 125, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 12.5, "minTurnRadiusM": 8.0, "smokeBad": true, "rockburstTend": 0.55, "type": "联络通道" }
+  ],
+
+  "levelsMeta": ["主运输水平", "上部出矿分段", "中部联络/通风水平", "深部放矿水平", "底部转运/运输水平"],
+  "levelSegs": {
+    "0": ["SEG-01", "SEG-02", "SEG-03", "SEG-04", "SEG-05", "SEG-06", "SEG-07", "SEG-08", "SEG-09", "SEG-10", "SEG-11", "SEG-12", "SEG-13", "SEG-14", "SEG-15"],
+    "1": ["SEG-01", "SEG-02", "SEG-03", "SEG-05", "SEG-06", "SEG-04", "SEG-08", "SEG-09", "SEG-07"],
+    "2": ["SEG-01", "SEG-02", "SEG-08", "SEG-04", "SEG-06", "SEG-05", "SEG-12", "SEG-13", "SEG-10"],
+    "3": ["SEG-12", "SEG-07", "SEG-09", "SEG-10", "SEG-13", "SEG-11", "SEG-14", "SEG-15"],
+    "4": ["SEG-01", "SEG-05", "SEG-14", "SEG-15", "SEG-11", "SEG-10"]
+  },
+  "levelDepthM": [0, 22, 44, 62, 80],
+
+  "initialBlocks": [
+    { "seg": "SEG-07", "reason": "岩爆预警" },
+    { "seg": "SEG-11", "reason": "炮烟浓度超限" }
+  ],
+
+  "muckPoints": [
+    { "id": "M1", "zone": "A采场", "gantry": "3#装矿横巷", "blastCycle": "本轮爆破3h", "muckShape": "半锥体散堆", "spreadR_m": 9.0, "heightM_m": 2.2, "initialStockT": 420 },
+    { "id": "M2", "zone": "B采场", "gantry": "5#装矿横巷", "blastCycle": "本轮爆破5h", "muckShape": "楔形偏堆", "spreadR_m": 11.0, "heightM_m": 2.6, "initialStockT": 480 },
+    { "id": "M3", "zone": "C采场", "gantry": "7#装矿横巷", "blastCycle": "上轮残堆", "muckShape": "宽缓扁堆", "spreadR_m": 13.0, "heightM_m": 2.0, "initialStockT": 260 },
+    { "id": "M4", "zone": "D采场", "gantry": "9#装矿横巷", "blastCycle": "本轮爆破1h", "muckShape": "高陡爆堆", "spreadR_m": 8.0, "heightM_m": 3.1, "initialStockT": 350 }
+  ],
+  "gradePct": { "M1": 0.6, "M2": 0.8, "M3": 0.5, "M4": 1.2 },
+  "muckLevel": { "M1": 0, "M2": 0, "M3": 2, "M4": 3, "S1": 0 },
+
+  "equipment": {
+    "LHD-01": { "model": "ST-14 井下铰接铲运机", "width_m": 3.10, "height_m": 3.10, "capacity_t": 14.0, "bucket_m3": 7.6, "turn_radius_m": 7.2, "max_grade_empty_pct": 25.0, "max_grade_loaded_pct": 15.0, "rated_speed_empty": 9.0, "rated_speed_loaded": 7.0, "empty_energy": 6.0, "loaded_energy_k": 0.34, "energy_type": "electric", "diesel_l_per_km": 0.0 },
+    "LHD-02": { "model": "ST-6 中型铰接铲运机", "width_m": 2.60, "height_m": 2.85, "capacity_t": 6.0, "bucket_m3": 3.2, "turn_radius_m": 6.0, "max_grade_empty_pct": 26.0, "max_grade_loaded_pct": 16.0, "rated_speed_empty": 9.5, "rated_speed_loaded": 7.5, "empty_energy": 4.2, "loaded_energy_k": 0.30, "energy_type": "electric", "diesel_l_per_km": 0.0 },
+    "LHD-03": { "model": "Toro-007 柴油铰接铲运机", "width_m": 2.90, "height_m": 2.95, "capacity_t": 7.0, "bucket_m3": 3.8, "turn_radius_m": 6.6, "max_grade_empty_pct": 24.0, "max_grade_loaded_pct": 14.0, "rated_speed_empty": 8.5, "rated_speed_loaded": 6.5, "empty_energy": 0.0, "loaded_energy_k": 0.0, "energy_type": "diesel", "diesel_l_per_km": 2.6 },
+    "LHD-04": { "model": "ST-8 重载铰接铲运机", "width_m": 3.20, "height_m": 3.20, "capacity_t": 8.0, "bucket_m3": 4.4, "turn_radius_m": 7.4, "max_grade_empty_pct": 23.0, "max_grade_loaded_pct": 13.5, "rated_speed_empty": 8.2, "rated_speed_loaded": 6.2, "empty_energy": 5.0, "loaded_energy_k": 0.32, "energy_type": "electric", "diesel_l_per_km": 0.0 }
+  },
+
+  "indicatorSpecs": {
+    "posErrorWorkM": 0.30,
+    "posErrorTravelM": 0.80,
+    "blockRecognitionRatePct": 90,
+    "blockThresholdCm": 10,
+    "hazardZoneBiasM": 5.0,
+    "opexReductionTargetPct": 10.0
+  },
+
+  "layout": {
+    "_说明": "前端可视化布局：viewBox 为 2D 画布坐标范围；nodes 为节点 2D 布局坐标（type: dump=卸载点 / muck=装载点 / node=交叉节点）；levels 为三维分层（y=深度、shift=平面错位、activity=活动度）；nodeElevation 为各节点三维高程（顶层用）",
+    "viewBox": { "x": 0, "y": 0, "width": 390, "height": 300 },
+    "nodes": {
+      "S0": { "x": 50, "y": 40, "label": "S0 卸载点", "type": "dump" },
+      "N1": { "x": 140, "y": 40, "label": "N1", "type": "node" },
+      "N2": { "x": 230, "y": 40, "label": "N2", "type": "node" },
+      "N3": { "x": 320, "y": 40, "label": "N3", "type": "node" },
+      "M1": { "x": 80, "y": 110, "label": "M1 A采场", "type": "muck" },
+      "N5": { "x": 140, "y": 110, "label": "N5", "type": "node" },
+      "N4": { "x": 80, "y": 80, "label": "N4", "type": "node" },
+      "M2": { "x": 320, "y": 110, "label": "M2 B采场", "type": "muck" },
+      "N6": { "x": 320, "y": 180, "label": "N6", "type": "node" },
+      "M3": { "x": 170, "y": 180, "label": "M3 C采场", "type": "muck" },
+      "N7": { "x": 230, "y": 180, "label": "N7", "type": "node" },
+      "M4": { "x": 320, "y": 250, "label": "M4 D采场", "type": "muck" },
+      "S1": { "x": 230, "y": 250, "label": "S1 备用卸点", "type": "dump" }
+    },
+    "levels": [
+      { "name": "主运输水平", "y": 36, "shift": { "x": 0, "z": 0 }, "activity": 0.5 },
+      { "name": "上部出矿分段", "y": 14, "shift": { "x": 22, "z": -12 }, "activity": 0.8 },
+      { "name": "中部联络/通风水平", "y": -8, "shift": { "x": -16, "z": 14 }, "activity": 0.4 },
+      { "name": "深部放矿水平", "y": -30, "shift": { "x": 26, "z": -22 }, "activity": 0.9 },
+      { "name": "底部转运/运输水平", "y": -52, "shift": { "x": -12, "z": 18 }, "activity": 0.7 }
+    ],
+    "nodeElevation": {
+      "S0": 30, "N1": 30, "N2": 30, "N3": 30, "N4": 30,
+      "N5": 6, "N6": 6, "N7": 6,
+      "S1": -6,
+      "M1": -12, "M2": -12, "M3": -30, "M4": -30
+    }
+  }
+}

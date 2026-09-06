@@ -1,3 +1,4 @@
+import * as Cesium from 'cesium'
 import { logger } from './logger.js'
 
 function normalizeBaseUrl(baseUrl) {
@@ -18,17 +19,17 @@ export function initializeCesiumBaseUrl() {
   const baseUrl = resolveCesiumBaseUrl()
 
   if (typeof window !== 'undefined') {
-    // 与当前直接通过 /Cesium.js 挂载的运行方式保持兼容。
+    // Cesium 的 buildModuleUrl 在首次请求资源时读取该全局变量。
     window.CESIUM_BASE_URL = baseUrl
   }
 
-  if (globalThis.Cesium?.buildModuleUrl?.setBaseUrl) {
+  if (Cesium?.buildModuleUrl?.setBaseUrl) {
     try {
-      globalThis.Cesium.buildModuleUrl.setBaseUrl(baseUrl)
+      Cesium.buildModuleUrl.setBaseUrl(baseUrl)
     } catch (error) {
       logger.warn(
         'cesium-base-url',
-        '设置 Cesium 模块基址失败，已回退到全局变量桥接',
+        '设置 Cesium 模块基址失败，已回退到 window.CESIUM_BASE_URL',
         { baseUrl },
         error
       )

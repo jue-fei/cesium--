@@ -41,7 +41,15 @@
       <div class="mb-6">
         <div class="flex items-center gap-2 mb-4">
           <div class="w-1 h-4 bg-primary rounded-sm"></div>
-          <h4 class="text-sm font-semibold text-text-primary">地下查看</h4>
+          <h4 class="text-sm font-semibold text-text-primary">
+            {{ blastingSceneActive ? '爆破场景透明度' : '地下查看' }}
+          </h4>
+          <span
+            v-if="blastingSceneActive"
+            class="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded"
+          >
+            已接管爆破场景
+          </span>
         </div>
 
         <div class="mb-4 flex items-center justify-between">
@@ -61,7 +69,7 @@
 
         <div v-for="control in alphaControls" :key="control.key" class="mb-4">
           <div class="flex justify-between items-center mb-2">
-            <span class="text-xs text-text-secondary">{{ control.label }}</span>
+            <span class="text-xs text-text-secondary">{{ alphaLabel(control) }}</span>
             <span class="text-[10px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
               {{ formatRefControlValue(control) }}
             </span>
@@ -129,6 +137,7 @@ const {
   undergroundViewEnabled,
   globeFrontFaceAlpha,
   globeBackFaceAlpha,
+  blastingSceneActive,
   enterUndergroundView,
   onPositionChange,
   onTransformChange,
@@ -218,6 +227,12 @@ function formatObjectControlValue(control) {
 
 function formatRefControlValue(control) {
   return `${Math.round(Number(control.model.value) || 0)}${control.suffix || ''}`
+}
+
+// 爆破场景激活时，把"地表/背面不透明度"语义替换为"未爆破岩体/已开挖巷道"
+function alphaLabel(control) {
+  if (!blastingSceneActive.value) return control.label
+  return control.key === 'back-face-alpha' ? '已开挖巷道透明度' : '未爆破岩体透明度'
 }
 
 function getObjectControlValue(sourceRef, key) {

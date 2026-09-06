@@ -210,10 +210,6 @@ function resolveDirectionVector(n) {
   return [nx / len, ny / len, nz / len]
 }
 
-function getCesiumRef() {
-  return typeof globalThis !== 'undefined' ? globalThis.Cesium : null
-}
-
 function isValidWorldPosition(positionWC) {
   return Boolean(
     positionWC &&
@@ -230,16 +226,84 @@ function resolveGridDimensions(grid) {
   return width > 1 && height > 1 && depth > 1 ? { width, height, depth } : null
 }
 
+// ============ WGS84 坐标变换（纯 JS，无 Cesium 依赖，Worker 安全） ============
+//
+// 替代原实现中 Cesium.Cartesian3.fromDegrees + Transforms.eastNorthUpToFixedFrame
+// + Matrix4.inverse + Matrix4.multiplyByPoint 的组合。
+// Cesium 的 eastNorthUpToFixedFrame 生成标准 ENU 基：
+//   up    = 大地水准面法线（单位向量）
+//   east  = normalize(-origin.y, origin.x, 0)   （即 (-sinλ, cosλ, 0)）
+//   north = cross(up, east)
+// 且 worldToLocal 对刚体旋转 + 平移矩阵求逆等价于：
+//   local = [east·(p-origin), north·(p-origin), up·(p-origin)]
+// 这里用相同公式做纯标量实现，结果与 Cesium 在双精度浮点误差内一致。
+
+const WGS84 = {
+  a: 6378137.0,
+  b: 6356752.314245179
+}
+
+const WGS84_E2 = (WGS84.a * WGS84.a - WGS84.b * WGS84.b) / (WGS84.a * WGS84.a)
+
+function wgs84GeodeticToEcef(lonDeg, latDeg, height) {
+  const lon = (lonDeg * Math.PI) / 180
+  const lat = (latDeg * Math.PI) / 180
+  const sinLat = Math.sin(lat)
+  const cosLat = Math.cos(lat)
+  const N = WGS84.a / Math.sqrt(1 - WGS84_E2 * sinLat * sinLat)
+  return {
+    x: (N + height) * cosLat * Math.cos(lon),
+    y: (N + height) * cosLat * Math.sin(lon),
+    z: (N * (1 - WGS84_E2) + height) * sinLat
+  }
+}
+
+function wgs84GeodeticSurfaceNormalECEF(p) {
+  const nx = p.x / (WGS84.a * WGS84.a)
+  const ny = p.y / (WGS84.a * WGS84.a)
+  const nz = p.z / (WGS84.b * WGS84.b)
+  const len = Math.sqrt(nx * nx + ny * ny + nz * nz)
+  if (!(len > 0)) return { x: 0, y: 0, z: 1 }
+  return { x: nx / len, y: ny / len, z: nz / len }
+}
+
+function computeEnuLocal(positionWC, originEcef, up) {
+  const dx = positionWC.x - originEcef.x
+  const dy = positionWC.y - originEcef.y
+  const dz = positionWC.z - originEcef.z
+
+  // east = normalize(-origin.y, origin.x, 0)
+  let ex = -originEcef.y
+  let ey = originEcef.x
+  const el = Math.sqrt(ex * ex + ey * ey)
+  if (el > 1e-12) {
+    ex /= el
+    ey /= el
+  } else {
+    ex = 1
+    ey = 0
+  }
+
+  // north = cross(up, east)
+  const nx = -up.z * ey
+  const ny = up.z * ex
+  const nz = up.x * ey - up.y * ex
+
+  // local = [east·d, north·d, up·d]
+  return {
+    x: ex * dx + ey * dy,
+    y: nx * dx + ny * dy + nz * dz,
+    z: up.x * dx + up.y * dy + up.z * dz
+  }
+}
+
 export function buildGridSampleContext(positionWC, grid, origin, size) {
-  const Cesium = getCesiumRef()
-  if (!Cesium) return null
   const dimensions = resolveGridDimensions(grid)
   if (!dimensions || !isValidWorldPosition(positionWC)) return null
   const { width: w, height: h, depth: d } = dimensions
-  const position = Cesium.Cartesian3.fromDegrees(origin[0], origin[1], origin[2] || 0)
-  const localToWorld = Cesium.Transforms.eastNorthUpToFixedFrame(position)
-  const worldToLocal = Cesium.Matrix4.inverse(localToWorld, new Cesium.Matrix4())
-  const local = Cesium.Matrix4.multiplyByPoint(worldToLocal, positionWC, new Cesium.Cartesian3())
+  const originEcef = wgs84GeodeticToEcef(origin[0], origin[1], origin[2] || 0)
+  const up = wgs84GeodeticSurfaceNormalECEF(originEcef)
+  const local = computeEnuLocal(positionWC, originEcef, up)
   const sx = Number(size[0])
   const sy = Number(size[1])
   const sz = Number(size[2])

@@ -1,3 +1,5 @@
+import * as Cesium from 'cesium'
+
 const KNOWN_POINT_STRESS_DEBUG_ENDPOINT = 'http://127.0.0.1:7777/event'
 const KNOWN_POINT_SCALE_BY_DISTANCE = new Cesium.NearFarScalar(120, 1.25, 8000, 0.55)
 const KNOWN_POINT_PIXEL_OFFSET_SCALE = new Cesium.NearFarScalar(120, 1.0, 8000, 0.7)

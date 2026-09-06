@@ -254,6 +254,7 @@ class KCOValidateRequest(BaseModel):
     xmax: float = Field(2.0, gt=0, description="最大块度 m")
     b: float = Field(2.0, gt=0, description="Swebrec 弯曲参数")
     W_abs: float = Field(0.2, ge=0, description="钻孔偏差（标准差）m")
+    x_allow: Optional[float] = Field(None, gt=0, description="允许最大块度 m（大块率计算用，需 ≤ xmax；不传则默认取 xmax，大块率为 0）")
 
     @field_validator("B")
     @classmethod

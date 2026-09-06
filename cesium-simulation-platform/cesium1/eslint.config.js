@@ -9,7 +9,7 @@ module.exports = [
   {
     rules: {
       'vue/multi-word-component-names': 'off',
-      'no-unused-vars': 'warn',
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       'no-undef': 'off', // TypeScript handles this
       'max-lines': ['warn', { max: 500, skipBlankLines: true, skipComments: true }],
       'max-lines-per-function': ['warn', { max: 120, skipBlankLines: true, skipComments: true }],

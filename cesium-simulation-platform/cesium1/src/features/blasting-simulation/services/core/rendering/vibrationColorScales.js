@@ -1,7 +1,7 @@
 /**
  * 振动场色阶共享模块（单源真相）
  *
- * 渲染器（blastVibrationFieldRenderer.js）与 UI 组件（VisualOptions.vue）
+ * 渲染器（blastVibrationFieldRenderer.js）与 UI 组件（VibrationFieldPanel.vue）
  * 统一从此模块 import，避免双份维护导致色阶与图例不一致。
  *
  * 数据格式说明：
@@ -69,7 +69,7 @@ function _convertToCss(linearStops) {
 }
 
 /** CSS 图例色阶 → 线性色阶（反向转换，供渲染器复用 UI 数据） */
-function _convertToLinear(cssStops) {
+export function _convertToLinear(cssStops) {
   return cssStops.map(s => {
     const m = s.c.match(/rgb\((\d+),(\d+),(\d+)\)/)
     if (!m) return [s.v, [0, 0, 0]]
@@ -77,7 +77,7 @@ function _convertToLinear(cssStops) {
   })
 }
 
-// ─── UI 图例派生数据（VisualOptions.vue 使用）───
+// ─── UI 图例派生数据（VibrationFieldPanel.vue 使用）───
 export const PPV_LEGEND_STOPS = _convertToCss(PPV_COLOR_STOPS_LINEAR)
 export const PPV_LEGEND_MAX = PPV_LUT_MAX_CMPS
 export const PPV_TICKS = [0, 1, 2, 4, 7, 10, 15]
@@ -92,7 +92,7 @@ export const DAMAGE_LEGEND = DAMAGE_ZONES.map(z => ({
   c: _linearToCss(z.linear)
 }))
 
-// ─── CSS gradient 生成工具（VisualOptions.vue 使用）───
+// ─── CSS gradient 生成工具（VibrationFieldPanel.vue 使用）───
 export function gradientCss(stops, max) {
   return stops.map(s => `${s.c} ${((s.v / max) * 100).toFixed(2)}%`).join(', ')
 }

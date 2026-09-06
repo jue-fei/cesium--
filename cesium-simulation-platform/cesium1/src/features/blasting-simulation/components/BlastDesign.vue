@@ -1,477 +1,281 @@
 <template>
-  <div class="panel-section">
-    <div class="panel-section-title">炮孔布置图（掌子面正视图）</div>
-    <div v-if="!blastDesign" class="hint-text">请先加载爆破数据以生成炮孔布置图。</div>
-    <div v-else class="hole-layout-wrap">
-      <svg :viewBox="`0 0 ${holeLayoutSize} ${holeLayoutSize}`" class="hole-layout-svg">
-        <path :d="tunnelOutlinePath" fill="#1a1a1a" stroke="#888" stroke-width="1.5" />
-        <circle v-for="(h, i) in blastDesign.holes" :key="i" :cx="holeToSvgX(h.x)" :cy="holeToSvgY(h.y)"
-          :r="h.isEmpty ? 4 : 2.5" :fill="holeColor(h)" :stroke="h.isEmpty ? '#fff' : 'none'"
-          :stroke-width="h.isEmpty ? 0.8 : 0" class="hole-point" @click.stop="onHoleClick(h, $event)" />
-        <g class="hole-legend">
-          <circle :cx="holeLayoutSize - 90" :cy="14" r="2.5" fill="#ff6b6b" />
-          <text :x="holeLayoutSize - 82" :y="17" fill="#ccc" font-size="9">掏槽孔</text>
-          <circle :cx="holeLayoutSize - 90" :cy="28" r="2.5" fill="#feca57" />
-          <text :x="holeLayoutSize - 82" :y="31" fill="#ccc" font-size="9">辅助孔</text>
-          <circle :cx="holeLayoutSize - 50" :cy="14" r="2.5" fill="#1dd1a1" />
-          <text :x="holeLayoutSize - 42" :y="17" fill="#ccc" font-size="9">周边孔</text>
-          <circle :cx="holeLayoutSize - 50" :cy="28" r="4" fill="#fff" stroke="#888" stroke-width="0.8" />
-          <text :x="holeLayoutSize - 42" :y="31" fill="#ccc" font-size="9">空孔</text>
-        </g>
-      </svg>
-      <el-popover :virtual-ref="holePopoverRef" virtual-triggering :visible="holePopoverVisible" placement="right"
-        :width="220" trigger="click" @hide="closeHolePopover">
-        <template #reference><span></span></template>
-        <div v-if="selectedHoleDetail" class="hole-detail-pop">
-          <div class="hole-detail-title">炮孔参数</div>
-          <div class="stat-item">
-            <span>类型</span><span class="stat-value">{{ selectedHoleDetail.typeLabel }}</span>
-          </div>
-          <div class="stat-item">
-            <span>装药量</span><span class="stat-value">{{ selectedHoleDetail.charge }} kg</span>
-          </div>
-          <div class="stat-item">
-            <span>典型延时</span><span class="stat-value">{{ selectedHoleDetail.delay }} ms</span>
-          </div>
-          <div class="stat-item">
-            <span>钻孔深度</span><span class="stat-value">{{ selectedHoleDetail.depth }} m</span>
-          </div>
-          <div class="stat-item">
-            <span>坐标</span><span class="stat-value">({{ selectedHoleDetail.x.toFixed(2) }}, {{
-              selectedHoleDetail.y.toFixed(2)
-              }})</span>
-          </div>
+  <div>
+    <!-- 炮孔布置图 -->
+    <div class="section">
+      <div class="section-title">炮孔布置（掌子面）</div>
+      <div v-if="!blastDesign" class="hint">请先加载爆破数据以生成炮孔布置图。</div>
+      <template v-else>
+        <div class="hole-layout-wrap" @click="closeHolePopover">
+          <svg
+            :viewBox="`0 0 ${holeLayoutSize} ${holeLayoutSize}`"
+            class="hole-layout-svg"
+            @click="closeHolePopover"
+          >
+            <path :d="tunnelOutlinePath" fill="#1a1a1a" stroke="#888" stroke-width="1.5" />
+            <circle
+              v-for="(h, i) in blastDesign.holes"
+              :key="i"
+              :cx="holeToSvgX(h.x)"
+              :cy="holeToSvgY(h.y)"
+              :r="h.isEmpty ? 4 : 2.5"
+              :fill="holeColor(h)"
+              :stroke="h.isEmpty ? '#fff' : 'none'"
+              :stroke-width="h.isEmpty ? 0.8 : 0"
+              class="hole-point"
+              @click.stop="onHoleClick(h, $event)"
+            />
+            <g class="hole-legend">
+              <circle :cx="holeLayoutSize - 90" :cy="14" r="2.5" fill="#ff6b6b" />
+              <text :x="holeLayoutSize - 82" :y="17" fill="#ccc" font-size="9">掏槽</text>
+              <circle :cx="holeLayoutSize - 90" :cy="28" r="2.5" fill="#feca57" />
+              <text :x="holeLayoutSize - 82" :y="31" fill="#ccc" font-size="9">辅助</text>
+              <circle :cx="holeLayoutSize - 50" :cy="14" r="2.5" fill="#1dd1a1" />
+              <text :x="holeLayoutSize - 42" :y="17" fill="#ccc" font-size="9">周边</text>
+              <circle
+                :cx="holeLayoutSize - 50"
+                :cy="28"
+                r="4"
+                fill="#fff"
+                stroke="#888"
+                stroke-width="0.8"
+              />
+              <text :x="holeLayoutSize - 42" :y="31" fill="#ccc" font-size="9">空孔</text>
+            </g>
+          </svg>
+          <el-popover
+            :virtual-ref="holePopoverRef"
+            virtual-triggering
+            :visible="holePopoverVisible"
+            placement="right"
+            :width="200"
+            trigger="click"
+            @hide="closeHolePopover"
+          >
+            <template #reference><span></span></template>
+            <div v-if="selectedHoleDetail" class="hole-detail-pop">
+              <div class="hole-detail-title">炮孔参数</div>
+              <div class="stat">
+                <span>类型</span><span class="stat-val">{{ selectedHoleDetail.typeLabel }}</span>
+              </div>
+              <div class="stat">
+                <span>装药量</span><span class="stat-val">{{ selectedHoleDetail.charge }} kg</span>
+              </div>
+              <div class="stat">
+                <span>延时</span><span class="stat-val">{{ selectedHoleDetail.delay }} ms</span>
+              </div>
+              <div class="stat">
+                <span>孔深</span><span class="stat-val">{{ selectedHoleDetail.depth }} m</span>
+              </div>
+              <div class="stat">
+                <span>坐标</span
+                ><span class="stat-val"
+                  >({{ selectedHoleDetail.x.toFixed(2) }},
+                  {{ selectedHoleDetail.y.toFixed(2) }})</span
+                >
+              </div>
+            </div>
+          </el-popover>
         </div>
-      </el-popover>
+        <div class="row mt-2" style="gap: 14px">
+          <span class="hint"
+            >总孔数 <b class="stat-val">{{ blastDesign.counts.total }}</b></span
+          >
+          <span class="hint"
+            >掏槽 <b class="stat-val">{{ blastDesign.counts.cut }}</b></span
+          >
+          <span class="hint"
+            >辅助 <b class="stat-val">{{ blastDesign.counts.auxiliary }}</b></span
+          >
+          <span class="hint"
+            >周边 <b class="stat-val">{{ blastDesign.counts.perimeter }}</b></span
+          >
+          <span class="hint"
+            >断面
+            <b class="stat-val"
+              >{{ blastDesign.section.W }}m × {{ blastDesign.section.totalH.toFixed(1) }}m</b
+            ></span
+          >
+          <span class="hint"
+            >面积 <b class="stat-val">{{ blastDesign.section.area.toFixed(2) }} m²</b></span
+          >
+        </div>
+        <div class="row mt-1" style="gap: 14px">
+          <span class="hint"
+            >进尺 <b class="stat-val">{{ blastDesign.advanceDepth.toFixed(2) }} m</b></span
+          >
+          <span class="hint"
+            >方量 <b class="stat-val">{{ blastDesign.volumePerRound.toFixed(2) }} m³</b></span
+          >
+          <span class="hint"
+            >单耗 <b class="stat-val">{{ blastDesign.charge.specific.toFixed(3) }} kg/m³</b></span
+          >
+          <span class="hint"
+            >总药量 <b class="stat-val">{{ blastDesign.charge.total.toFixed(1) }} kg</b></span
+          >
+        </div>
+      </template>
     </div>
 
-    <div v-if="blastDesign" class="mt-3">
-      <div class="panel-subtitle">钻孔统计</div>
-      <div class="stat-item">
-        <span>总孔数</span><span class="stat-value">{{ blastDesign.counts.total }}</span>
+    <!-- 块度分布 -->
+    <div v-if="hasDistribution" class="section">
+      <div class="section-title">块度分布</div>
+      <div class="chart-block">
+        <div
+          v-for="b in buckets"
+          :key="b.label"
+          class="chart-row"
+          :class="{ active: activeBucketLabel === b.label }"
+          @click="onBucketClick(b)"
+        >
+          <div class="chart-label" :title="b.label">{{ b.label }}</div>
+          <div class="chart-track">
+            <div
+              class="chart-fill"
+              :class="{ active: activeBucketLabel === b.label }"
+              :style="{ width: barWidth(b.percentage) }"
+            ></div>
+          </div>
+          <div class="chart-pct">{{ b.percentage.toFixed(1) }}%</div>
+        </div>
       </div>
-      <div class="stat-item">
-        <span>掏槽孔（含空孔）</span><span class="stat-value">{{ blastDesign.counts.cut }} (空孔 {{ blastDesign.counts.empty
-          }})</span>
-      </div>
-      <div class="stat-item">
-        <span>辅助孔</span><span class="stat-value">{{ blastDesign.counts.auxiliary }}</span>
-      </div>
-      <div class="stat-item">
-        <span>周边孔</span><span class="stat-value">{{ blastDesign.counts.perimeter }}</span>
-      </div>
-      <div class="stat-item">
-        <span>钻孔深度</span><span class="stat-value">{{ blastDesign.holeDepth }} m</span>
+      <div class="hint-sm">点击区间行可在 3D 场景中高亮对应块度范围的碎片。</div>
+      <div v-if="activeBucketLabel" class="row mt-1">
+        <button class="btn danger" @click="clearHighlight">清除高亮</button>
+        <span class="hint">当前：{{ activeBucketLabel }}</span>
       </div>
     </div>
 
-    <div v-if="blastDesign" class="mt-3">
-      <div class="panel-subtitle">掘进与爆破参数</div>
-      <div class="stat-item">
-        <span>断面尺寸</span><span class="stat-value">{{ blastDesign.section.W }}m × {{
-          blastDesign.section.totalH.toFixed(1)
-          }}m</span>
+    <!-- 块度分布对比：等质量采样直方图 vs Swebrec 理论曲线 -->
+    <div v-if="cmpChart" class="section">
+      <div class="section-title-row">
+        <div class="section-title">块度分布（等质量采样 vs Swebrec 理论）</div>
+        <div class="kl-chip" :class="klTone">
+          <span class="kl-label">KL 散度</span>
+          <span class="kl-val">{{ klValueDisplay }}</span>
+          <span class="kl-note">{{ klNote }}</span>
+        </div>
       </div>
-      <div class="stat-item">
-        <span>断面面积</span><span class="stat-value">{{ blastDesign.section.area.toFixed(2) }} m²</span>
+      <div class="chart-compare-wrap">
+        <svg :viewBox="`0 0 ${cmpChart.W} ${cmpChart.H}`" class="chart-compare-svg">
+          <!-- 横向网格线 + y 轴刻度 -->
+          <line
+            v-for="(gy, gi) in cmpChart.yGrid"
+            :key="'grid' + gi"
+            :x1="cmpChart.left"
+            :x2="cmpChart.W - cmpChart.padR"
+            :y1="gy"
+            :y2="gy"
+            class="cmp-grid"
+          />
+          <g v-for="(yt, yi) in cmpChart.yTicks" :key="'ytick' + yi" class="cmp-tick-x">
+            <text :x="cmpChart.left - 6" :y="yt.y + 3" class="cmp-tick-label">{{ yt.label }}</text>
+          </g>
+          <!-- 采样直方图 -->
+          <rect
+            v-for="(bar, i) in cmpChart.bars"
+            :key="'bar' + i"
+            :x="bar.x"
+            :y="bar.y"
+            :width="cmpChart.barW"
+            :height="bar.height"
+            class="cmp-bar sampled"
+          />
+          <!-- Swebrec 理论分布曲线 -->
+          <polyline :points="cmpChart.theoryPoints" class="cmp-curve" />
+          <circle
+            v-for="(p, i) in cmpChart.curvePts"
+            :key="'dot' + i"
+            :cx="p.x"
+            :cy="p.y"
+            r="2.2"
+            class="cmp-dot"
+          />
+          <!-- x 轴刻度（物理尺寸） -->
+          <g v-for="(xt, xi) in cmpChart.xTicks" :key="'xtick' + xi" class="cmp-tick-y">
+            <line
+              :x1="xt.x"
+              :x2="xt.x"
+              :y1="cmpChart.baseline"
+              :y2="cmpChart.baseline + 3"
+              class="cmp-tick-mark"
+            />
+            <text :x="xt.x" :y="cmpChart.H - 8" class="cmp-tick-label" text-anchor="middle">
+              {{ xt.label }}
+            </text>
+          </g>
+          <!-- 坐标轴框 -->
+          <line
+            :x1="cmpChart.left"
+            :x2="cmpChart.left"
+            :y1="cmpChart.padT"
+            :y2="cmpChart.baseline"
+            class="cmp-frame"
+          />
+          <line
+            :x1="cmpChart.left"
+            :x2="cmpChart.W - cmpChart.padR"
+            :y1="cmpChart.baseline"
+            :y2="cmpChart.baseline"
+            class="cmp-frame"
+          />
+          <!-- 轴标题 -->
+          <text :x="12" :y="9" class="cmp-axis" text-anchor="middle" transform="rotate(-90 12 9)">
+            质量占比 (%)
+          </text>
+          <text
+            :x="cmpChart.left + cmpChart.plotW / 2"
+            :y="cmpChart.H - 2"
+            class="cmp-axis"
+            text-anchor="middle"
+          >
+            块度尺寸 {{ cmpChart.unit }}
+          </text>
+        </svg>
+        <div class="chart-legend">
+          <span class="legend-item sampled"><i class="sw"></i>等质量采样直方图</span>
+          <span class="legend-item theory"><i class="sw"></i>Swebrec 理论分布</span>
+        </div>
       </div>
-      <div class="stat-item">
-        <span>单循环进尺</span><span class="stat-value">{{ blastDesign.advanceDepth.toFixed(2) }} m</span>
-      </div>
-      <div class="stat-item">
-        <span>单循环爆破方量</span><span class="stat-value">{{ blastDesign.volumePerRound.toFixed(2) }} m³</span>
-      </div>
-      <div class="stat-item">
-        <span>爆破漏斗深度</span><span class="stat-value">{{ blastDesign.craterDepth?.toFixed(2) }} m</span>
-      </div>
-      <div class="stat-item">
-        <span>掌子面平整度</span><span class="stat-value">{{ blastDesign.faceSmoothness }}% (半孔率)</span>
+      <div class="hint-sm">
+        KL 散度越小，等质量采样直方图越贴近 Swebrec 理论分布，采样质量越高。
       </div>
     </div>
 
-    <div v-if="blastDesign" class="mt-3">
-      <div class="panel-subtitle">装药参数</div>
-      <div class="stat-item">
-        <span>掏槽孔药量</span><span class="stat-value">{{ blastDesign.charge.cut.toFixed(1) }} kg</span>
-      </div>
-      <div class="stat-item">
-        <span>辅助孔药量</span><span class="stat-value">{{ blastDesign.charge.auxiliary.toFixed(1) }} kg</span>
-      </div>
-      <div class="stat-item">
-        <span>周边孔药量</span><span class="stat-value">{{ blastDesign.charge.perimeter.toFixed(1) }} kg</span>
-      </div>
-      <div class="stat-item">
-        <span>总装药量</span><span class="stat-value">{{ blastDesign.charge.total.toFixed(1) }} kg</span>
-      </div>
-      <div class="stat-item">
-        <span>炸药单耗</span><span class="stat-value">{{ blastDesign.charge.specific.toFixed(3) }} kg/m³</span>
-      </div>
-    </div>
-
-    <!-- KCO 模型参数输入 -->
-    <div class="mt-3 kco-panel">
-      <div class="panel-subtitle">
-        KCO 碎块分布模型参数
-        <span class="kco-hint">动态调整后点击「应用并重播」生效</span>
-      </div>
-      <div class="hint-text kco-desc">
-        KCO = Kuznetsov-Cunningham 中位块度 x50 + Ouchterlony Swebrec 分布。
-        调整参数后碎片尺寸与抛掷效果将动态更新。
-      </div>
-
-      <div class="kco-group-title">断面尺寸与掏槽形式</div>
-      <div class="kco-grid">
-        <label class="kco-field">
-          <span class="kco-label">断面形状</span>
-          <select v-model="sectionForm.shape" class="db-event-select">
-            <option value="horseshoe">马蹄形</option>
-            <option value="circular">圆形</option>
-            <option value="rectangular">矩形</option>
-          </select>
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">宽度 W (m)</span>
-          <el-input-number v-model="sectionForm.width" :min="4" :max="30" :step="0.5" :precision="1" :controls="false"
-            size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">直墙高 (m)</span>
-          <el-input-number v-model="sectionForm.wallHeight" :min="2" :max="15" :step="0.5" :precision="1"
-            :controls="false" size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">拱半径 (m)</span>
-          <el-input-number v-model="sectionForm.archRadius" :min="2" :max="15" :step="0.5" :precision="1"
-            :controls="false" size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">掏槽形式</span>
-          <select v-model="cutPattern" class="db-event-select">
-            <option value="diamond">菱形掏槽</option>
-            <option value="spiral">螺旋掏槽</option>
-            <option value="wedge">楔形掏槽</option>
-          </select>
-        </label>
-      </div>
-      <div class="hint-text kco-desc">
-        总高度 {{ sectionDerived.totalH.toFixed(1) }}m · 断面积
-        {{ sectionDerived.area.toFixed(2) }}m²
-        <button class="compact-action-btn primary" style="margin-left: 12px" @click="applySection">
-          应用断面并重布孔
-        </button>
-      </div>
-
-      <div class="kco-group-title mt-3">场地预设</div>
-      <div class="controls-row">
-        <select v-model="selectedPresetKey" class="db-event-select">
-          <option value="">-- 选择场地预设 --</option>
-          <option v-for="(p, key) in SITE_PRESETS" :key="key" :value="key">{{ p.label }}</option>
-        </select>
-        <button class="compact-action-btn primary" :disabled="!selectedPresetKey" @click="applyPreset">
-          应用预设
-        </button>
-      </div>
-      <div class="hint-text kco-desc">一键填充岩石因子 + 装药 + 孔网典型值，覆盖当前参数。</div>
-
-      <div class="kco-group-title mt-3">爆破设计与炸药参数</div>
-      <div class="kco-grid">
-        <label class="kco-field">
-          <span class="kco-label">Q 单孔装药量 (kg)</span>
-          <el-input-number v-model="kcoParams.Q" :min="1" :max="2000" :step="10" :controls="false" size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">q 炸药单耗 (kg/m³)</span>
-          <el-input-number v-model="kcoParams.q" :min="0.1" :max="5" :step="0.05" :precision="3" :controls="false"
-            size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">B 抵抗线 (m)</span>
-          <el-input-number v-model="kcoParams.B" :min="0.3" :max="5" :step="0.1" :precision="2" :controls="false"
-            size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">S 孔间距 (m)</span>
-          <el-input-number v-model="kcoParams.S" :min="0.3" :max="6" :step="0.1" :precision="2" :controls="false"
-            size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">炸药类型</span>
-          <select :value="explosiveType" class="db-event-select"
-            @change="explosiveType = $event.target.value; onExplosiveChange()">
-            <option v-for="(e, key) in EXPLOSIVE_TYPES" :key="key" :value="key">
-              {{ e.label }}
-            </option>
-          </select>
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">SANFO 相对ANFO威力 (%)</span>
-          <el-input-number v-model="kcoParams.SANFO" :min="50" :max="200" :step="5" :controls="false" size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">d 炮孔直径 (mm)</span>
-          <el-input-number v-model="kcoParams.d" :min="30" :max="300" :step="5" :controls="false" size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">Lb 底部装药长度 (m)</span>
-          <el-input-number v-model="kcoParams.Lb" :min="0.2" :max="8" :step="0.1" :precision="2" :controls="false"
-            size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">Lc 柱状装药长度 (m)</span>
-          <el-input-number v-model="kcoParams.Lc" :min="0.2" :max="10" :step="0.1" :precision="2" :controls="false"
-            size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">Ltot 总装药长度 (m)</span>
-          <el-input-number v-model="kcoParams.Ltot" :min="0.5" :max="15" :step="0.1" :precision="2" :controls="false"
-            size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">H 台阶高度 (m)</span>
-          <el-input-number v-model="kcoParams.H" :min="1" :max="15" :step="0.1" :precision="2" :controls="false"
-            size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">SD 钻孔精度标准差 (m)</span>
-          <el-input-number v-model="kcoParams.SD" :min="0" :max="2" :step="0.05" :precision="3" :controls="false"
-            size="small" />
-        </label>
-      </div>
-
-      <div class="kco-group-title mt-3">岩石与岩体参数（A = 0.06×(RMD+RDI+HF)）</div>
-      <div class="kco-grid">
-        <label class="kco-field">
-          <span class="kco-label">RMD 岩体描述因子 (0-30)</span>
-          <el-input-number v-model="kcoParams.RMD" :min="0" :max="30" :step="1" :controls="false" size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">RDI 岩石密度影响 (0-20)</span>
-          <el-input-number v-model="kcoParams.RDI" :min="0" :max="20" :step="1" :controls="false" size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">HF 硬度因子 (0-30)</span>
-          <el-input-number v-model="kcoParams.HF" :min="0" :max="30" :step="1" :controls="false" size="small" />
-        </label>
-      </div>
-
-      <div class="kco-group-title mt-3">模型输出与分布参数</div>
-      <div class="kco-grid">
-        <label class="kco-field">
-          <span class="kco-label">xmax 最大块度尺寸 (m)</span>
-          <el-input-number v-model="kcoParams.xmax" :min="0.2" :max="5" :step="0.1" :precision="2" :controls="false"
-            size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">b Swebrec 曲线弯曲参数</span>
-          <el-input-number v-model="kcoParams.b" :min="1.0" :max="5.0" :step="0.1" :precision="2" :controls="false"
-            size="small" />
-        </label>
-      </div>
-
-      <div class="kco-group-title mt-3">
-        <button class="compact-action-btn" @click="advancedOpen = !advancedOpen">
-          {{ advancedOpen ? '▼' : '▶' }} 高级参数（Persson η / 钻孔偏差 / 速度校准开关）
-        </button>
-      </div>
-      <div v-show="advancedOpen" class="kco-grid mt-2">
-        <label class="kco-field">
-          <span class="kco-label">η 能量耦合系数 (Persson 速度模型)</span>
-          <el-input-number v-model="kcoParams.eta" :min="0.05" :max="0.4" :step="0.01" :precision="3" :controls="false"
-            size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">W_abs 钻孔偏差 (m)</span>
-          <el-input-number v-model="kcoParams.drillDeviation" :min="0" :max="0.5" :step="0.01" :precision="3"
-            :controls="false" size="small" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">启用速度校准（默认关）</span>
-          <el-switch v-model="kcoParams.enableVelocityCalibration" />
-        </label>
-        <label class="kco-field">
-          <span class="kco-label">Persson 速度模型（默认开）</span>
-          <el-switch :model-value="kcoParams.usePerssonVelocity !== false"
-            @update:model-value="kcoParams.usePerssonVelocity = $event" />
-        </label>
-      </div>
-
-      <div class="kco-preview mt-3">
-        <div class="stat-item">
-          <span>当前口径</span><span class="stat-value">{{ kcoSourceLabel }}</span>
-        </div>
-        <div class="stat-item">
-          <span>岩石因子 A</span><span class="stat-value">{{
-            (0.06 * (kcoParams.RMD + kcoParams.RDI + kcoParams.HF)).toFixed(3)
-            }}</span>
-        </div>
-        <div class="stat-item">
-          <span>单孔爆破体积 V (m³)</span><span class="stat-value">{{
-            (kcoParams.B * kcoParams.S * kcoParams.H).toFixed(2)
-            }}</span>
-        </div>
-        <div class="stat-item">
-          <span>中位块度 x50 (m)</span><span class="stat-value">{{ kcoX50.toFixed(3) }}</span>
-        </div>
-        <div class="stat-item">
-          <span>均匀性指数 n</span><span class="stat-value">{{ kcoN.toFixed(3) }}</span>
-        </div>
-        <div class="stat-item">
-          <span>最大块度 xmax (m)</span><span class="stat-value">{{ kcoXmax.toFixed(3) }}</span>
-        </div>
-        <div class="stat-item">
-          <span>x80 块度 (m)</span><span class="stat-value">{{ kcoX80.toFixed(3) }}</span>
-        </div>
-        <div class="stat-item">
-          <span>单循环爆破方量 (m³)</span><span class="stat-value">{{ brokenVolume.toFixed(2) }}</span>
-        </div>
-        <div class="stat-item">
-          <span>预计碎片数</span><span class="stat-value">~{{ fragmentCountEst }}</span>
-        </div>
-      </div>
-
-      <!-- 孔型权重只读展示 -->
-      <div class="mt-3 hole-weight-panel">
-        <div class="panel-subtitle">孔型权重（只读）</div>
-        <div class="hint-text kco-desc">
-          不同孔型对碎石速度、粒径与方向的工程经验影响系数，由系统固定。
-        </div>
-        <table class="hole-weight-table">
-          <thead>
-            <tr>
-              <th>孔型</th>
-              <th>速度系数</th>
-              <th>粒径系数</th>
-              <th>轴向偏置</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>掏槽孔 (cut)</td>
-              <td>{{ HOLE_TYPE_WEIGHTS.cut.velocityFactor.toFixed(2) }}</td>
-              <td>{{ HOLE_TYPE_WEIGHTS.cut.sizeFactor.toFixed(2) }}</td>
-              <td>{{ formatSignedBias(HOLE_TYPE_WEIGHTS.cut.axialBias) }}</td>
-            </tr>
-            <tr>
-              <td>辅助孔 (auxiliary)</td>
-              <td>{{ HOLE_TYPE_WEIGHTS.auxiliary.velocityFactor.toFixed(2) }}</td>
-              <td>{{ HOLE_TYPE_WEIGHTS.auxiliary.sizeFactor.toFixed(2) }}</td>
-              <td>{{ formatSignedBias(HOLE_TYPE_WEIGHTS.auxiliary.axialBias) }}</td>
-            </tr>
-            <tr>
-              <td>周边孔 (perimeter)</td>
-              <td>{{ HOLE_TYPE_WEIGHTS.perimeter.velocityFactor.toFixed(2) }}</td>
-              <td>{{ HOLE_TYPE_WEIGHTS.perimeter.sizeFactor.toFixed(2) }}</td>
-              <td>{{ formatSignedBias(HOLE_TYPE_WEIGHTS.perimeter.axialBias) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="controls-row mt-3">
-        <button class="compact-action-btn primary" :disabled="!dataset || kcoReplaying" @click="applyKcoAndReplay">
-          {{ kcoReplaying ? '预览中…' : '立即重播' }}
-        </button>
-        <button class="compact-action-btn" :disabled="kcoReplaying" @click="$emit('reset-kco')">
-          恢复默认
-        </button>
-      </div>
-      <div v-if="kcoReplaying" class="hint-text text-ok mt-2">参数已变化，正在自动预览重播…</div>
-      <div v-if="!dataset" class="hint-text mt-2">请先加载数据后再应用 KCO 参数</div>
-
-      <!-- 方案保存与加载 -->
-      <div class="preset-section mt-3">
-        <div class="panel-subtitle">方案保存与加载</div>
-        <div class="controls-row">
-          <input v-model="presetName" class="preset-name-input" placeholder="方案名称（如：硬岩深孔）" />
-          <button class="compact-action-btn primary" @click="savePreset">保存当前方案</button>
-        </div>
-        <div class="controls-row mt-2">
-          <select v-model="selectedPresetId" class="db-event-select" @change="onPresetSelect">
-            <option value="">-- 选择已保存方案 --</option>
-            <option v-for="p in presetList" :key="p.id" :value="p.id">
-              {{ p.name }}（{{ p.savedAt }}）
-            </option>
-          </select>
-          <button class="compact-action-btn" :disabled="!selectedPresetId" @click="loadPreset">
-            加载
-          </button>
-          <button class="compact-action-btn danger" :disabled="!selectedPresetId" @click="deletePreset">
-            删除
-          </button>
-        </div>
-        <div v-if="presetList.length === 0" class="hint-text">暂无已保存方案</div>
-      </div>
-    </div>
+    <!-- KCO 参数面板 -->
+    <BlastKcoPanel
+      :dataset="dataset"
+      :blast-design="blastDesign"
+      :kco-model="kcoModel"
+      @update-kco="emit('update-kco', $event)"
+      @replay-blast="emit('replay-blast')"
+      @reset-kco="emit('reset-kco')"
+      @update-section="emit('update-section', $event)"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import {
-  KCO_SOURCE_MODE,
-  calculateKCOParams,
-  SITE_PRESETS,
-  EXPLOSIVE_TYPES
-} from '../services/core/computation/kcoModelCore.js'
-import { HOLE_TYPE_WEIGHTS } from '../services/core/rendering/fragmentSpecGenerator'
+import { computed, ref } from 'vue'
+import BlastKcoPanel from './BlastKcoPanel.vue'
 
 defineOptions({ name: 'BlastDesign' })
 
 const props = defineProps({
   dataset: { type: Object, default: null },
   blastDesign: { type: Object, default: null },
-  kcoParams: { type: Object, required: true }
+  kcoModel: { type: Object, required: true },
+  distribution: { type: Object, default: null },
+  threeStats: { type: Object, default: null }
 })
 
-const emit = defineEmits(['replay-blast', 'reset-kco', 'update-section'])
-
-// ─── 断面尺寸编辑 ───────────────────────
-const sectionForm = ref({
-  width: 12,
-  wallHeight: 5,
-  archRadius: 6,
-  shape: 'horseshoe'
-})
-const cutPattern = ref('diamond')
-
-// 从 blastDesign.section 同步初始值（外部更新时跟随）
-watch(
-  () => props.blastDesign?.section,
-  (s) => {
-    if (!s) return
-    if (s.W != null) sectionForm.value.width = s.W
-    if (s.wallHeight != null) sectionForm.value.wallHeight = s.wallHeight
-    if (s.archRadius != null) sectionForm.value.archRadius = s.archRadius
-    if (s.shape != null) sectionForm.value.shape = s.shape
-  },
-  { immediate: true }
-)
-
-// 派生值：总高度 + 断面积（马蹄形 = 直墙矩形 + 半圆拱）
-const sectionDerived = computed(() => {
-  const { width: w, wallHeight: hw, archRadius: r } = sectionForm.value
-  const totalH = hw + r
-  const area = w * hw + (Math.PI * r * r) / 2
-  return { totalH, area }
-})
-
-function applySection() {
-  emit('update-section', {
-    width: Number(sectionForm.value.width),
-    wallHeight: Number(sectionForm.value.wallHeight),
-    archRadius: Number(sectionForm.value.archRadius),
-    shape: sectionForm.value.shape,
-    cutPattern: cutPattern.value
-  })
-}
-
-// 格式化带符号的轴向偏置（正数前加 +，零与负数原样输出）
-function formatSignedBias(n) {
-  const v = Number(n) || 0
-  if (v > 0) return `+${v.toFixed(2)}`
-  return v.toFixed(2)
-}
+const emit = defineEmits([
+  'replay-blast',
+  'reset-kco',
+  'update-section',
+  'update-kco',
+  'highlight-size',
+  'clear-highlight'
+])
 
 // ─── 炮孔布置图 SVG ──────────────────────
 const holeLayoutSize = 220
@@ -490,10 +294,7 @@ const holeLayoutOffset = computed(() => {
   const W = props.blastDesign.section.W
   const H = props.blastDesign.section.totalH
   const s = holeLayoutScale.value
-  return {
-    x: (holeLayoutSize - W * s) / 2,
-    y: (holeLayoutSize - H * s) / 2
-  }
+  return { x: (holeLayoutSize - W * s) / 2, y: (holeLayoutSize - H * s) / 2 }
 })
 
 function holeToSvgX(x) {
@@ -511,7 +312,7 @@ function holeToSvgY(y) {
 
 const tunnelOutlinePath = computed(() => {
   if (!props.blastDesign) return ''
-  const { W, Hw, R, totalH } = props.blastDesign.section
+  const { W, Hw } = props.blastDesign.section
   const xL = holeToSvgX(-W / 2)
   const xR = holeToSvgX(W / 2)
   const yBottom = holeToSvgY(0)
@@ -536,10 +337,19 @@ function holeColor(h) {
 
 // ─── 炮孔交互 ────────────────────────────
 const HOLE_TYPE_LABELS = { cut: '掏槽孔', auxiliary: '辅助孔', perimeter: '周边孔' }
-const HOLE_TYPE_DELAY_MS = { cut: 0, auxiliary: 100, perimeter: 250 }
 const selectedHole = ref(null)
 const holePopoverRef = ref(null)
 const holePopoverVisible = ref(false)
+
+function calculateHoleCharge(hole, design) {
+  if (!hole || hole.isEmpty || !design) return 0
+  const charge = design.charge || {}
+  const counts = design.counts || {}
+  if (hole.type === 'cut' && counts.cut) return charge.cut / counts.cut
+  if (hole.type === 'auxiliary' && counts.auxiliary) return charge.auxiliary / counts.auxiliary
+  if (hole.type === 'perimeter' && counts.perimeter) return charge.perimeter / counts.perimeter
+  return 0
+}
 
 const selectedHoleDetail = computed(() => {
   const h = selectedHole.value
@@ -547,15 +357,9 @@ const selectedHoleDetail = computed(() => {
   if (!h || !d) return null
   const typeLabel = h.isEmpty ? '空孔' : HOLE_TYPE_LABELS[h.type] || '未知'
   const depth = d.holeDepth ?? 0
-  let charge = 0
-  if (!h.isEmpty) {
-    const c = d.charge || {}
-    const n = d.counts || {}
-    if (h.type === 'cut' && n.cut) charge = c.cut / n.cut
-    else if (h.type === 'auxiliary' && n.auxiliary) charge = c.auxiliary / n.auxiliary
-    else if (h.type === 'perimeter' && n.perimeter) charge = c.perimeter / n.perimeter
-  }
-  const delay = h.isEmpty ? 0 : (HOLE_TYPE_DELAY_MS[h.type] ?? 0)
+  const charge = calculateHoleCharge(h, d)
+  // 延时取孔位真实 delayMs（由设计数据/延时网络推导），空孔无装药延时为 0
+  const delay = h.isEmpty ? 0 : Number(h.delayMs) || 0
   return {
     typeLabel,
     charge: charge.toFixed(2),
@@ -568,6 +372,11 @@ const selectedHoleDetail = computed(() => {
 })
 
 function onHoleClick(h, event) {
+  // 再次点击同一孔洞，或弹窗已打开时点击任意孔洞，关闭弹窗
+  if (holePopoverVisible.value) {
+    closeHolePopover()
+    return
+  }
   selectedHole.value = h
   holePopoverRef.value = event?.target || null
   holePopoverVisible.value = true
@@ -576,250 +385,289 @@ function closeHolePopover() {
   holePopoverVisible.value = false
 }
 
-// ─── KCO 模型计算预览 ────────────────────
-const kcoPreview = computed(() => {
-  const params = {}
-  for (const k of Object.keys(props.kcoParams || {})) {
-    params[k] = k === 'sourceMode' ? props.kcoParams[k] : Number(props.kcoParams[k])
-  }
-  return calculateKCOParams(params)
-})
-
-const kcoSourceLabel = computed(() => {
-  return kcoPreview.value?.sourceMode === KCO_SOURCE_MODE.RESULT ? '结果驱动' : '设计驱动'
-})
-
-const kcoX50 = computed(() => {
-  const x50 = kcoPreview.value?.x50
-  return isFinite(x50) ? x50 : 0
-})
-
-const kcoN = computed(() => {
-  const n = kcoPreview.value?.n
-  return isFinite(n) ? n : 0.5
-})
-
-const kcoXmax = computed(() => {
-  const v = Number(props.kcoParams.xmax)
-  return Math.max(0.2, Math.min(5.0, isFinite(v) ? v : 2.0))
-})
-
-// ─── 场地预设 ───────────────────────────
-const selectedPresetKey = ref('')
-
-function applyPreset() {
-  const key = selectedPresetKey.value
-  const preset = SITE_PRESETS[key]
-  if (!preset) return
-  // 仅覆盖预设内含的字段，不触碰 Lb/Lc/Ltot/SD 等
-  for (const k of Object.keys(preset)) {
-    if (k === 'label') continue
-    props.kcoParams[k] = preset[k]
-  }
-  // 联动炸药类型：根据 SANFO 反推
-  const matchedType = Object.keys(EXPLOSIVE_TYPES).find(
-    (t) => EXPLOSIVE_TYPES[t].SANFO === preset.SANFO
-  )
-  if (matchedType) props.kcoParams.explosiveType = matchedType
-  ElMessage.success(`已应用预设：${preset.label}`)
-}
-
-// ─── 炸药类型 ───────────────────────────
-const explosiveType = computed({
-  get: () => props.kcoParams.explosiveType || 'emulsion',
-  set: (v) => {
-    props.kcoParams.explosiveType = v
-  }
-})
-
-function onExplosiveChange() {
-  const info = EXPLOSIVE_TYPES[explosiveType.value]
-  if (info) {
-    props.kcoParams.SANFO = info.SANFO
-    // Eg 由 fragmentSpecGenerator 读取，存入 kcoParams 供其使用
-    props.kcoParams.Eg = info.Eg
-  }
-}
-
-// ─── 高级参数面板 ───────────────────────
-const advancedOpen = ref(false)
-
-// ─── 扩展预览：x80 / 破碎量 / 碎片数估算 ──
-const kcoX80 = computed(() => {
-  const x80 = kcoPreview.value?.x80
-  return isFinite(x80) ? x80 : 0
-})
-
-// 单循环爆破体积 V = B × S × H（与预览卡片一致）
-const brokenVolume = computed(() => {
-  const B = Number(props.kcoParams.B) || 0
-  const S = Number(props.kcoParams.S) || 0
-  const H = Number(props.kcoParams.H) || 0
-  return B * S * H
-})
-
-// 碎片数估算：V × 0.8 / E[physSize³]，E[physSize³] = π/6 × x50³（Swebrec 期望体积近似）
-const fragmentCountEst = computed(() => {
-  const x50 = kcoX50.value
-  if (x50 <= 0 || brokenVolume.value <= 0) return 0
-  const avgFragVol = (Math.PI / 6) * Math.pow(x50, 3)
-  if (avgFragVol <= 0) return 0
-  const count = (brokenVolume.value * 0.8) / avgFragVol
-  // 与 fragmentSpecGenerator 的 soft cap 3000 / floor 60 对齐
-  return Math.max(60, Math.min(3000, Math.round(count)))
-})
-
-// ─── KCO 重播 ─────────────────────────────
-const kcoReplaying = ref(false)
-let kcoDebounceTimer = null
-let kcoNeedsReplay = false
-
-function applyKcoAndReplay() {
-  if (!props.dataset) return
-  props.kcoParams.sourceMode = KCO_SOURCE_MODE.DESIGN
-  kcoReplaying.value = true
-  emit('replay-blast')
-  setTimeout(() => {
-    kcoReplaying.value = false
-  }, 600)
-}
-
-watch(
-  () => {
-    const p = props.kcoParams
-    if (!p) return p
-    // 排除 sourceMode：watch 回调内会修改 sourceMode，deep watch 会捕获该修改形成循环
-    const { sourceMode, ...rest } = p
-    return JSON.stringify(rest)
-  },
-  () => {
-    if (!props.dataset) return
-    if (kcoReplaying.value) {
-      kcoNeedsReplay = true
-      return
-    }
-    if (kcoDebounceTimer) clearTimeout(kcoDebounceTimer)
-    kcoDebounceTimer = setTimeout(() => {
-      kcoReplaying.value = true
-      props.kcoParams.sourceMode = KCO_SOURCE_MODE.DESIGN
-      emit('replay-blast')
-      setTimeout(() => {
-        kcoReplaying.value = false
-        if (kcoNeedsReplay) {
-          kcoNeedsReplay = false
-          kcoDebounceTimer = setTimeout(() => {
-            kcoReplaying.value = true
-            props.kcoParams.sourceMode = KCO_SOURCE_MODE.DESIGN
-            emit('replay-blast')
-            setTimeout(() => {
-              kcoReplaying.value = false
-            }, 600)
-          }, 200)
-        }
-      }, 600)
-    }, 800)
-  }
+// ─── 块度分布 ────────────────────────────
+const activeBucketLabel = ref(null)
+const buckets = computed(() => props.distribution?.buckets || [])
+const hasDistribution = computed(
+  () =>
+    !!props.distribution &&
+    Array.isArray(props.distribution.buckets) &&
+    props.distribution.total > 0
 )
 
-// ─── 方案保存与加载 ───────────────────────
-const PRESET_STORAGE_KEY = 'blasting_presets'
-const presetName = ref('')
-const selectedPresetId = ref('')
-const presetList = ref([])
-
-function formatPresetTime(ts) {
-  const d = new Date(ts)
-  const pad = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+function barWidth(pct) {
+  const v = Number(pct) || 0
+  if (v <= 0) return '0%'
+  return Math.min(100, v).toFixed(1) + '%'
 }
 
-function loadPresetList() {
-  try {
-    const raw = localStorage.getItem(PRESET_STORAGE_KEY)
-    presetList.value = raw ? JSON.parse(raw) : []
-  } catch (e) {
-    presetList.value = []
-  }
-}
-
-function persistPresets() {
-  try {
-    localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presetList.value))
-  } catch (e) {
-    ElMessage.error('方案保存失败：本地存储不可用')
-  }
-}
-
-function savePreset() {
-  const name = presetName.value.trim()
-  if (!name) {
-    ElMessage.warning('请输入方案名称')
+function onBucketClick(bucket) {
+  if (activeBucketLabel.value === bucket.label) {
+    activeBucketLabel.value = null
+    emit('clear-highlight')
     return
   }
-  const preset = {
-    id: `preset_${Date.now()}`,
-    name,
-    savedAt: formatPresetTime(Date.now()),
-    params: { ...props.kcoParams }
+  activeBucketLabel.value = bucket.label
+  const max = bucket.max == null ? Infinity : bucket.max
+  emit('highlight-size', { min: bucket.min, max })
+}
+
+function clearHighlight() {
+  activeBucketLabel.value = null
+  emit('clear-highlight')
+}
+
+// ─── 块度分布对比图（等质量采样直方图 vs Swebrec 理论曲线 + KL 散度） ─────
+const CHART = { W: 320, H: 176, padL: 36, padR: 10, padT: 14, padB: 24 }
+
+// 便于与三位 Stats 直接对齐：采样/理论直方图已由 fragmentSpecGenerator 在相同
+// 分箱边界（0..xmax，20 箱）下生成，KL 散度即两者 pct 的形态差异。
+const cmpChart = computed(() => {
+  const s = props.threeStats?.sizeHistogramGenerated
+  const t = props.threeStats?.sizeHistogramTarget
+  if (!Array.isArray(s) || s.length === 0 || !Array.isArray(t) || t.length !== s.length) {
+    return null
   }
-  presetList.value.unshift(preset)
-  persistPresets()
-  presetName.value = ''
-  ElMessage.success(`方案「${name}」已保存`)
-}
+  const n = s.length
+  const W = CHART.W
+  const H = CHART.H
+  const padR = 10
+  const left = CHART.padL
+  const plotW = W - left - padR
+  const plotH = H - CHART.padT - CHART.padB
+  const maxRaw = Math.max(0.01, ...s.map(b => b.pct), ...t.map(b => b.pct))
+  const maxY = maxRaw * 1.12 // 顶部留 12% 余量
+  const baseline = CHART.padT + plotH
+  const y = v => CHART.padT + (1 - v / maxY) * plotH
+  const x = i => left + ((i + 0.5) / n) * plotW
+  const barW = (plotW / n) * 0.66
 
-function onPresetSelect() { }
-
-function loadPreset() {
-  const preset = presetList.value.find(p => p.id === selectedPresetId.value)
-  if (!preset) {
-    ElMessage.warning('未找到该方案')
-    return
+  const bars = s.map((b, i) => {
+    const v = Math.max(0, b.pct) * 100
+    return { x: x(i) - barW / 2, y: y(v), height: Math.max(0, baseline - y(v)), pct: v }
+  })
+  const curvePts = t.map((b, i) => ({ x: x(i), y: y(Math.max(0, b.pct) * 100) }))
+  const theoryPoints = curvePts
+    .map((p, i) => `${p.x.toFixed(2)},${p.y.toFixed(2)}${i < curvePts.length - 1 ? ' ' : ''}`)
+    .join('')
+  // y 网格：0/25/50/75/100% maxY
+  const yGrid = [0, 0.25, 0.5, 0.75, 1].map(k => y(k * maxY))
+  const yTicks = [0, 0.25, 0.5, 0.75, 1]
+    .map(k => ({ y: y(k * maxY), label: (k * maxY).toFixed(0) }))
+    .slice(0, 5)
+  // x 物理尺寸刻度：线性 0→xmax，均匀取 5 档；块度直方图为 0..xmax 等宽分箱
+  const maxSize = Number(props.threeStats?.xmaxApplied) || 2.0
+  const fmt = v => (v < 0.01 ? '0' : v.toFixed(v < 1 ? 2 : 1))
+  const xTicks = [0, 0.25, 0.5, 0.75, 1].map(k => ({
+    x: left + k * plotW,
+    label: fmt(maxSize * k)
+  }))
+  return {
+    W,
+    H,
+    left,
+    padR,
+    plotW,
+    baseline,
+    barW,
+    bars,
+    curvePts,
+    theoryPoints,
+    yGrid,
+    yTicks,
+    xTicks,
+    unit: '(m)'
   }
-  // 通过 v-model 绑定的 kcoParams 是引用类型，直接修改 key 即可
-  Object.assign(props.kcoParams, preset.params)
-  ElMessage.success(`方案「${preset.name}」已加载`)
-}
+})
 
-function deletePreset() {
-  const idx = presetList.value.findIndex(p => p.id === selectedPresetId.value)
-  if (idx < 0) return
-  const name = presetList.value[idx].name
-  presetList.value.splice(idx, 1)
-  persistPresets()
-  selectedPresetId.value = ''
-  ElMessage.success(`方案「${name}」已删除`)
-}
-
-loadPresetList()
+const klValue = computed(() => props.threeStats?.sizeKLDivergence)
+const klValueDisplay = computed(() =>
+  Number.isFinite(klValue.value) ? klValue.value.toFixed(4) : '—'
+)
+const klTone = computed(() => {
+  if (!Number.isFinite(klValue.value)) return 'muted'
+  const v = klValue.value
+  if (v < 0.05) return 'ok'
+  if (v < 0.2) return 'warn'
+  return 'bad'
+})
+const klNote = computed(() => {
+  if (!Number.isFinite(klValue.value)) return ''
+  const v = klValue.value
+  if (v < 0.05) return '贴合理论'
+  if (v < 0.2) return '基本贴合'
+  return '偏差较大'
+})
 </script>
 
 <style scoped>
-.hole-weight-table {
+.hole-layout-wrap {
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  display: flex;
+  justify-content: center;
+}
+.hole-layout-svg {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-  margin-top: 6px;
+  max-width: 240px;
+  height: auto;
 }
-
-.hole-weight-table th,
-.hole-weight-table td {
-  padding: 4px 8px;
-  text-align: center;
-  border: 1px solid #3a3a3a;
+.hole-point {
+  cursor: pointer;
+  transition: r 0.12s ease;
 }
-
-.hole-weight-table th {
-  background: #2a2a2a;
-  color: #ddd;
+.hole-point:hover {
+  r: 5;
+}
+.hole-detail-title {
+  font-size: 13px;
   font-weight: 600;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+.chart-block {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.chart-fill.active {
+  background: linear-gradient(90deg, rgba(255, 154, 0, 0.6), #ff9a00);
+}
+.hole-detail-pop {
+  line-height: 1.8;
 }
 
-.hole-weight-table td {
-  color: #ccc;
+/* ─── 块度分布对比图（采样 vs Swebrec 理论） ─── */
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
 }
-
-.hole-weight-table td:first-child {
-  text-align: left;
+.chart-compare-wrap {
+  padding: 8px 8px 4px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.chart-compare-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.cmp-grid {
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 1;
+}
+.cmp-frame {
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 1;
+}
+.cmp-tick-mark {
+  stroke: rgba(255, 255, 255, 0.4);
+  stroke-width: 1;
+}
+.cmp-tick-label {
+  font-size: 9px;
+  fill: var(--text-muted);
+  font-family: 'Consolas', monospace;
+}
+.cmp-bar {
+  rx: 0.5;
+}
+.cmp-bar.sampled {
+  fill: rgba(45, 200, 140, 0.55);
+}
+.cmp-curve {
+  fill: none;
+  stroke: #4aa3ff;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.cmp-dot {
+  fill: #4aa3ff;
+}
+.cmp-axis {
+  font-size: 9px;
+  fill: var(--text-muted);
+  font-family: 'Consolas', monospace;
+}
+.chart-legend {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  padding: 6px 0 2px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.legend-item .sw {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.legend-item.sampled .sw {
+  background: rgba(45, 200, 140, 0.8);
+}
+.legend-item.theory .sw {
+  background: #4aa3ff;
+}
+.kl-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: 'Consolas', monospace;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+.kl-chip .kl-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: inherit;
+}
+.kl-chip .kl-val {
+  font-size: 12px;
+  font-weight: 700;
+}
+.kl-chip .kl-note {
+  font-size: 10px;
+}
+.kl-chip.ok {
+  border-color: rgba(45, 200, 140, 0.5);
+}
+.kl-chip.ok .kl-val,
+.kl-chip.ok .kl-note {
+  color: #2dc88c;
+}
+.kl-chip.warn {
+  border-color: rgba(240, 173, 78, 0.5);
+}
+.kl-chip.warn .kl-val,
+.kl-chip.warn .kl-note {
+  color: #f0ad4e;
+}
+.kl-chip.bad {
+  border-color: rgba(231, 76, 60, 0.55);
+}
+.kl-chip.bad .kl-val,
+.kl-chip.bad .kl-note {
+  color: #e74c3c;
+}
+.kl-chip.muted .kl-val {
+  color: var(--text-muted);
 }
 </style>

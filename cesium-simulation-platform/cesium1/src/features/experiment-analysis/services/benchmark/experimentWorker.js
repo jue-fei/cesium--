@@ -19,6 +19,9 @@ import {
 } from '../../../stress-analysis/services/core/interpolation/interpolationCore.js'
 import { clampInt, computeHeatmapGlobalRange } from './experimentVisualizationCore.js'
 
+// Worker 全局作用域：在 vitest 等无 self 的环境下用 globalThis 兜底，保证模块可导入测试
+const workerScope = typeof self !== 'undefined' ? self : globalThis
+
 // ==================== 工具函数 ====================
 
 function createSeededRng(seed) {
@@ -186,14 +189,16 @@ function generateTestDataset(config = {}) {
     ? Math.max(0, Math.min(30, fc.anomalyCount))
     : 8
   const anomalyMag = Number.isFinite(fc.anomalyMagnitude) ? fc.anomalyMagnitude : 3.0
-  const trendType = fc.trendType === 'gradient_peak' ? 'gradient_peak' : 'gaussian_mixture'
+  // 默认采用"梯度+峰"场（更贴近矿山应力分布）；仅当显式指定 gaussian_mixture 时才用纯高斯混合
+  const trendType = fc.trendType === 'gaussian_mixture' ? 'gaussian_mixture' : 'gradient_peak'
 
   const fieldFn =
     trendType === 'gradient_peak'
       ? generateGradientPeakField({
           size: fieldSize,
           seed,
-          gradVec: [30, 15, -10],
+          // 深度方向自重应力梯度：z 越大（越深）应力越大；水平为区域构造应力；叠加局部异常峰
+          gradVec: [8, 4, 35],
           peakCount: 4,
           peakAmp: 40
         })
@@ -236,6 +241,34 @@ function generateTestDataset(config = {}) {
     else normalIndices.push(i)
   }
 
+  const splitMode = fc.splitMode === 'all' ? 'all' : 'holdout'
+
+  if (splitMode === 'all') {
+    // 全量模式：不划分 train/test，交由交叉验证在外部做 K 折×重复
+    return {
+      fieldSize,
+      fieldFn,
+      splitMode: 'all',
+      allPoints: positions,
+      allTrueValues: trueValues,
+      allNoisyValues: noisyValues,
+      allAnomaly: isAnomaly,
+      normalIndices,
+      anomalyIndices,
+      globalMax,
+      config: {
+        pointCount,
+        testRatio,
+        seed,
+        noiseLevel,
+        anomalyCount,
+        anomalyMagnitude: anomalyMag,
+        trendType,
+        splitMode
+      }
+    }
+  }
+
   for (let i = normalIndices.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1))
     ;[normalIndices[i], normalIndices[j]] = [normalIndices[j], normalIndices[i]]
@@ -268,6 +301,7 @@ function generateTestDataset(config = {}) {
   return {
     fieldSize,
     fieldFn,
+    splitMode: 'holdout',
     trainPoints: trainPts,
     trainValues: trainVals,
     trainTrueValues: trainTrueVals,
@@ -283,7 +317,8 @@ function generateTestDataset(config = {}) {
       noiseLevel,
       anomalyCount,
       anomalyMagnitude: anomalyMag,
-      trendType
+      trendType,
+      splitMode
     }
   }
 }
@@ -466,6 +501,181 @@ function computeErrorDistribution(errors) {
   return { bins: bins.map((c, i) => ({ binStart: lo + i * binW, count: c })), count: valid.length }
 }
 
+// ==================== 交叉验证辅助（K折 × 重复 + 显著性） ====================
+
+function meanOf(arr) {
+  const v = arr.filter(Number.isFinite)
+  if (!v.length) return NaN
+  return v.reduce((a, b) => a + b, 0) / v.length
+}
+
+function stdOf(arr) {
+  const v = arr.filter(Number.isFinite)
+  if (v.length < 2) return NaN
+  const m = meanOf(v)
+  const s = v.reduce((a, b) => a + (b - m) ** 2, 0)
+  return Math.sqrt(s / (v.length - 1))
+}
+
+function computeBias(preds, truth) {
+  let s = 0,
+    c = 0
+  for (let i = 0; i < Math.min(preds.length, truth.length); i++) {
+    if (Number.isFinite(preds[i]) && Number.isFinite(truth[i])) {
+      s += preds[i] - truth[i]
+      c++
+    }
+  }
+  return c ? s / c : NaN
+}
+
+function computeVariance(preds) {
+  const v = preds.filter(Number.isFinite)
+  if (v.length < 2) return NaN
+  const m = meanOf(v)
+  return v.reduce((a, b) => a + (b - m) ** 2, 0) / (v.length - 1)
+}
+
+/** 随机 K 折划分（确定性 seed，可复现），返回 K 个索引数组 */
+function splitKFold(indices, K, seed) {
+  const rng = createSeededRng(seed)
+  const shuffled = [...indices]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  const folds = Array.from({ length: K }, () => [])
+  shuffled.forEach((idx, i) => folds[i % K].push(idx))
+  return folds
+}
+
+const METRIC_KEYS = ['rmse', 'mae', 'bias', 'variance', 'r2', 'maxError', 'mape']
+
+/** 聚合 R×K 折指标：mean / std / cv(变异系数) */
+function aggregateFoldMetrics(foldMetrics) {
+  const agg = {}
+  for (const key of METRIC_KEYS) {
+    const vals = foldMetrics.map(m => m && m[key]).filter(Number.isFinite)
+    const m = meanOf(vals)
+    agg[key] = {
+      mean: m,
+      std: stdOf(vals),
+      cv: Number.isFinite(m) && m !== 0 ? stdOf(vals) / Math.abs(m) : NaN
+    }
+  }
+  return agg
+}
+
+// ---------- 学生 t 分布累积分布函数（配对 t 检验用） ----------
+// gammln 系数为 Numerical Recipes 经典算法常数（双精度下位数近似，精度损失可忽略）
+/* eslint-disable no-loss-of-precision */
+function gammln(xx) {
+  const cof = [
+    76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155,
+    0.1208650973866179e-2, -0.5395239384953e-5
+  ]
+  let x = xx,
+    y = xx,
+    tmp = x + 5.5
+  tmp -= (x + 0.5) * Math.log(tmp)
+  let ser = 1.000000000190015
+  for (let j = 0; j < 6; j++) ser += cof[j] / ++y
+  return -tmp + Math.log((2.5066282746310005 * ser) / x)
+}
+
+function betacf(a, b, x) {
+  const MAXIT = 200,
+    EPS = 3e-12,
+    FPMIN = 1e-300
+  const qab = a + b,
+    qap = a + 1,
+    qam = a - 1
+  let c = 1,
+    d = 1 - (qab * x) / qap
+  if (Math.abs(d) < FPMIN) d = FPMIN
+  d = 1 / d
+  let h = d
+  for (let m = 1; m <= MAXIT; m++) {
+    const m2 = 2 * m
+    let aa = (m * (b - m) * x) / ((qam + m2) * (a + m2))
+    d = 1 + aa * d
+    if (Math.abs(d) < FPMIN) d = FPMIN
+    c = 1 + aa / c
+    if (Math.abs(c) < FPMIN) c = FPMIN
+    d = 1 / d
+    h *= d * c
+    aa = (-(a + m) * (qab + m) * x) / ((a + m2) * (qap + m2))
+    d = 1 + aa * d
+    if (Math.abs(d) < FPMIN) d = FPMIN
+    c = 1 + aa / c
+    if (Math.abs(c) < FPMIN) c = FPMIN
+    d = 1 / d
+    const del = d * c
+    h *= del
+    if (Math.abs(del - 1) < EPS) break
+  }
+  return h
+}
+
+function betai(a, b, x) {
+  if (x <= 0) return 0
+  if (x >= 1) return 1
+  const bt = Math.exp(gammln(a + b) - gammln(a) - gammln(b) + a * Math.log(x) + b * Math.log(1 - x))
+  if (x < (a + 1) / (a + b + 2)) return (bt * betacf(a, b, x)) / a
+  return 1 - (bt * betacf(b, a, 1 - x)) / b
+}
+
+/** 学生 t 双侧 p 值 */
+function tTwoTailedP(t, df) {
+  if (!Number.isFinite(t)) return t === 0 ? 1 : 0
+  const x = df / (df + t * t)
+  return Math.min(1, 2 * betai(df / 2, 0.5, x))
+}
+
+/** 配对 t 检验（H0: mean(a-b)=0），返回 {t, p, df, n, meanDiff} */
+function pairedTTest(a, b) {
+  const n = Math.min(a.length, b.length)
+  const diffs = []
+  for (let i = 0; i < n; i++) {
+    if (Number.isFinite(a[i]) && Number.isFinite(b[i])) diffs.push(a[i] - b[i])
+  }
+  const m = diffs.length ? diffs.reduce((s, v) => s + v, 0) / diffs.length : NaN
+  if (diffs.length < 2)
+    return { t: NaN, p: NaN, df: diffs.length - 1, n: diffs.length, meanDiff: m }
+  const sd = stdOf(diffs)
+  const t =
+    sd === 0 ? (m === 0 ? 0 : m > 0 ? Infinity : -Infinity) : m / (sd / Math.sqrt(diffs.length))
+  return {
+    t,
+    p: tTwoTailedP(Math.abs(t), diffs.length - 1),
+    df: diffs.length - 1,
+    n: diffs.length,
+    meanDiff: m
+  }
+}
+
+/**
+ * 两两配对显著性检验：对给定指标（默认 rmse），比较方法对。
+ * @param {string[]} methodKeys
+ * @param {Record<string, number[]>} foldAccum 每方法的 per-fold 指标值数组
+ */
+function computeSignificance(methodKeys, foldAccum, metricKey = 'rmse') {
+  const out = { pairs: [], metric: metricKey, note: '配对 t 检验（H0: 两方法该指标无差异）' }
+  const series = {}
+  for (const mk of methodKeys) {
+    series[mk] = (foldAccum[mk] || []).map(m => m && m[metricKey]).filter(Number.isFinite)
+  }
+  for (let i = 0; i < methodKeys.length; i++) {
+    for (let j = i + 1; j < methodKeys.length; j++) {
+      const a = methodKeys[i],
+        b = methodKeys[j]
+      const res = pairedTTest(series[a], series[b])
+      out.pairs.push({ methodA: a, methodB: b, ...res })
+    }
+  }
+  return out
+}
+
 // ==================== 网格插值（用于热力图数据） ====================
 
 function idw2dGrid(dataset, gridRes, params) {
@@ -552,7 +762,7 @@ let currentRunId = null
 let cancelFlag = { cancelled: false }
 
 function sendProgress(runId, phase, message, percent) {
-  self.postMessage({
+  workerScope.postMessage({
     type: 'progress',
     phase,
     message,
@@ -562,6 +772,10 @@ function sendProgress(runId, phase, message, percent) {
 }
 
 async function runExperiment(config, runId, cancelFg) {
+  // 严谨交叉验证模式（K折×重复+显著性）由 cvMode='kfold' 或指定 kFold 触发
+  if (config?.comparison?.cvMode === 'kfold' || config?.comparison?.kFold) {
+    return runCrossValidated(config, runId, cancelFg)
+  }
   const reportProgress = (phase, msg, pct) => {
     if (cancelFg.cancelled) return
     if (runId !== currentRunId) return
@@ -971,37 +1185,458 @@ async function runExperiment(config, runId, cancelFg) {
   }
 }
 
+// ==================== 交叉验证模式（K折 × 重复 + 显著性） ====================
+
+/**
+ * 严谨交叉验证实验：矿山化地应力场数据 + K折 × R次重复 + 每折重训 PSO
+ * + 完整指标（Bias/Variance/std/CV）+ 两两配对显著性检验 + 异常点稳健性。
+ * 返回结构与 runExperiment 兼容，并新增 repeats/significance/robustness 字段。
+ */
+async function runCrossValidated(config, runId, cancelFg) {
+  const reportProgress = (phase, msg, pct) => {
+    if (cancelFg.cancelled) return
+    if (runId !== currentRunId) return
+    sendProgress(runId, phase, msg, pct)
+  }
+  const checkCancel = () => {
+    if (cancelFg.cancelled) throw new Error('CANCELLED')
+  }
+
+  try {
+    reportProgress('generating', '正在生成矿山化应力场（地应力梯度+构造异常）...', 2)
+    checkCancel()
+    const dataset = generateTestDataset({ ...(config.dataGeneration || {}), splitMode: 'all' })
+    checkCancel()
+
+    const comparison = config.comparison || {}
+    const krModels = comparison.krigingModels || ['exponential']
+    const repeatCount = clampInt(comparison.repeatCount, 1, 10, 3)
+    const kFold = clampInt(comparison.kFold, 2, 10, 5)
+    const idwConfig = comparison.idwConfig || {}
+    const normalIndices = dataset.normalIndices || []
+    const allAnomalyIndices = dataset.anomalyIndices || []
+
+    const methodKeys = ['idw_optimized', 'idw_default', ...krModels.map(mn => `kriging_${mn}`)]
+    const foldAccum = {}
+    for (const mk of methodKeys) foldAccum[mk] = []
+
+    let repFold = null
+    let psoTimeMs = 0
+    let totalFolds = 0
+
+    for (let r = 0; r < repeatCount; r++) {
+      const seedR = dataset.config.seed + r * 1000
+      const folds = splitKFold(normalIndices, kFold, seedR)
+      for (let k = 0; k < kFold; k++) {
+        checkCancel()
+        const foldNo = r * kFold + k + 1
+        const nTotal = repeatCount * kFold
+        reportProgress(
+          'cv',
+          `交叉验证 重复${r + 1}/${repeatCount}·折${k + 1}/${kFold}（${foldNo}/${nTotal}）`,
+          8 + Math.round((foldNo / nTotal) * 42)
+        )
+        const testSet = new Set(folds[k])
+        const trainPts = [],
+          trainVals = [],
+          testPts = [],
+          testTrue = [],
+          testAnomaly = []
+        for (let i = 0; i < dataset.allPoints.length; i++) {
+          if (testSet.has(i)) {
+            testPts.push(dataset.allPoints[i])
+            testTrue.push(dataset.allTrueValues[i])
+            testAnomaly.push(dataset.allAnomaly[i])
+          } else {
+            trainPts.push(dataset.allPoints[i])
+            trainVals.push(dataset.allNoisyValues[i])
+          }
+        }
+        if (trainPts.length < 4 || testPts.length === 0) continue
+        totalFolds++
+
+        // 每折重训 PSO（在折内训练集上寻优，避免参数泄漏）
+        const defaultIdwParams = createDefaultIdwParams(trainPts.length, idwConfig)
+        const useThoroughPSO = idwConfig.optimizeParameters !== false && trainPts.length >= 4
+        const psoMode = useThoroughPSO ? 'thorough' : 'quick'
+        const restartCount = useThoroughPSO ? 3 : 1
+        const psoParticleCount = useThoroughPSO
+          ? clampInt(idwConfig.optimizationParticles, 4, 40, PSO_CONFIG.particleCount)
+          : 8
+        const psoMaxIterations = useThoroughPSO
+          ? clampInt(idwConfig.optimizationIterations, 4, 120, PSO_CONFIG.maxIterations)
+          : 20
+        const psoMaxFitnessSamples = useThoroughPSO
+          ? clampInt(
+              idwConfig.optimizationMaxFitnessSamples,
+              24,
+              trainPts.length,
+              PSO_CONFIG.maxFitnessSamples
+            )
+          : Math.min(60, trainPts.length)
+        const baseSeed = Number.isFinite(Number(idwConfig.optimizationSeed))
+          ? Number(idwConfig.optimizationSeed)
+          : dataset.config.seed + 1337
+
+        let bestPso = null,
+          bestFit = Infinity,
+          psoT0 = performance.now()
+        for (let rs = 0; rs < restartCount; rs++) {
+          checkCancel()
+          const res = optimizeIDWParameters(
+            trainPts,
+            trainVals,
+            {
+              particleCount: psoParticleCount,
+              maxIterations: psoMaxIterations,
+              maxFitnessSamples: psoMaxFitnessSamples,
+              crossValidationFolds: clampInt(comparison.crossValidationFolds, 2, 10, 5),
+              neighborPolicy: defaultIdwParams.neighborPolicy,
+              sectorCount: defaultIdwParams.sectorCount,
+              seed: baseSeed + rs * 1733 + k * 97
+            },
+            cancelFg
+          )
+          if (res && res.success && res.fitness < bestFit) {
+            bestFit = res.fitness
+            bestPso = res
+          }
+        }
+        psoTimeMs += performance.now() - psoT0
+        const idwParams = bestPso && bestPso.success ? bestPso.optimalParams : defaultIdwParams
+
+        // IDW-PSO
+        const idwPreds = runIDWPredict(testPts, trainPts, trainVals, idwParams)
+        foldAccum.idw_optimized.push(computeAllMetrics(idwPreds, testTrue))
+        // IDW 默认基线
+        const idwDefPreds = runIDWPredict(testPts, trainPts, trainVals, defaultIdwParams)
+        foldAccum.idw_default.push(computeAllMetrics(idwDefPreds, testTrue))
+        // Kriging（各模型）
+        const krPreds = {}
+        const krModelInfo = {}
+        for (const mn of krModels) {
+          const krModel = trainKriging(trainPts, trainVals, mn)
+          if (!krModel || krModel.n < 3) {
+            foldAccum[`kriging_${mn}`].push({
+              rmse: NaN,
+              mae: NaN,
+              r2: NaN,
+              maxError: NaN,
+              mape: NaN,
+              bias: NaN,
+              variance: NaN
+            })
+            krPreds[mn] = testPts.map(() => 0)
+            continue
+          }
+          const trainMin = Math.min(...trainVals)
+          const trainMax = Math.max(...trainVals)
+          const trainMean = meanOf(trainVals)
+          const trainStd = stdOf(trainVals)
+          const clampRange = [
+            Math.max(0, Math.min(trainMin, trainMean - 4 * trainStd)),
+            Math.max(trainMax, trainMean + 4 * trainStd)
+          ]
+          const preds = testPts.map(tp => krigingPredict(tp.x, tp.y, tp.z, krModel, clampRange))
+          krPreds[mn] = preds
+          krModelInfo[mn] = {
+            nugget: krModel.nugget,
+            range: krModel.range,
+            sill: krModel.sill,
+            modelName: mn
+          }
+          foldAccum[`kriging_${mn}`].push(computeAllMetrics(preds, testTrue))
+        }
+
+        // 记录代表性折（第一折，用于热力图与展示）
+        if (!repFold) {
+          repFold = {
+            fieldSize: dataset.fieldSize,
+            trainPoints: trainPts,
+            trainValues: trainVals,
+            testPoints: testPts,
+            testTrueValues: testTrue,
+            testAnomaly,
+            idwParams,
+            psoMode,
+            krModelInfo
+          }
+        }
+      }
+    }
+    checkCancel()
+
+    // ---- 聚合（mean/std/CV）+ 显著性 ----
+    reportProgress('aggregating', '聚合 R×K 折指标并做配对显著性检验...', 55)
+    const aggregated = {}
+    for (const mk of methodKeys) aggregated[mk] = aggregateFoldMetrics(foldAccum[mk])
+    const significance = computeSignificance(methodKeys, foldAccum, 'rmse')
+
+    // ---- 异常点稳健性：以全部异常点 + 抽样 normal 为测试集，重新评估 ----
+    let robustness = null
+    if (allAnomalyIndices.length > 0 && repFold) {
+      checkCancel()
+      const rng = createSeededRng(dataset.config.seed + 777)
+      const normalShuffle = [...normalIndices]
+      for (let i = normalShuffle.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1))
+        ;[normalShuffle[i], normalShuffle[j]] = [normalShuffle[j], normalShuffle[i]]
+      }
+      const testIdx = new Set([
+        ...allAnomalyIndices,
+        ...normalShuffle.slice(0, Math.min(30, normalShuffle.length))
+      ])
+      const trPts = [],
+        trVals = [],
+        tePts = [],
+        teTrue = []
+      for (let i = 0; i < dataset.allPoints.length; i++) {
+        if (testIdx.has(i)) {
+          tePts.push(dataset.allPoints[i])
+          teTrue.push(dataset.allTrueValues[i])
+        } else {
+          trPts.push(dataset.allPoints[i])
+          trVals.push(dataset.allNoisyValues[i])
+        }
+      }
+      if (trPts.length >= 4 && tePts.length > 0) {
+        const defP = createDefaultIdwParams(trPts.length, idwConfig)
+        const idwPreds = runIDWPredict(tePts, trPts, trVals, defP)
+        const krModel = trainKriging(trPts, trVals, krModels[0])
+        const krPreds =
+          krModel && krModel.n >= 3
+            ? tePts.map(tp =>
+                krigingPredict(tp.x, tp.y, tp.z, krModel, [
+                  Math.min(...trVals),
+                  Math.max(...trVals)
+                ])
+              )
+            : tePts.map(() => 0)
+        robustness = {
+          testCount: tePts.length,
+          anomalyCount: allAnomalyIndices.length,
+          idw: computeAllMetrics(idwPreds, teTrue),
+          kriging: computeAllMetrics(krPreds, teTrue),
+          note: '测试集含全部异常点（检测插值对异常采样的稳健性）'
+        }
+      }
+    }
+
+    // ---- 代表性折热力图 ----
+    reportProgress('rendering_heatmaps', '生成热力图网格（基于代表性折）...', 78)
+    const gridRes = comparison.gridResolution || 36
+    const heatmapSnapshots = []
+    const repDataset = repFold
+      ? {
+          fieldSize: repFold.fieldSize,
+          trainPoints: repFold.trainPoints,
+          trainValues: repFold.trainValues
+        }
+      : dataset
+    const idwGrid = idw2dGrid(
+      repDataset,
+      gridRes,
+      repFold ? repFold.idwParams : createDefaultIdwParams(dataset.allPoints.length, idwConfig)
+    )
+    heatmapSnapshots.push({
+      methodKey: 'idw',
+      label: `IDW-PSO (p=${(repFold ? repFold.idwParams.power : 1.85).toFixed(1)})`,
+      gridData: idwGrid,
+      params: repFold ? repFold.idwParams : null
+    })
+    const krCache = {}
+    for (const mn of krModels) {
+      const ml =
+        mn === 'exponential'
+          ? '指数模型'
+          : mn === 'gaussian'
+            ? '高斯模型'
+            : mn === 'spherical'
+              ? '球状模型'
+              : mn
+      heatmapSnapshots.push({
+        methodKey: `kriging_${mn}`,
+        label: `Kriging（${ml}）`,
+        gridData: kriging2dGrid(repDataset, gridRes, { modelName: mn }, krCache)
+      })
+    }
+    const gloRange = computeHeatmapGlobalRange(heatmapSnapshots)
+
+    // ---- 对比表（用聚合 mean） ----
+    const comparisonRows = []
+    comparisonRows.push({
+      method: 'IDW-PSO',
+      key: 'idw_optimized',
+      metrics: aggregated.idw_optimized,
+      timing: { psoMs: Math.round(psoTimeMs), folds: totalFolds }
+    })
+    comparisonRows.push({
+      method: 'IDW（默认参数）',
+      key: 'idw_default',
+      metrics: aggregated.idw_default,
+      timing: { folds: totalFolds }
+    })
+    for (const mn of krModels) {
+      const ml =
+        mn === 'exponential'
+          ? '指数'
+          : mn === 'gaussian'
+            ? '高斯'
+            : mn === 'spherical'
+              ? '球状'
+              : mn
+      comparisonRows.push({
+        method: `Kriging（${ml}）`,
+        key: `kriging_${mn}`,
+        metrics: aggregated[`kriging_${mn}`],
+        modelInfo: repFold && repFold.krModelInfo ? repFold.krModelInfo[mn] : null
+      })
+    }
+    const bestMethod = comparisonRows.reduce((a, b) =>
+      (a.metrics.rmse.mean || Infinity) < (b.metrics.rmse.mean || Infinity) ? a : b
+    )
+    const worstMethod = comparisonRows.reduce((a, b) =>
+      (a.metrics.rmse.mean || Infinity) > (b.metrics.rmse.mean || Infinity) ? a : b
+    )
+
+    const comparisonResult = {
+      rows: comparisonRows,
+      summary: {
+        bestMethod: bestMethod.method,
+        bestRMSE: bestMethod.metrics.rmse.mean,
+        worstMethod: worstMethod.method,
+        worstRMSE: worstMethod.metrics.rmse.mean,
+        totalMethods: comparisonRows.length,
+        kFold,
+        repeatCount,
+        foldCount: totalFolds,
+        datasetInfo: {
+          trainCount: repFold ? repFold.trainPoints.length : dataset.allPoints.length,
+          testCount: repFold ? repFold.testPoints.length : 0,
+          noiseLevel: dataset.config.noiseLevel,
+          trendType: dataset.config.trendType
+        }
+      },
+      significance
+    }
+
+    reportProgress('done', '交叉验证实验完成', 100)
+
+    return {
+      dataset: {
+        trainCount: repFold ? repFold.trainPoints.length : dataset.allPoints.length,
+        testCount: repFold ? repFold.testPoints.length : 0,
+        fieldSize: dataset.fieldSize,
+        globalMax: dataset.globalMax,
+        noiseLevel: dataset.config.noiseLevel,
+        anomalyCount: dataset.config.anomalyCount,
+        anomalyMagnitude: dataset.config.anomalyMagnitude,
+        trendType: dataset.config.trendType,
+        seed: dataset.config.seed,
+        splitMode: 'kfold',
+        kFold,
+        repeatCount,
+        foldCount: totalFolds,
+        trainPoints: repFold ? repFold.trainPoints : dataset.allPoints,
+        trainValues: repFold ? repFold.trainValues : dataset.allNoisyValues,
+        testPoints: repFold ? repFold.testPoints : [],
+        testTrueValues: repFold ? repFold.testTrueValues : [],
+        testAnomaly: repFold ? repFold.testAnomaly : []
+      },
+      idw: {
+        metrics: aggregated.idw_optimized,
+        timing: { psoMs: Math.round(psoTimeMs), folds: totalFolds },
+        params: repFold ? repFold.idwParams : null,
+        optimalParams: repFold
+          ? { power: repFold.idwParams.power, neighborCount: repFold.idwParams.neighborCount }
+          : null
+      },
+      idwDefault: { metrics: aggregated.idw_default, timing: { folds: totalFolds } },
+      kriging: Object.fromEntries(
+        krModels.map(mn => [
+          mn,
+          {
+            metrics: aggregated[`kriging_${mn}`],
+            model: repFold && repFold.krModelInfo ? repFold.krModelInfo[mn] : null
+          }
+        ])
+      ),
+      comparison: comparisonResult,
+      repeats: {
+        kFold,
+        repeatCount,
+        foldCount: totalFolds,
+        aggregated,
+        perFoldSamples: Object.fromEntries(methodKeys.map(mk => [mk, foldAccum[mk].length]))
+      },
+      aggregation: Object.fromEntries(
+        methodKeys.map(mk => [mk, { metrics: aggregated[mk], repeatCount: totalFolds }])
+      ),
+      robustness,
+      heatmapSnapshots,
+      globalRange: gloRange,
+      timestamp: new Date().toISOString()
+    }
+  } catch (err) {
+    if (err.message === 'CANCELLED') {
+      sendProgress(runId, 'cancelled', '实验已取消', 0)
+      return null
+    }
+    throw err
+  }
+}
+
 // ==================== Worker 消息处理 ====================
 
-self.addEventListener('message', async e => {
-  const msg = e.data
+if (workerScope && typeof workerScope.addEventListener === 'function') {
+  workerScope.addEventListener('message', async e => {
+    const msg = e.data
 
-  if (msg.type === 'run') {
-    // 取消之前的运行
-    if (currentRunId) {
+    if (msg.type === 'run') {
+      // 取消之前的运行
+      if (currentRunId) {
+        cancelFlag.cancelled = true
+        // 等待一小段时间再重置
+        await new Promise(r => setTimeout(r, 10))
+      }
+
+      currentRunId = msg.runId
+      cancelFlag = { cancelled: false }
+      const localCancel = cancelFlag
+
+      try {
+        const result = await runExperiment(msg.config, msg.runId, localCancel)
+        if (result && !localCancel.cancelled) {
+          workerScope.postMessage({ type: 'complete', result, runId: msg.runId })
+        }
+      } catch (err) {
+        if (!localCancel.cancelled) {
+          workerScope.postMessage({
+            type: 'error',
+            message: err.message || '未知错误',
+            runId: msg.runId
+          })
+        }
+      }
+    }
+
+    if (msg.type === 'cancel') {
       cancelFlag.cancelled = true
-      // 等待一小段时间再重置
-      await new Promise(r => setTimeout(r, 10))
+      currentRunId = null
     }
+  })
+}
 
-    currentRunId = msg.runId
-    cancelFlag = { cancelled: false }
-    const localCancel = cancelFlag
-
-    try {
-      const result = await runExperiment(msg.config, msg.runId, localCancel)
-      if (result && !localCancel.cancelled) {
-        self.postMessage({ type: 'complete', result, runId: msg.runId })
-      }
-    } catch (err) {
-      if (!localCancel.cancelled) {
-        self.postMessage({ type: 'error', message: err.message || '未知错误', runId: msg.runId })
-      }
-    }
-  }
-
-  if (msg.type === 'cancel') {
-    cancelFlag.cancelled = true
-    currentRunId = null
-  }
-})
+export {
+  splitKFold,
+  aggregateFoldMetrics,
+  computeSignificance,
+  pairedTTest,
+  tTwoTailedP,
+  computeBias,
+  computeVariance,
+  generateTestDataset,
+  generateGradientPeakField,
+  generateMineMonitoringPoints,
+  runCrossValidated
+}

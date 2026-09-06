@@ -123,12 +123,30 @@ def solve_x80(x50, xmax, n, b):
     return swebrec_inverse(0.8, x50, xmax, n, b)
 
 
-def cunningham_n(B, d, W_abs):
-    """Cunningham 均匀性指数 n。
+def cunningham_n(B, d, W_abs, S, L, H):
+    """Cunningham 均匀性指数 n（Cunningham 1983/1987 完整形式）。
 
-    n = (2.2 - 14*d/B) * (1 - W_abs/B) / 2，clamp 到 [0.5, 2.5]。
+    n = (2.2 - 14*B/d_mm) * (1 - W_abs/B) * sqrt(1 + (S/B - 1)/2) * (L/H)，
+    并 clamp 到 [0.5, 2.5]。
+
+    单位说明：主导项中 d 必须以 mm 计（B 以 m 计），系数 14 是按 mm 标定的
+    （等价形式：B/D，D 以 cm、系数 1.4）。本函数入参 d 为 m，内部 ×1000 换算为 mm。
+
+    来源：
+    - Cunningham, C. (1983). The Kuz-Ram model for prediction of fragmentation
+      from blasting. Proc. 1st Int. Symp. Rock Frag. by Blasting, Lulea, 439-454.
+    - 完整式当代参数化整理见 Khodayari et al. (2026, Mining Technology, 式2，引 Cunningham 1987)。
+    - Figueiredo et al. (2023, Appl. Sci. 13(12):7090, 式4) 在完整式上额外叠加了分段装药
+      穿孔系数 P=1.10（针对特定装药结构、无普适标定），平台未引入，故不作公式对齐依据。
+
+    修正说明（2026-08）：旧实现 n = (2.2-14*d/B)*(1-W_abs/B)/2 含无出处的外部 `/2` 且缺孔距项/
+    装药项；随后改为 2.2-14*d/B 但 d 以 m 计，系数 14 仍按 mm 标定，致主导项被高估、
+    与文献/论文反向。现统一为 2.2-14*B/d_mm，与 Cunningham/论文一致。
     """
     if B <= 0:
         return 1.0
-    raw = (2.2 - 14.0 * d / B) * (1.0 - W_abs / B) / 2.0
+    spacing = math.sqrt(1 + (S / B - 1) / 2)
+    charge_ratio = (L / H) if H > 0 else 1.0
+    d_mm = d * 1000  # 孔径(m) → mm（Cunningham 式主导项要求 d 以 mm 计）
+    raw = (2.2 - 14.0 * B / d_mm) * (1.0 - W_abs / B) * spacing * charge_ratio
     return max(0.5, min(2.5, raw))

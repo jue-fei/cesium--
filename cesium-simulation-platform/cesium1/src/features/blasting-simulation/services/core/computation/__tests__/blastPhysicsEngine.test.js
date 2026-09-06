@@ -10,7 +10,7 @@
  * - 分段起爆：delayTime 延迟激活
  * - 安息角堆积与冻结
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { BlastPhysicsEngine } from '../blastPhysicsEngine.js'
 import { makeRng } from '../../utils/rng.js'
 

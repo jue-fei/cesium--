@@ -26,7 +26,6 @@ declare module 'vue' {
     ElSelect: typeof import('element-plus/es')['ElSelect']
     ElSlider: typeof import('element-plus/es')['ElSlider']
     ElSwitch: typeof import('element-plus/es')['ElSwitch']
-    ElTag: typeof import('element-plus/es')['ElTag']
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
     GlobalMessage: typeof import('./src/components/GlobalMessage.vue')['default']
     RightSidebar: typeof import('./src/components/RightSidebar.vue')['default']

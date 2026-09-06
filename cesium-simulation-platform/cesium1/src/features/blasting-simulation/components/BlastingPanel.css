@@ -1,0 +1,539 @@
+/* ─── 面板通用结构 ─── */
+.blasting-panel :deep(.section) {
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.blasting-panel :deep(.section-title) {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.blasting-panel :deep(.section-title)::before {
+  content: '';
+  width: 3px;
+  height: 12px;
+  background: var(--primary-color);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.blasting-panel :deep(.row) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ─── 按钮 ─── */
+.blasting-panel :deep(.btn) {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.blasting-panel :deep(.btn:hover:not(:disabled)) {
+  background: rgba(64, 158, 255, 0.1);
+  border-color: var(--primary-color);
+  color: var(--text-primary);
+}
+.blasting-panel :deep(.btn:disabled) { opacity: 0.35; cursor: not-allowed; }
+.blasting-panel :deep(.btn.primary) {
+  background: rgba(64, 158, 255, 0.18);
+  border-color: rgba(64, 158, 255, 0.35);
+  color: var(--primary-light);
+}
+.blasting-panel :deep(.btn.primary:hover:not(:disabled)) {
+  background: rgba(64, 158, 255, 0.3);
+  color: #fff;
+}
+.blasting-panel :deep(.btn.danger) {
+  background: rgba(245, 108, 108, 0.12);
+  border-color: rgba(245, 108, 108, 0.25);
+  color: #f56c6c;
+}
+.blasting-panel :deep(.btn.danger:hover:not(:disabled)) {
+  background: rgba(245, 108, 108, 0.25);
+  color: #fff;
+}
+
+/* ─── 选择器 ─── */
+.blasting-panel :deep(.sel) {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: #1a1d24;
+  color: var(--text-primary);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.blasting-panel :deep(.sel:focus) { outline: none; border-color: var(--primary-color); }
+.blasting-panel :deep(.sel option) { background: #1a1d24; color: #e5eaf3; }
+
+/* ─── 输入框 ─── */
+.blasting-panel :deep(.input) {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-primary);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  transition: border-color 0.15s;
+}
+.blasting-panel :deep(.input:focus) { outline: none; border-color: var(--primary-color); }
+
+/* ─── 提示文字 ─── */
+.blasting-panel :deep(.hint) {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.blasting-panel :deep(.hint-sm) {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.blasting-panel :deep(.ok) { color: #67c23a; }
+.blasting-panel :deep(.warn) { color: #e6a23c; }
+.blasting-panel :deep(.err) { color: #f56c6c; }
+
+/* ─── 统计项 ─── */
+.blasting-panel :deep(.stat) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.blasting-panel :deep(.stat:last-child) { border-bottom: none; }
+.blasting-panel :deep(.stat-val) {
+  font-family: 'Consolas', monospace;
+  font-weight: 600;
+  color: var(--primary-light);
+}
+
+/* ─── 标签切换（开关/单选） ─── */
+.blasting-panel :deep(.tag) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+}
+.blasting-panel :deep(.tag:hover) { border-color: var(--primary-color); color: var(--text-primary); }
+.blasting-panel :deep(.tag.on) {
+  background: rgba(64, 158, 255, 0.15);
+  border-color: rgba(64, 158, 255, 0.35);
+  color: var(--primary-light);
+}
+
+/* ─── 按钮分组 ─── */
+.blasting-panel :deep(.btn-group) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.blasting-panel :deep(.btn-group-divider) {
+  width: 1px;
+  height: 22px;
+  background: rgba(255,255,255,0.12);
+  margin: 0 3px;
+  flex-shrink: 0;
+}
+.blasting-panel :deep(.btn-text-icon) {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Consolas', monospace;
+  white-space: nowrap;
+}
+.blasting-panel :deep(.frame-label) {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: 'Consolas', monospace;
+  white-space: nowrap;
+}
+.blasting-panel :deep(.layer-grid) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 8px;
+}
+.blasting-panel :deep(.btn-icon.primary) {
+  background: rgba(64, 158, 255, 0.2);
+  border-color: rgba(64, 158, 255, 0.4);
+  color: var(--primary-light);
+}
+.blasting-panel :deep(.btn-icon.primary:hover:not(:disabled)) {
+  background: rgba(64, 158, 255, 0.32);
+  color: #fff;
+}
+
+/* ─── 播放器 ─── */
+.blasting-panel :deep(.player-progress) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* ─── 物理预计算进度条 ─── */
+.blasting-panel .precompute-bar {
+  position: relative;
+  height: 18px;
+  line-height: 18px;
+  margin-bottom: 10px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: rgba(64, 158, 255, 0.12);
+  overflow: hidden;
+  font-size: 12px;
+}
+.blasting-panel .precompute-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, rgba(64, 158, 255, 0.55), rgba(64, 158, 255, 0.85));
+  transition: width 0.4s ease;
+}
+.blasting-panel .precompute-text {
+  position: relative;
+  z-index: 1;
+  color: var(--primary-light, #a6c8ff);
+}
+.blasting-panel :deep(.player-progress .el-slider) {
+  flex: 1;
+}
+.blasting-panel :deep(.player-main) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.blasting-panel :deep(.player-play) {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(64,158,255,0.9), rgba(32,120,220,0.9));
+  color: #fff;
+  font-size: 24px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(64,158,255,0.25);
+  transition: transform 0.1s, box-shadow 0.15s;
+  flex-shrink: 0;
+}
+.blasting-panel :deep(.player-play:hover:not(:disabled)) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(64,158,255,0.35);
+}
+.blasting-panel :deep(.player-play:disabled) {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.blasting-panel :deep(.player-play .el-icon) { width: 24px; height: 24px; }
+/* 播放器图标按钮基础样式（作用于子组件内所有 .btn-icon） */
+.blasting-panel :deep(.player-main .btn-icon),
+.blasting-panel :deep(.player-sub .btn-icon) {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text-muted);
+  font-size: 19px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.blasting-panel :deep(.player-main .btn-icon:hover:not(:disabled)),
+.blasting-panel :deep(.player-sub .btn-icon:hover:not(:disabled)) {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  border-color: rgba(255,255,255,0.3);
+  transform: translateY(-1px);
+}
+.blasting-panel :deep(.player-main .btn-icon:active:not(:disabled)),
+.blasting-panel :deep(.player-sub .btn-icon:active:not(:disabled)) {
+  transform: translateY(0) scale(0.95);
+}
+.blasting-panel :deep(.player-main .btn-icon.on),
+.blasting-panel :deep(.player-sub .btn-icon.on) {
+  background: rgba(64, 158, 255, 0.18);
+  color: var(--primary-color);
+  border-color: rgba(64, 158, 255, 0.4);
+}
+.blasting-panel :deep(.player-main .btn-icon:disabled),
+.blasting-panel :deep(.player-sub .btn-icon:disabled) {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.blasting-panel :deep(.player-main .btn-icon .el-icon),
+.blasting-panel :deep(.player-sub .btn-icon .el-icon) {
+  width: 20px;
+  height: 20px;
+}
+.blasting-panel :deep(.player-actions) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+/* 主控按钮组：后退/前进/重播 更大更醒目 */
+.blasting-panel :deep(.player-actions .btn-icon) {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  font-size: 21px;
+}
+.blasting-panel :deep(.player-actions .btn-icon .el-icon) {
+  width: 22px;
+  height: 22px;
+}
+/* 重播按钮：更紧凑 */
+.blasting-panel :deep(.player-actions .replay-btn) {
+  width: 33px;
+}
+/* 倍速按钮：胶囊样式 */
+.blasting-panel :deep(.player-actions .rate-btn) {
+  width: 33px;
+  min-width: 33px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-family: 'Consolas', monospace;
+}
+.blasting-panel :deep(.player-actions .rate-btn .btn-text-icon) {
+  font-size: 15px;
+  font-weight: 700;
+}
+.blasting-panel :deep(.player-actions .rate-btn.on) {
+  background: linear-gradient(135deg, rgba(255,154,0,0.3), rgba(255,154,0,0.12));
+  border-color: rgba(255,154,0,0.55);
+  color: #ffb84d;
+}
+.blasting-panel :deep(.player-actions .rate-btn.on:hover:not(:disabled)) {
+  background: linear-gradient(135deg, rgba(255,154,0,0.42), rgba(255,154,0,0.2));
+  color: #ffd591;
+}
+/* AB 标记按钮：文本按钮，需更宽以容纳「标记 A/B」文字 */
+.blasting-panel :deep(.player-sub .ab-btn) {
+  width: 68px;
+}
+.blasting-panel :deep(.player-sub) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.blasting-panel :deep(.player-sub .spacer) {
+  flex: 1;
+  min-width: 8px;
+}
+.blasting-panel :deep(.player-sub .speed-input) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.blasting-panel :deep(.player-sub .speed-input .el-input-number) {
+  width: 64px;
+}
+.blasting-panel :deep(.ab-hint) {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'Consolas', monospace;
+  padding: 0 4px;
+}
+
+/* ─── 快照列表（紧凑行） ─── */
+.blasting-panel :deep(.snapshot-list) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.blasting-panel :deep(.snapshot-row) {
+  display: grid;
+  grid-template-columns: 88px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.blasting-panel :deep(.snapshot-row.dense) {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 8px 10px;
+}
+.blasting-panel :deep(.snapshot-row-top),
+.blasting-panel :deep(.snapshot-row-bottom) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.blasting-panel :deep(.snapshot-label) {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.blasting-panel :deep(.snapshot-val) {
+  font-size: 14px;
+  font-weight: 700;
+  font-family: 'Consolas', monospace;
+  color: var(--text-primary);
+}
+.blasting-panel :deep(.snapshot-val.info),
+.blasting-panel :deep(.snapshot-extra.info) { color: var(--primary-light); }
+.blasting-panel :deep(.snapshot-val.ok),
+.blasting-panel :deep(.snapshot-extra.ok) { color: #67c23a; }
+.blasting-panel :deep(.snapshot-val.warn),
+.blasting-panel :deep(.snapshot-extra.warn) { color: #e6a23c; }
+.blasting-panel :deep(.snapshot-val.warning),
+.blasting-panel :deep(.snapshot-extra.warning) { color: #e6a23c; }
+.blasting-panel :deep(.snapshot-val.neutral),
+.blasting-panel :deep(.snapshot-extra.neutral) { color: var(--text-muted); }
+.blasting-panel :deep(.snapshot-extra) {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: 'Consolas', monospace;
+  color: var(--text-primary);
+}
+.blasting-panel :deep(.snapshot-note) {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ─── 网格布局 ─── */
+.blasting-panel :deep(.grid-2) { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.blasting-panel :deep(.grid-3) { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.blasting-panel :deep(.grid-auto) { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+
+/* ─── 字段标签 ─── */
+.blasting-panel :deep(.field) { display: flex; flex-direction: column; gap: 2px; }
+.blasting-panel :deep(.field-label) { font-size: 11px; color: var(--text-muted); }
+.blasting-panel :deep(.field .el-input-number) { width: 100%; }
+.blasting-panel :deep(.field .el-input-number .el-input__inner) {
+  text-align: left;
+  padding-left: 8px;
+  font-size: 12px;
+  font-family: 'Consolas', monospace;
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.1);
+}
+
+/* ─── 卡片网格 ─── */
+.blasting-panel :deep(.card-grid) {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.blasting-panel :deep(.card) {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+}
+.blasting-panel :deep(.card-title) { font-size: 11px; color: var(--text-secondary); }
+.blasting-panel :deep(.card-value) { margin-top: 4px; font-size: 16px; font-weight: 700; color: var(--text-primary); }
+.blasting-panel :deep(.card-note) { margin-top: 4px; font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+.blasting-panel :deep(.card.ok) { border-color: rgba(103, 194, 58, 0.3); }
+.blasting-panel :deep(.card.warn) { border-color: rgba(230, 162, 60, 0.3); }
+.blasting-panel :deep(.card.info) { border-color: rgba(64, 158, 255, 0.25); }
+
+/* ─── 分隔 ─── */
+.blasting-panel :deep(.mt-1) { margin-top: 6px; }
+.blasting-panel :deep(.mt-2) { margin-top: 10px; }
+.blasting-panel :deep(.mt-3) { margin-top: 14px; }
+
+/* ─── 色阶图例 ─── */
+.blasting-panel :deep(.legend) {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(0,0,0,0.15);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 6px;
+}
+.blasting-panel :deep(.legend-title) { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.blasting-panel :deep(.legend-bar) { width: 100%; height: 10px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.08); }
+.blasting-panel :deep(.legend-ticks) { display: flex; justify-content: space-between; margin-top: 2px; font-size: 10px; color: var(--text-muted); }
+.blasting-panel :deep(.legend-info) { margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.06); display: flex; gap: 6px; font-size: 10px; color: var(--text-muted); }
+
+/* ─── 柱状图 ─── */
+.blasting-panel :deep(.chart-row) {
+  display: grid;
+  grid-template-columns: 80px 1fr 44px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.blasting-panel :deep(.chart-row:hover) { background: rgba(255,255,255,0.04); }
+.blasting-panel :deep(.chart-row.active) {
+  background: rgba(255, 154, 0, 0.08);
+  border-color: rgba(255, 154, 0, 0.45);
+}
+.blasting-panel :deep(.chart-label) { font-size: 11px; color: var(--text-muted); font-family: 'Consolas', monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.blasting-panel :deep(.chart-row.active .chart-label) { color: #ff9a00; }
+.blasting-panel :deep(.chart-track) { height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; }
+.blasting-panel :deep(.chart-fill) { height: 100%; background: linear-gradient(90deg, rgba(64,158,255,0.5), var(--primary-color)); border-radius: 4px; transition: width 0.3s; }
+.blasting-panel :deep(.chart-fill.active) { background: linear-gradient(90deg, rgba(255,154,0,0.7), #ff9a00); }
+.blasting-panel :deep(.chart-pct) { font-size: 11px; color: var(--text-primary); font-family: 'Consolas', monospace; text-align: right; }
+.blasting-panel :deep(.chart-row.active .chart-pct) { color: #ff9a00; font-weight: 700; }
+
+/* ─── 对比用 ─── */
+.blasting-panel :deep(.cmp-row) {
+  display: grid;
+  grid-template-columns: 24px minmax(80px, 1fr) minmax(80px, 2fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.blasting-panel :deep(.cmp-rank) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+.blasting-panel :deep(.cmp-track) { height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden; }
+.blasting-panel :deep(.cmp-fill) { height: 100%; border-radius: inherit; background: linear-gradient(90deg, rgba(64,158,255,0.7), rgba(103,194,58,0.65)); }

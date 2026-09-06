@@ -23,17 +23,17 @@ DB_CONFIG = {
     "cursorclass": DictCursor,
 }
 
+# 爆破事件关联子表（含 event_id 外键，用于清理孤儿记录）
+# 注：旧版子表（blasting_holes/frames/particles/vibration/monitor_points/stress/
+# rock_params/kco_params/render_config）已随 schema 重构删除，此处仅保留现存表
 BLASTING_CHILD_TABLES = [
-    "blasting_holes", "blasting_frames", "blasting_particles",
-    "blasting_vibration", "blasting_monitor_points", "blasting_stress",
-    "blasting_rock_params", "blasting_kco_params",
+    "blasting_design", "blasting_design_holes",
+    "blasting_result", "blasting_runtime_stats",
 ]
 
 ALL_TABLES = [
-    "blasting_events", "blasting_holes", "blasting_frames",
-    "blasting_particles", "blasting_vibration", "blasting_monitor_points",
-    "blasting_stress", "blasting_rock_params", "blasting_render_config",
-    "blasting_kco_params",
+    "blasting_events", "blasting_design", "blasting_design_holes",
+    "blasting_result", "blasting_runtime_stats", "rock_params",
     "model_config", "truck_info", "truck_routes",
     "borehole_config", "orebodies", "mineral_types",
     "mining_pit_specs", "geology_stats",

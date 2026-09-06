@@ -39,6 +39,18 @@ export class CesiumThreeBridge {
     this._lastViewportWidth = 0
     this._lastViewportHeight = 0
 
+    // 预分配 scratch 对象（_syncCamera 每帧调用，避免 new 导致 GC 压力）
+    this._scratch = {
+      posLocal: new Cesium.Cartesian3(),
+      dirLocal: new Cesium.Cartesian3(),
+      upLocal: new Cesium.Cartesian3(),
+      threePos: new THREE.Vector3(),
+      threeDir: new THREE.Vector3(),
+      threeUp: new THREE.Vector3(),
+      threeRight: new THREE.Vector3(),
+      threeUpCorrected: new THREE.Vector3()
+    }
+
     // three.js 容器样式（覆盖在 Cesium 之上，不接收事件）
     this._setupContainerStyle()
   }
@@ -50,7 +62,7 @@ export class CesiumThreeBridge {
     el.style.left = '0'
     el.style.width = '100%'
     el.style.height = '100%'
-    el.style.pointerEvents = 'none'
+    el.style.pointerEvents = 'auto'
     el.style.zIndex = '100'
   }
 
@@ -88,10 +100,9 @@ export class CesiumThreeBridge {
     this.threeRenderer.initBlast(params)
     this._active = true
 
-    // 注册到 Cesium 的 preRender 事件，每帧同步
-    if (!this._removeListener) {
-      this._removeListener = this.viewer.scene.preRender.addEventListener(this._syncBound)
-    }
+    // 独立 Three.js 模式：使用 OrbitControls + RAF 渲染循环，
+    // 不再注册 Cesium preRender 事件（消除每帧相机同步开销和双重渲染）
+    this.threeRenderer.startStandaloneMode()
   }
 
   /**
@@ -99,11 +110,8 @@ export class CesiumThreeBridge {
    */
   stopBlast() {
     this._active = false
+    this.threeRenderer.stopStandaloneMode()
     this.threeRenderer.clear()
-    if (this._removeListener) {
-      this._removeListener()
-      this._removeListener = null
-    }
   }
 
   /**
@@ -131,27 +139,24 @@ export class CesiumThreeBridge {
       const cameraUpWorld = cesiumCamera.upWC || cesiumCamera.up
 
       // 先将世界坐标转换到 ENU 局部坐标（正交 FOV 反算需要相机到爆心的距离）
+      const sc = this._scratch
       const cameraPositionLocal = Cesium.Matrix4.multiplyByPoint(
         this.originMatrixInverse,
         cameraPositionWorld,
-        new Cesium.Cartesian3()
+        sc.posLocal
       )
       const directionLocal = Cesium.Matrix4.multiplyByPointAsVector(
         this.originMatrixInverse,
         cameraDirectionWorld,
-        new Cesium.Cartesian3()
+        sc.dirLocal
       )
       const upLocal = Cesium.Matrix4.multiplyByPointAsVector(
         this.originMatrixInverse,
         cameraUpWorld,
-        new Cesium.Cartesian3()
+        sc.upLocal
       )
 
       // 计算 Cesium 相机视场角（度）
-      // - 透视投影：直接读取 fovy
-      // - 正交投影：通过"视高 / 相机到爆心距离"反算等效 FOV
-      //   修正：原用 Cesium.Cartesian3.magnitude(cameraPositionWorld) 计算的是到地心距离（≈6.4e6m），
-      //   导致 fov≈0；改用相机在 ENU 局部坐标系下的位置长度（即到爆心的距离）
       const frustum = cesiumCamera.frustum
       let fov
       if (frustum instanceof Cesium.PerspectiveFrustum) {
@@ -163,27 +168,24 @@ export class CesiumThreeBridge {
           2 * Math.atan(Math.max(1, orthoHeight) / (2 * Math.max(1, camDist)))
         )
       } else {
-        fov = 60 // 未知投影类型，回退默认值
+        fov = 60
       }
 
-      // 转换到 three.js 坐标系
-      // Cesium ENU: X=东, Y=北, Z=上（右手）
-      // three.js: X=东, Y=上, Z=南（-北，保持右手）
-      const threePosition = new THREE.Vector3(
+      // 转换到 three.js 坐标系（复用 scratch，避免每帧 new）
+      // Cesium ENU: X=东, Y=北, Z=上 → three.js: X=东, Y=上, Z=南（-北）
+      const threePosition = sc.threePos.set(
         cameraPositionLocal.x,
         cameraPositionLocal.z,
         -cameraPositionLocal.y
       )
-      const threeDirection = new THREE.Vector3(
-        directionLocal.x,
-        directionLocal.z,
-        -directionLocal.y
-      ).normalize()
-      const rawThreeUp = new THREE.Vector3(upLocal.x, upLocal.z, -upLocal.y).normalize()
-      const threeRight = new THREE.Vector3().crossVectors(threeDirection, rawThreeUp)
+      const threeDirection = sc.threeDir
+        .set(directionLocal.x, directionLocal.z, -directionLocal.y)
+        .normalize()
+      const rawThreeUp = sc.threeUp.set(upLocal.x, upLocal.z, -upLocal.y).normalize()
+      const threeRight = sc.threeRight.crossVectors(threeDirection, rawThreeUp)
       const threeUp =
         threeRight.lengthSq() > 1e-8
-          ? new THREE.Vector3().crossVectors(threeRight.normalize(), threeDirection).normalize()
+          ? sc.threeUpCorrected.crossVectors(threeRight.normalize(), threeDirection).normalize()
           : rawThreeUp
 
       // 计算宽高比与裁剪面

@@ -1,6 +1,5 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
-import { viteExternalsPlugin } from 'vite-plugin-externals'
 import path from 'path'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
@@ -10,9 +9,6 @@ import viteCompression from 'vite-plugin-compression'
 export default defineConfig({
   plugins: [
     vue(),
-    viteExternalsPlugin({
-      cesium: 'Cesium'
-    }),
     AutoImport({
       resolvers: [ElementPlusResolver()]
     }),
@@ -27,6 +23,11 @@ export default defineConfig({
       ext: '.gz'
     })
   ],
+  test: {
+    // 算法/公式/物理引擎测试均为纯函数，无需 DOM
+    environment: 'node',
+    include: ['src/**/__tests__/**/*.test.js']
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src')

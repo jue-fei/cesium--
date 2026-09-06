@@ -5,7 +5,8 @@ from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from app.routes import orebodies, models, trucks, boreholes, monitoring, geology, truck_routes, blasting, blasting_ws
+from app.routes import orebodies, models, trucks, boreholes, monitoring, geology, truck_routes, blasting, blasting_ws, scheduling, scheduling_ws
+from app.security import API_TOKEN
 
 # ─── 日志配置 ──────────────────────────────────────────
 # 统一在应用入口配置 root logger，所有模块 getLogger(__name__) 自动继承
@@ -16,6 +17,12 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("app")
+
+# 鉴权启用状态提示（方案 B1：默认关闭，配置 BLASTING_API_TOKEN 后开启）
+if not API_TOKEN:
+    logger.warning("API 鉴权未启用：未设置环境变量 BLASTING_API_TOKEN（读/写接口均放行）")
+else:
+    logger.info("API 鉴权已启用：写接口（POST/PUT/DELETE）需携带匹配的 x-api-token Header")
 
 
 def _parse_bool_env(name: str, default: bool) -> bool:
@@ -111,6 +118,8 @@ app.include_router(geology.router)
 app.include_router(truck_routes.router)
 app.include_router(blasting.router)
 app.include_router(blasting_ws.router)
+app.include_router(scheduling.router)
+app.include_router(scheduling_ws.router)
 
 
 @app.get("/api/health")
@@ -121,4 +130,7 @@ def health_check():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("API_PORT", 3003))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    # 默认 0.0.0.0 便于本地开发（局域网可访问）；
+    # 生产部署建议设置 BLASTING_HOST=127.0.0.1 关闭通配绑定，或置于反向代理之后。
+    host = os.getenv("BLASTING_HOST", "0.0.0.0")
+    uvicorn.run("main:app", host=host, port=port, reload=True)

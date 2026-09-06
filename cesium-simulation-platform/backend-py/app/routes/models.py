@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from pymysql import Connection
 from app.database import get_db, build_insert_sql, build_update_sql
 from app.schemas import ModelCreate, ModelUpdate, ModelSave
+from app.security import require_token
 import json
 
 router = APIRouter(prefix="/api/models", redirect_slashes=False, tags=["模型配置"])
@@ -81,7 +82,7 @@ def get_model(model_id: str, db: Connection = Depends(get_db)):
 
 # ===== CRUD =====
 
-@router.post("/")
+@router.post("/", dependencies=[Depends(require_token)])
 def create_model(body: ModelCreate, db: Connection = Depends(get_db)):
     sql, safe_fields = build_insert_sql("model_config", MODEL_FIELDS, MODEL_FIELDS)
     values = []
@@ -97,7 +98,7 @@ def create_model(body: ModelCreate, db: Connection = Depends(get_db)):
     return {"code": 0, "message": "模型创建成功", "data": {"model_id": body.model_id}}
 
 
-@router.put("/{model_id}")
+@router.put("/{model_id}", dependencies=[Depends(require_token)])
 def update_model(model_id: str, body: ModelUpdate, db: Connection = Depends(get_db)):
     body_dict = body.model_dump(exclude_none=True)
     # JSON 字段序列化
@@ -117,7 +118,7 @@ def update_model(model_id: str, body: ModelUpdate, db: Connection = Depends(get_
     return {"code": 0, "message": "模型更新成功"}
 
 
-@router.delete("/{model_id}")
+@router.delete("/{model_id}", dependencies=[Depends(require_token)])
 def delete_model(model_id: str, db: Connection = Depends(get_db)):
     with db.cursor() as cursor:
         cursor.execute("DELETE FROM model_config WHERE model_id = %s", (model_id,))
@@ -230,7 +231,7 @@ def get_model_tileset(model_id: str, db: Connection = Depends(get_db)):
 
 # ===== 保存（兼容旧接口，内部走标准 PUT 逻辑） =====
 
-@router.post("/save")
+@router.post("/save", dependencies=[Depends(require_token)])
 def save_model_config(body: ModelSave, db: Connection = Depends(get_db)):
     config_path = body.path
     data = body.data

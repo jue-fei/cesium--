@@ -506,7 +506,7 @@ export function train3D(t, x, y, z, modelName, sigma2) {
     }
   }
 
-  const maxDistance = pairs[pairs.length - 1][0] || 1
+  const maxDistance = pairs[pairs.length - 1]?.[0] ?? 0
   variogram.range = maxDistance
   if (!(variogram.range > 0)) {
     variogram.status = 'degraded'

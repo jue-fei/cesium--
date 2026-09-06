@@ -207,3 +207,37 @@ export function fetchRuntimeStats(eventId) {
     r => r.data || []
   )
 }
+
+// ─── KCO 碎块分布计算（运行时打通） ─────────────────────
+
+/**
+ * 调用后端 KCO 碎块分布模型计算（POST /api/blasting/validate/kco）
+ * 输入字段名须与后端 KCOValidateRequest schema 完全一致（大写字首）：
+ *   Q/A/RWS/B/S/d/H/xmax/b/W_abs/x_allow
+ * 注意：不能用 _objCamelToSnake 转换（会把 RWS → _r_w_s 等），故手动构造 payload。
+ * @param {Object} input - { Q, A, RWS, B, S, d, H, xmax, b, W_abs, x_allow }（camelCase 已匹配后端字段）
+ * @returns {Promise<{x50:number, n:number, x80:number, uniformity:number, oversizeRatio:number}>}
+ *   oversizeRatio 语义：大块率，0~1 比例（非百分比）；x_allow 缺省/≥xmax 时为 0
+ */
+export function validateKco(input = {}) {
+  const payload = {
+    Q: Number(input.Q),
+    A: Number(input.A),
+    RWS: Number(input.RWS),
+    B: Number(input.B),
+    S: Number(input.S),
+    d: Number(input.d),
+    H: Number(input.H),
+    xmax: Number(input.xmax),
+    b: Number(input.b),
+    W_abs: Number(input.W_abs)
+  }
+  // x_allow 可选（允许最大块度 m，≤xmax；不传则大块率为 0）
+  if (input.x_allow !== undefined && input.x_allow !== null && Number.isFinite(Number(input.x_allow))) {
+    payload.x_allow = Number(input.x_allow)
+  }
+  return request(`${API_BASE}/validate/kco`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }).then(r => r.data)
+}

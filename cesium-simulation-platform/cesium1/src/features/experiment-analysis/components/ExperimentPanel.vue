@@ -671,6 +671,49 @@
         </div>
       </div>
 
+      <div v-if="significance.rows.length" class="panel-section">
+        <div class="panel-section-title">
+          算法显著性检验（配对 t 检验 · {{ significance.metric.toUpperCase() }}）
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs border-collapse">
+            <thead>
+              <tr>
+                <th class="p-2 border text-left">对比方法</th>
+                <th class="p-2 border text-right">均值差</th>
+                <th class="p-2 border text-right">t 值</th>
+                <th class="p-2 border text-right">p 值</th>
+                <th class="p-2 border text-right">样本数</th>
+                <th class="p-2 border text-center">结论</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, i) in significance.rows" :key="i" class="hover:bg-hover">
+                <td class="p-2 border font-medium stat-item">
+                  {{ row.methodA }} vs {{ row.methodB }}
+                </td>
+                <td class="p-2 border text-right stat-item">
+                  {{ formatMetricValue(row.meanDiff, 'MPa') }}
+                </td>
+                <td class="p-2 border text-right stat-item">{{ formatMetricValue(row.t, '') }}</td>
+                <td class="p-2 border text-right stat-item">
+                  {{ row.p == null ? '-' : row.p.toFixed(4) }}
+                </td>
+                <td class="p-2 border text-right stat-item">{{ row.n }}</td>
+                <td class="p-2 border text-center">
+                  <span
+                    class="stability-tag"
+                    :class="row.significant ? 'stability-good' : 'stability-warn'"
+                    >{{ row.significant ? '差异显著' : '无显著差异' }}</span
+                  >
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="mt-1 text-[11px] text-dim">{{ significance.note }}</div>
+      </div>
+
       <div v-if="results?.idw?.optimalParams" class="panel-section">
         <div class="panel-section-title">PSO 参数优化详情</div>
         <div class="p-2 rounded result-card">
@@ -758,6 +801,7 @@ const {
   stabilityRows,
   heatmapImages,
   conclusion,
+  significance,
   showMethodIntro,
   METHOD_INTRO,
   applyPreset,

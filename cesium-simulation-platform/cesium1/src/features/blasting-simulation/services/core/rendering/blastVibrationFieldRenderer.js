@@ -1,193 +1,55 @@
 /**
- * 爆破振动场体积渲染器（PPV 振动 / σ_vm 应力 / 损伤分区 三模式）
+ * 爆破振动场数据持有者（PPV 振动 / σ_vm 应力 / 损伤分区 三模式）
  *
- * 基于 Three.js Data3DTexture + GLSL raymarching 实现球面波场的体积可视化，
- * 通过 uDisplayMode 在三种物理量间切换：
- *   - PPV(0)：质点峰值速度（GB6722-2014 安全允许标准色阶，cm/s）
- *   - STRESS(1)：σ_vm 等效应力（岩石力学色阶，Pa→MPa，6 MPa=抗拉下限阈值）
- *   - DAMAGE(2)：Persson 损伤分区（离散 5 色，0~4 弹性→抛掷）
+ * 本类负责通过 WebSocket / 本地模拟接收并存储球面波场的 3D 数据纹理
+ * （PPV / 应力 / 损伤三场），并暴露给岩体模型（benchMesh）的着色材质使用。
+ *
+ * 设计说明（v2）：
+ *  - 不再创建 raymarching 体积盒子（避免掌子面前方出现"红色方块"）。
+ *  - 应力/损伤场直接渲染在实体岩体模型表面：threeBlastingRenderer 将本类持有的
+ *    Data3DTexture 与 LUT 注入 benchMesh 的 ShaderMaterial，逐片元按世界坐标
+ *    换算到 grid 局部坐标并采样取色，实现"在岩体上着色"的科学可视化。
  *
  * 数据流（三场同帧推送，t 对齐）：
  *   后端 ppv_field_3d / stress_field_from_ppv / damage_zone_classify
  *     → pack_ppv/stress/damage_binary (WebSocket 二进制帧, 大端)
  *     → blastingWsConnector._parsePpv/Stress/DamageField
- *     → 本渲染器 updateField / updateStressField / updateDamageField (写 Data3DTexture)
- *     → GLSL raymarching 按 uDisplayMode 采样 + LUT/离散取色 → 半透明体积叠加场景
+ *     → 本类 updateField / updateStressField / updateDamageField (写 Data3DTexture)
+ *     → threeBlastingRenderer 将纹理注入 benchMesh 材质 → 岩体表面着色
  *
  * 坐标系对齐：
  *   后端 grid 局部系: X=宽度, Y=高度, Z=前方(正)
  *   three.js 场景:    blastCenter 为原点, faceDirection=前方
- *   本渲染器以 makeBasis(right, up, forward) 构造 box 朝向，
- *   使 box 局部 (X,Y,Z) 与 grid (X,Y,Z) 严格对应，
- *   从而纹理采样轴序与后端 np.meshgrid(indexing='ij') 一致。
+ *   本类以 (right, up, forward) 基向量定义 grid 到世界的映射，
+ *   使镜框的局部 (X,Y,Z) 与 grid (X,Y,Z) 严格对应。
  *
  * 参考：
  * - GB6722-2014 第 6.2 条 & 表 4（爆破振动安全允许标准）
  * - Persson P.A. et al. "The Rock Blasting Handbook", 1997（损伤分区 PPV 阈值）
  * - 胡英国等. 爆炸与冲击, 2015, 35(4):547-554（岩体爆破损伤临界值）
  * - three.js r169 Data3DTexture / WebGL2 sampler3D
- * - Engel et al., Real-Time Volume Graphics (2006), ray-box intersection & compositing
  */
 import * as THREE from 'three'
 
-// ─── GB6722-2014 PPV 色阶（cm/s）────────────────────────────────────
-// 色阶依据《爆破安全规程》GB6722-2014 表4 安全允许标准设计：
-//   ≤1.0   住宅类建筑安全阈值（蓝-青，安全）
-//   1~2    一般民用建筑轻微振动（青-绿）
-//   2~4    商业/工业建筑（绿-黄，注意）
-//   4~7    结构显著响应（黄-橙，强）
-//   7~10   矿山巷道软岩阈值（橙-红，损伤）
-//   >10    矿山巷道硬岩阈值/严重损伤（红-品红）
-// 注：后端 PPV 单位为 m/s（=cm/s×0.01），色阶按 cm/s 定义，shader 内做 ×100 换算。
-// 色阶常量统一从 vibrationColorScales.js 单源 import（消除与 VisualOptions.vue 的双份维护）
+// 色阶常量：从 vibrationColorScales.js 单源 import（供材质着色使用）
 import {
   PPV_COLOR_STOPS_LINEAR as GB6722_COLOR_STOPS,
   PPV_LUT_MAX_CMPS as LUT_MAX_CMPS,
   STRESS_COLOR_STOPS_LINEAR as STRESS_COLOR_STOPS,
-  STRESS_LUT_MAX_MPA,
-  DAMAGE_ZONES as DAMAGE_ZONES_SRC
+  STRESS_LUT_MAX_MPA
 } from './vibrationColorScales.js'
 
 /** LUT 采样数（1D 纹理宽度） */
 const LUT_SIZE = 256
-// LUT_MAX_CMPS 已从 vibrationColorScales.js 单源 import（见上方 import 块）
 
-// ─── 体积渲染参数 ─────────────────────────────────────────────────
-const DEFAULT_RAY_STEPS = 48
-const DEFAULT_OPACITY = 0.55
+/** σ_vm 低于此值（Pa）视为透明 */
+const STRESS_VISIBLE_THRESHOLD_PA = 5.0e4 // 0.05 MPa
+
 /** PPV 低于此值（cm/s）视为透明，避免场外围噪声淹没场景 */
-const PPV_VISIBLE_THRESHOLD_CMPS = 0.3
+const PPV_VISIBLE_THRESHOLD_CMPS = 0.1
 
-// ─── GLSL 着色器 ──────────────────────────────────────────────────
-const VOLUME_VERTEX_SHADER = /* glsl */ `precision highp float;
-precision highp sampler3D;
-
-// box 顶点局部坐标（BoxGeometry 默认 ±0.5，单位几何体）
-// position/normal/modelViewMatrix/projectionMatrix 由 Three.js ShaderMaterial（GLSL3）自动注入
-
-// 传递给片元的 box 局部归一化坐标（±0.5）
-// 注意：真实尺度由 mesh.matrix（含 right/up/forward 缩放列）承担，
-// 故这里直接透传 position，无需在 shader 中再乘 uBoxSize。
-out vec3 vObjPos;
-
-void main() {
-  vObjPos = position;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}
-`
-
-const VOLUME_FRAGMENT_SHADER = /* glsl */ `precision highp float;
-precision highp sampler3D;
-
-uniform sampler3D uPpvTexture;     // PPV 标量场（R 通道，单位 m/s）
-uniform sampler3D uStressTexture;  // σ_vm 等效应力场（R 通道，单位 Pa）
-uniform sampler3D uDamageTexture;  // 损伤分区场（R 通道，float 0~4）
-uniform sampler2D uLut;            // GB6722 PPV 色阶 LUT（256×1 RGBA）
-uniform sampler2D uStressLut;      // σ_vm 应力色阶 LUT
-uniform vec3  uCameraPosObj;       // 相机在 box 局部系下的坐标（±0.5 范围）
-uniform float uRaySteps;           // 射线步进数
-uniform float uOpacity;            // 整体不透明度
-uniform float uPpvRefMps;          // 色阶参考 PPV（m/s，=LUT上限）
-uniform float uThresholdMps;       // PPV 可见阈值（m/s）
-uniform float uStressRefMPa;       // 应力色阶上限（MPa）
-uniform float uStressVisibleThresholdPa; // σ_vm 可见阈值（Pa）
-uniform int   uDisplayMode;        // 0=PPV, 1=STRESS, 2=DAMAGE
-
-in vec3 vObjPos;
-out vec4 fragColor;
-
-// ray-box 求交（box 范围 ±0.5 在 box 局部坐标系）
-bool intersectBox(vec3 rayOrigin, vec3 rayDir, out float tNear, out float tFar) {
-  vec3 invDir = 1.0 / max(abs(rayDir), vec3(1e-8));
-  vec3 t1 = (-0.5 - rayOrigin) * invDir;
-  vec3 t2 = ( 0.5 - rayOrigin) * invDir;
-  vec3 tmin = min(t1, t2);
-  vec3 tmax = max(t1, t2);
-  tNear = max(max(tmin.x, tmin.y), tmin.z);
-  tFar  = min(min(tmax.x, tmax.y), tmax.z);
-  return tFar >= max(tNear, 0.0);
-}
-
-// 损伤分区离散取色（zone 0~4）；返回 rgba，alpha 为强度因子（不含 uOpacity）
-vec4 damageColor(float zone) {
-  if (zone < 0.5) return vec4(0.0);                 // 0 elastic 透明不渲染
-  vec3 col;
-  if (zone < 1.5)      col = vec3(0.90, 0.85, 0.30); // 1 micro_crack 浅黄
-  else if (zone < 2.5) col = vec3(0.95, 0.55, 0.15); // 2 crack_growth 橙
-  else if (zone < 3.5) col = vec3(0.90, 0.20, 0.15); // 3 fracture 红
-  else                 col = vec3(0.60, 0.05, 0.10); // 4 throw 深红
-  // 强度因子随分区加深而增大，保证破碎/抛掷区更实
-  float strength = 0.55 + zone * 0.10;
-  return vec4(col, strength);
-}
-
-// 按 uDisplayMode 采样当前场并取色；返回 alpha 为强度因子（不含 uOpacity）
-vec4 sampleFieldColor(vec3 uvw) {
-  if (uDisplayMode == 1) {
-    // σ_vm 等效应力场（Pa → MPa 归一化）
-    float sigmaPa = texture(uStressTexture, uvw).r;
-    if (sigmaPa < uStressVisibleThresholdPa) return vec4(0.0);
-    float mpa = sigmaPa / 1.0e6;
-    float norm = clamp(mpa / max(uStressRefMPa, 1e-6), 0.0, 1.0);
-    vec4 c = texture(uStressLut, vec2(norm, 0.5));
-    c.a *= smoothstep(0.0, 0.15, norm);
-    return c;
-  } else if (uDisplayMode == 2) {
-    // 损伤分区（float 0~4，离散取色）
-    float zone = texture(uDamageTexture, uvw).r;
-    return damageColor(zone);
-  }
-  // 默认：PPV 振动场（m/s）
-  float ppvMps = texture(uPpvTexture, uvw).r;
-  float ppvCmps = ppvMps * 100.0;
-  if (ppvCmps < uThresholdMps) return vec4(0.0);
-  float norm = clamp(ppvMps / max(uPpvRefMps, 1e-6), 0.0, 1.0);
-  vec4 c = texture(uLut, vec2(norm, 0.5));
-  c.a *= smoothstep(0.0, 0.15, norm);
-  return c;
-}
-
-void main() {
-  // 在 box 局部归一化坐标系（±0.5）中重建射线
-  vec3 surfaceObj = vObjPos;
-  vec3 camObj = uCameraPosObj;
-  vec3 rayDir = normalize(surfaceObj - camObj);
-
-  float tNear, tFar;
-  if (!intersectBox(camObj, rayDir, tNear, tFar)) {
-    discard;
-  }
-  float tStart = max(tNear, 0.0);
-  float tEnd = tFar;
-  float dt = (tEnd - tStart) / uRaySteps;
-
-  // 前向累积（front-to-back compositing）
-  vec4 accum = vec4(0.0);
-  float transmittance = 1.0;
-
-  for (float t = tStart + dt * 0.5; t < tEnd; t += dt) {
-    vec3 pObj = camObj + rayDir * t;            // box 局部坐标 ±0.5
-    vec3 uvw = pObj + 0.5;                      // 纹理坐标 [0,1]
-    if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0)))) continue;
-
-    // 按 displayMode 取色，alpha 为强度因子
-    vec4 color = sampleFieldColor(uvw);
-    float sampleAlpha = color.a * uOpacity;
-    if (sampleAlpha <= 0.001) continue;
-
-    // 前向累积公式：C_acc += T_i * α_i * C_i ;  T *= (1 - α_i)
-    accum.rgb += transmittance * sampleAlpha * color.rgb;
-    accum.a   += transmittance * sampleAlpha;
-    transmittance *= (1.0 - sampleAlpha);
-
-    // 透射率足够低时提前退出（opacity correction）
-    if (transmittance < 0.03) break;
-  }
-
-  if (accum.a <= 0.001) discard;
-  fragColor = vec4(accum.rgb, accum.a);
-}
-`
+/** 显示模式枚举（与材质 uDisplayMode 对应） */
+const DISPLAY_MODE = { PPV: 0, STRESS: 1, DAMAGE: 2 }
 
 // ─── LUT 构建 ─────────────────────────────────────────────────────
 
@@ -213,84 +75,30 @@ function sampleColorStops(ppvCmps) {
 
 /**
  * 构建 GB6722 色阶 1D LUT 纹理（256×1 RGBA）
- * 横轴为归一化 PPV [0,1]，对应 [0, LUT_MAX_CMPS] cm/s
+ * @param {[number,number[]][]} stops - 色阶 [v, [r,g,b]]
+ * @param {number} max - 色阶上限
  * @returns {THREE.DataTexture}
  */
-function buildPpvLUT() {
+function buildLUT(stops, max) {
   const data = new Uint8Array(LUT_SIZE * 4)
   for (let i = 0; i < LUT_SIZE; i++) {
     const norm = i / (LUT_SIZE - 1)
-    const ppvCmps = norm * LUT_MAX_CMPS
-    const [r, g, b] = sampleColorStops(ppvCmps)
-    // alpha 曲线：低值更透、高值更实，增强层次感
-    const a = Math.pow(norm, 0.7)
-    data[i * 4] = Math.round(r * 255)
-    data[i * 4 + 1] = Math.round(g * 255)
-    data[i * 4 + 2] = Math.round(b * 255)
-    data[i * 4 + 3] = Math.round(a * 255)
-  }
-  const tex = new THREE.DataTexture(data, LUT_SIZE, 1, THREE.RGBAFormat)
-  tex.minFilter = THREE.LinearFilter
-  tex.magFilter = THREE.LinearFilter
-  tex.wrapS = THREE.ClampToEdgeWrapping
-  tex.wrapT = THREE.ClampToEdgeWrapping
-  tex.needsUpdate = true
-  return tex
-}
-
-// ─── σ_vm 等效应力色阶（MPa，岩石力学）────────────────────────────
-// 色阶阈值依据中硬岩力学强度设计：
-//   σ_t≈6~10 MPa（抗拉强度）：6 MPa 达下限→拉裂起裂（黄）
-//   σ_c≈80~120 MPa（抗压强度）：远场不会达到，仅近场破碎区接近
-//   σ_vm 弹性反演范围通常 0.1~10 MPa（中远场），近场可达数十 MPa（弹性失效）
-// STRESS_COLOR_STOPS 与 STRESS_LUT_MAX_MPA 已从 vibrationColorScales.js import
-/** σ_vm 低于此值（Pa）视为透明 */
-const STRESS_VISIBLE_THRESHOLD_PA = 1.0e5 // 0.1 MPa
-
-// ─── 损伤分区离散色（Persson 模型 0~4）─────────────────────────────
-// 与后端 DAMAGE_ZONE_LABELS 对应；zone=0 弹性区透明不显示，
-// 避免大范围弹性区淹没场景，仅显示有损伤的区域（zone≥1）。
-const DAMAGE_ZONE_COLORS = [
-  [0.3, 0.3, 0.35, 0.0], // 0 elastic      灰  透明（不渲染）
-  [0.9, 0.85, 0.3, 0.55], // 1 micro_crack  浅黄
-  [0.95, 0.55, 0.15, 0.7], // 2 crack_growth 橙
-  [0.9, 0.2, 0.15, 0.8], // 3 fracture     红
-  [0.6, 0.05, 0.1, 0.85] // 4 throw        深红
-]
-
-/** 显示模式枚举（与 shader uDisplayMode 对应） */
-const DISPLAY_MODE = { PPV: 0, STRESS: 1, DAMAGE: 2 }
-
-/**
- * 构建 σ_vm 应力色阶 1D LUT 纹理（256×1 RGBA）
- * 横轴为归一化 σ_vm [0,1]，对应 [0, STRESS_LUT_MAX_MPA] MPa
- * @returns {THREE.DataTexture}
- */
-function buildStressLUT() {
-  const stops = STRESS_COLOR_STOPS
-  const data = new Uint8Array(LUT_SIZE * 4)
-  for (let i = 0; i < LUT_SIZE; i++) {
-    const norm = i / (LUT_SIZE - 1)
-    const mpa = norm * STRESS_LUT_MAX_MPA
-    // 线性插值取色
+    const val = norm * max
     let col = stops[stops.length - 1][1]
-    if (mpa <= stops[0][0]) {
+    if (val <= stops[0][0]) {
       col = stops[0][1]
     } else {
       for (let j = 0; j < stops.length - 1; j++) {
         const [p0, c0] = stops[j]
         const [p1, c1] = stops[j + 1]
-        if (mpa >= p0 && mpa <= p1) {
-          const k = (mpa - p0) / (p1 - p0)
-          col = [
-            c0[0] + (c1[0] - c0[0]) * k,
-            c0[1] + (c1[1] - c0[1]) * k,
-            c0[2] + (c1[2] - c0[2]) * k
-          ]
+        if (val >= p0 && val <= p1) {
+          const k = (val - p0) / (p1 - p0)
+          col = [c0[0] + (c1[0] - c0[0]) * k, c0[1] + (c1[1] - c0[1]) * k, c0[2] + (c1[2] - c0[2]) * k]
           break
         }
       }
     }
+    // alpha 曲线：低值更透、高值更实
     const a = Math.pow(norm, 0.7)
     data[i * 4] = Math.round(col[0] * 255)
     data[i * 4 + 1] = Math.round(col[1] * 255)
@@ -306,48 +114,50 @@ function buildStressLUT() {
   return tex
 }
 
-// ─── 渲染器类 ─────────────────────────────────────────────────────
+// ─── 数据持有类 ─────────────────────────────────────────────────────
 
 export class BlastVibrationFieldRenderer {
   /**
-   * @param {THREE.Scene} scene
+   * @param {THREE.Scene} scene - 保留引用（兼容旧接口，不再持有 mesh）
    */
   constructor(scene) {
     this.scene = scene
-    this._mesh = null
-    this._material = null
-    this._geometry = null
     this._ppvTexture = null
     this._stressTexture = null
     this._damageTexture = null
-    this._lutTexture = buildPpvLUT()
-    this._stressLutTexture = buildStressLUT()
+    this._lutTexture = buildLUT(GB6722_COLOR_STOPS, LUT_MAX_CMPS)
+    this._stressLutTexture = buildLUT(STRESS_COLOR_STOPS, STRESS_LUT_MAX_MPA)
     this._visible = true
-    this._opacity = DEFAULT_OPACITY
-    this._raySteps = DEFAULT_RAY_STEPS
     this._displayMode = DISPLAY_MODE.PPV
     // 场参数缓存
     this._gridShape = null
     this._boundsMin = null
     this._boundsMax = null
+    this._center = null
+    this._right = null
+    this._up = null
+    this._forward = null
+    // 爆源（网格局部坐标，缺省网格原点）：解析外推/波环距离的波源位置
+    this._blastOrigin = null
     this._lastT = -1
     this._lastFrame = -1
-    // 各场是否已收到首帧（用于 hasField 判定与 UI 提示）
+    // 各场是否已收到首帧
     this._hasPpv = false
     this._hasStress = false
     this._hasDamage = false
   }
 
   /**
-   * 初始化（或重建）振动场体积
+   * 初始化（或重建）振动场数据纹理
    * @param {Object} cfg
    * @param {number[]} cfg.gridShape - [nx, ny, nz]
    * @param {number[]} cfg.boundsMin - [x,y,z] grid 边界下界
    * @param {number[]} cfg.boundsMax - [x,y,z] grid 边界上界
-   * @param {THREE.Vector3} cfg.center - 爆心（box 局部原点对齐处）世界坐标
+   * @param {THREE.Vector3} cfg.center - 爆心（grid 局部原点）世界坐标
    * @param {THREE.Vector3} cfg.right - 隧道宽度方向单位向量
    * @param {THREE.Vector3} cfg.up    - 竖直方向单位向量
    * @param {THREE.Vector3} cfg.forward - 掌子面朝向（前方）单位向量
+   * @param {number[]|THREE.Vector3} [cfg.origin] - 爆源网格局部坐标（掏槽孔质心），缺省网格原点
    */
   init(cfg) {
     this.disposeMesh()
@@ -355,123 +165,36 @@ export class BlastVibrationFieldRenderer {
     this._gridShape = gridShape
     this._boundsMin = boundsMin
     this._boundsMax = boundsMax
+    this._center = center
+    this._right = right
+    this._up = up
+    this._forward = forward
+    this._blastOrigin = cfg.origin ?? null
 
     const [nx, ny, nz] = gridShape
-    const sizeX = boundsMax[0] - boundsMin[0]
-    const sizeY = boundsMax[1] - boundsMin[1]
-    const sizeZ = boundsMax[2] - boundsMin[2]
-    this._boxSize = new THREE.Vector3(sizeX, sizeY, sizeZ)
-
-    // grid 中心（grid 局部坐标）
-    const cx = (boundsMin[0] + boundsMax[0]) * 0.5
-    const cy = (boundsMin[1] + boundsMax[1]) * 0.5
-    const cz = (boundsMin[2] + boundsMax[2]) * 0.5
-
-    // Data3DTexture：单通道 float32，存 PPV（m/s）
-    // 纹理轴序：u↔nx(width/right), v↔ny(height/up), w↔nz(depth/forward)
-    // 与后端 pack_ppv_binary 中 transpose(2,1,0) 后的 x-最快内存布局一致。
     const voxelCount = nx * ny * nz
-    const initData = new Float32Array(voxelCount) // 初始全 0（波前未到达）
-    const tex = new THREE.Data3DTexture(initData, nx, ny, nz)
-    tex.format = THREE.RedFormat
-    tex.type = THREE.FloatType
-    tex.minFilter = THREE.LinearFilter
-    tex.magFilter = THREE.LinearFilter
-    tex.wrapS = THREE.ClampToEdgeWrapping
-    tex.wrapT = THREE.ClampToEdgeWrapping
-    tex.wrapR = THREE.ClampToEdgeWrapping
-    tex.needsUpdate = true
-    this._ppvTexture = tex
+
+    // Data3DTexture：单通道 float32。纹理轴序 u↔nx(width/right), v↔ny(height/up), w↔nz(depth/forward)
+    const createTex = () => {
+      const tex = new THREE.Data3DTexture(new Float32Array(voxelCount), nx, ny, nz)
+      tex.format = THREE.RedFormat
+      tex.type = THREE.FloatType
+      tex.unpackAlignment = 4
+      // 3D 场纹理保持最近邻采样；平滑插值在片元着色器内手动 trilinear 完成，
+      // 不依赖 OES_texture_float_linear 扩展，保证所有 GPU 上色带连续（无方块色斑）。
+      tex.minFilter = THREE.NearestFilter
+      tex.magFilter = THREE.NearestFilter
+      tex.wrapS = THREE.ClampToEdgeWrapping
+      tex.wrapT = THREE.ClampToEdgeWrapping
+      tex.wrapR = THREE.ClampToEdgeWrapping
+      tex.needsUpdate = true
+      return tex
+    }
+
+    this._ppvTexture = createTex()
+    this._stressTexture = createTex()
+    this._damageTexture = createTex()
     this._voxelCount = voxelCount
-
-    // σ_vm 应力场纹理（RedFormat + Float，单位 Pa）；初始全 0
-    const stressTex = new THREE.Data3DTexture(new Float32Array(voxelCount), nx, ny, nz)
-    stressTex.format = THREE.RedFormat
-    stressTex.type = THREE.FloatType
-    stressTex.minFilter = THREE.LinearFilter
-    stressTex.magFilter = THREE.LinearFilter
-    stressTex.wrapS = THREE.ClampToEdgeWrapping
-    stressTex.wrapT = THREE.ClampToEdgeWrapping
-    stressTex.wrapR = THREE.ClampToEdgeWrapping
-    stressTex.needsUpdate = true
-    this._stressTexture = stressTex
-
-    // 损伤分区场纹理（RedFormat + Float，存 zone 0~4）；
-    // 后端送 int8，前端转 float 上传以兼容 sampler3D float 采样
-    const damageTex = new THREE.Data3DTexture(new Float32Array(voxelCount), nx, ny, nz)
-    damageTex.format = THREE.RedFormat
-    damageTex.type = THREE.FloatType
-    damageTex.minFilter = THREE.LinearFilter
-    damageTex.magFilter = THREE.LinearFilter
-    damageTex.wrapS = THREE.ClampToEdgeWrapping
-    damageTex.wrapT = THREE.ClampToEdgeWrapping
-    damageTex.wrapR = THREE.ClampToEdgeWrapping
-    damageTex.needsUpdate = true
-    this._damageTexture = damageTex
-
-    // 单位 BoxGeometry（±0.5），真实尺度由下方仿射矩阵承担
-    this._geometry = new THREE.BoxGeometry(1, 1, 1)
-
-    // 仿射矩阵行列式符号：right·(up×forward)，<0 表示含反射（绕序翻转）。
-    // 反射时 BoxGeometry 的 CCW 正面会变为 CW，需用 BackSide 才能渲染原本朝向相机的面；
-    // 否则用 FrontSide。这样每条射线只产生一个面片元，避免 DoubleSide 的双重混合。
-    const detSign = right.dot(new THREE.Vector3().crossVectors(up, forward))
-    const side = detSign < 0 ? THREE.BackSide : THREE.FrontSide
-
-    this._material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      uniforms: {
-        uPpvTexture: { value: this._ppvTexture },
-        uStressTexture: { value: this._stressTexture },
-        uDamageTexture: { value: this._damageTexture },
-        uLut: { value: this._lutTexture },
-        uStressLut: { value: this._stressLutTexture },
-        uCameraPosObj: { value: new THREE.Vector3() },
-        uRaySteps: { value: this._raySteps },
-        uOpacity: { value: this._opacity },
-        uPpvRefMps: { value: LUT_MAX_CMPS / 100.0 }, // 15 cm/s → 0.15 m/s
-        uThresholdMps: { value: PPV_VISIBLE_THRESHOLD_CMPS / 100.0 },
-        uStressRefMPa: { value: STRESS_LUT_MAX_MPA }, // 30 MPa
-        uStressVisibleThresholdPa: { value: STRESS_VISIBLE_THRESHOLD_PA },
-        uDisplayMode: { value: this._displayMode }
-      },
-      vertexShader: VOLUME_VERTEX_SHADER,
-      fragmentShader: VOLUME_FRAGMENT_SHADER,
-      transparent: true,
-      depthTest: true,
-      depthWrite: false,
-      side,
-      blending: THREE.NormalBlending
-    })
-
-    this._mesh = new THREE.Mesh(this._geometry, this._material)
-    this._mesh.renderOrder = 5 // 在不透明几何之后、粒子之前渲染
-
-    // ── 仿射变换：box 局部 (±0.5) → 世界 ──
-    // 局部 (lx,ly,lz) 映射到 grid (x,y,z) = boundsMin + (l+0.5)*size，
-    // 再由 (right, up, forward) 基向量变换到世界坐标。
-    // 合成矩阵列向量为 (right*sizeX, up*sizeY, forward*sizeZ)，平移为 boxCenter。
-    //
-    // 注意：当 forward 与 right×up 反向（默认 forward=-Z 时）该矩阵 det=-1（反射），
-    // Quaternion.setFromRotationMatrix 无法表示反射，故直接设置 mesh.matrix
-    // 并禁用 matrixAutoUpdate，由 matrixWorld 承载完整仿射（含反射）。
-    // 体积渲染以局部坐标采样纹理，反射不影响轴序对应关系。
-    const boxCenter = new THREE.Vector3()
-      .addScaledVector(right, cx)
-      .addScaledVector(up, cy)
-      .addScaledVector(forward, cz)
-      .add(center)
-    const colX = right.clone().multiplyScalar(sizeX)
-    const colY = up.clone().multiplyScalar(sizeY)
-    const colZ = forward.clone().multiplyScalar(sizeZ)
-    const affine = new THREE.Matrix4().makeBasis(colX, colY, colZ)
-    affine.setPosition(boxCenter)
-    this._mesh.matrixAutoUpdate = false
-    this._mesh.matrix.copy(affine)
-    this._mesh.updateMatrixWorld(true)
-
-    this._mesh.visible = this._visible
-    this.scene.add(this._mesh)
   }
 
   /**
@@ -493,10 +216,7 @@ export class BlastVibrationFieldRenderer {
       )
       return
     }
-    // 直接替换纹理数据：Data3DTexture 内部持同一 buffer 引用，
-    // 重新赋值 image.data 并标记 needsUpdate 触发 GPU 上传
     const tex = this._ppvTexture
-    // 为避免反复分配，复用内部 buffer（仅当容量匹配时）
     if (tex.image.data.length !== expected) {
       tex.image.data = new Float32Array(ppv)
     } else {
@@ -511,10 +231,8 @@ export class BlastVibrationFieldRenderer {
   /**
    * 更新 σ_vm 应力场（每收到一个 STRESS 二进制帧调用一次）
    * @param {Float32Array} sigmaVm - σ_vm 数组（Pa），长度须 = nx*ny*nz
-   * @param {number} t - 模拟时间（秒）
-   * @param {number} frame - 帧序号
    */
-  updateStressField(sigmaVm, t, frame) {
+  updateStressField(sigmaVm) {
     if (!this._stressTexture || !this._gridShape) return
     const [nx, ny, nz] = this._gridShape
     const expected = nx * ny * nz
@@ -540,10 +258,8 @@ export class BlastVibrationFieldRenderer {
   /**
    * 更新损伤分区场（每收到一个 DAMAGE 二进制帧调用一次）
    * @param {Int8Array} zones - 分区 id 数组（0~4），长度须 = nx*ny*nz
-   * @param {number} t - 模拟时间（秒）
-   * @param {number} frame - 帧序号
    */
-  updateDamageField(zones, t, frame) {
+  updateDamageField(zones) {
     if (!this._damageTexture || !this._gridShape) return
     const [nx, ny, nz] = this._gridShape
     const expected = nx * ny * nz
@@ -569,6 +285,93 @@ export class BlastVibrationFieldRenderer {
   }
 
   /**
+   * 在世界坐标处采样振动场（点选拾取/查询某点 PPV 用）。
+   *
+   * 数据流：世界点 → 映射回 grid 局部坐标（左右/上下/前方基向量点积，顺序先 local→grid）
+   *         → 归一化到 0..1 → 三线性插值取样 ppv/stress/damage 三场。
+   * 该方法是纯增量查询，不修改任何现有场数据或渲染路径；
+   * 直接读 Data3DTexture.image.data（宿主字节序），不依赖 GPU 采样，可在 node 下单测。
+   *
+   * 坐标映射约定（与材质一致）：grid 局部 X=宽度方向(right)、Y=高度方向(up)、Z=前方(forward)。
+   * 世界坐标 → grid 局部坐标：取 (right,up,forward) 各基向量的归一化方量（原点为爆心 center），
+   * 这是因为 right/up/forward 构成正交基，投影即得局部坐标。
+   *
+   * @param {THREE.Vector3|number[]} worldPos - 场景世界坐标 [x,y,z] 或 Vector3
+   * @returns {null|{gridX:number,gridY:number,gridZ:number,inside:boolean,
+   *                 local:[number,number,number], metric:number,
+   *                 ppvCmps:number, stressMPa:number, zone:number}}
+   *   - 世界点落出场盒外时返回 { inside:false, metric:0 }；无 PPV 场时返回 null。
+   *   - ppvCmps 单位 cm/s；stressMPa 为 von Mises 应力（MPa）；zone 为损伤档位 0~4。
+   *   - metric：归一化"命中强度"（0..1），用于表示该点在场网格内的置信度（立方体内为 1）。
+   */
+  sampleAtWorldPoint(worldPos) {
+    if (!this._ppvTexture || !this._gridShape || !this._center) return null
+    const [nx, ny, nz] = this._gridShape
+    const data = this._ppvTexture.image.data
+    const stressData = this._stressTexture?.image?.data
+    const zoneData = this._damageTexture?.image?.data
+
+    const [wx, wy, wz] = Array.isArray(worldPos) ? worldPos : [worldPos.x, worldPos.y, worldPos.z]
+    const c = this._center
+    // 世界→局部：(right,up,forward) 正交基投影（坐标 b ∈ [0,1]，center 为原点）
+    const dx = wx - c.x
+    const dy = wy - c.y
+    const dz = wz - c.z
+    // 局部坐标（right/up/forward 单位向量的点积 = 沿该轴投影距离）
+    const r = this._right, u = this._up, f = this._forward
+    let lx = dx * r.x + dy * r.y + dz * r.z
+    let ly = dx * u.x + dy * u.y + dz * u.z
+    let lz = dx * f.x + dy * f.y + dz * f.z
+
+    const bmin = this._boundsMin, bmax = this._boundsMax
+    // 归一化到网格内 0..1 的体素坐标（voxel center 对齐：i+0.5）
+    const fx = (lx - bmin[0]) / (bmax[0] - bmin[0])
+    const fy = (ly - bmin[1]) / (bmax[1] - bmin[1])
+    const fz = (lz - bmin[2]) / (bmax[2] - bmin[2])
+    const gx = fx * nx - 0.5
+    const gy = fy * ny - 0.5
+    const gz = fz * nz - 0.5
+
+    const inside = fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1 && fz >= 0 && fz <= 1
+    if (!inside) return { inside, gridX: 0, gridY: 0, gridZ: 0, local: [lx, ly, lz], metric: 0, ppvCmps: 0, stressMPa: 0, zone: 0 }
+
+    // 越界 clamp（边界采样）
+    const xi = Math.max(0, Math.min(nx - 2, Math.floor(gx)))
+    const yi = Math.max(0, Math.min(ny - 2, Math.floor(gy)))
+    const zi = Math.max(0, Math.min(nz - 2, Math.floor(gz)))
+    const tx = Math.max(0, Math.min(1, gx - xi))
+    const ty = Math.max(0, Math.min(1, gy - yi))
+    const tz = Math.max(0, Math.min(1, gz - zi))
+    const idx = (i, j, k) => (k * ny + j) * nx + i
+    const trilinear = (src) =>
+      src[idx(xi, yi, zi)] * (1 - tx) * (1 - ty) * (1 - tz) +
+      src[idx(xi + 1, yi, zi)] * tx * (1 - ty) * (1 - tz) +
+      src[idx(xi, yi + 1, zi)] * (1 - tx) * ty * (1 - tz) +
+      src[idx(xi, yi, zi + 1)] * (1 - tx) * (1 - ty) * tz +
+      src[idx(xi + 1, yi + 1, zi)] * tx * ty * (1 - tz) +
+      src[idx(xi, yi + 1, zi + 1)] * (1 - tx) * ty * tz +
+      src[idx(xi + 1, yi, zi + 1)] * tx * (1 - ty) * tz +
+      src[idx(xi + 1, yi + 1, zi + 1)] * tx * ty * tz
+
+    const ppvMps = trilinear(data)
+    return {
+      inside: true,
+      gridX: gx, gridY: gy, gridZ: gz,
+      local: [lx, ly, lz],
+      metric: 1,
+      ppvCmps: ppvMps * 100.0, // m/s → cm/s
+      stressMPa: stressData ? trilinear(stressData) / 1e6 : null,
+      zone: zoneData ? Math.round(trilinear(zoneData)) : null
+    }
+  }
+
+  /** 当前场在世界坐标处的 PPV 值（cm/s）；失配/缺场返回 null。JS 层语义便捷封装。 */
+  samplePpvAt(worldPos) {
+    const s = this.sampleAtWorldPoint(worldPos)
+    return s && s.inside ? s.ppvCmps : null
+  }
+
+  /**
    * 切换显示模式
    * @param {string|number} mode - 'ppv'|'stress'|'damage' 或 0|1|2
    */
@@ -590,54 +393,70 @@ export class BlastVibrationFieldRenderer {
             : DISPLAY_MODE.PPV
     }
     this._displayMode = m
-    if (this._material) this._material.uniforms.uDisplayMode.value = m
   }
 
   get displayMode() {
     return this._displayMode
   }
 
-  /**
-   * 每帧更新相机在 box 局部坐标系下的位置（供 raymarching 射线起点）
-   * @param {THREE.Camera} camera
-   */
-  updateCamera(camera) {
-    if (!this._mesh || !this._material) return
-    // 将世界坐标相机位置转换为 mesh 局部坐标。
-    // mesh.matrixWorld 含完整仿射（right/up/forward 缩放列 + 反射），
-    // 其逆矩阵将相机世界位置映射回 box 局部 ±0.5 归一化空间，供 raymarching 射线起点。
-    const inv = new THREE.Matrix4().copy(this._mesh.matrixWorld).invert()
-    const camLocal = new THREE.Vector3()
-    camera.getWorldPosition(camLocal)
-    camLocal.applyMatrix4(inv)
-    this._material.uniforms.uCameraPosObj.value.copy(camLocal)
+  /** 当前显示模式编号（0/1/2，供材质 uDisplayMode 使用） */
+  get displayModeValue() {
+    return this._displayMode
+  }
 
-    // 仅在相机位于 box 内部时渲染体积场（±0.5 范围）。
-    // 体积渲染设计为从内部观察：从外部看 box 表面会形成色片，
-    // 且 raymarching 穿过整个 box 截面导致 GPU 负载剧增、页面卡死。
-    const inside =
-      Math.abs(camLocal.x) <= 0.5 && Math.abs(camLocal.y) <= 0.5 && Math.abs(camLocal.z) <= 0.5
-    this._mesh.visible = this._visible && inside
+  /**
+   * 对外暴露场数据（供 threeBlastingRenderer 注入 benchMesh 材质）
+   * @returns {{
+   *   ppvTexture: THREE.Data3DTexture|null,
+   *   stressTexture: THREE.Data3DTexture|null,
+   *   damageTexture: THREE.Data3DTexture|null,
+   *   lutTexture: THREE.DataTexture,
+   *   stressLutTexture: THREE.DataTexture,
+   *   boundsMin: number[]|null,
+   *   boundsMax: number[]|null,
+   *   gridShape: number[]|null,
+   *   center: THREE.Vector3|null,
+   *   right: THREE.Vector3|null,
+   *   up: THREE.Vector3|null,
+   *   forward: THREE.Vector3|null,
+   *   stressRefMPa: number,
+   *   ppvRefMps: number,
+   *   thresholdMps: number,
+   * }} 场数据
+   */
+  getFieldData() {
+    return {
+      ppvTexture: this._ppvTexture,
+      stressTexture: this._stressTexture,
+      damageTexture: this._damageTexture,
+      lutTexture: this._lutTexture,
+      stressLutTexture: this._stressLutTexture,
+      boundsMin: this._boundsMin,
+      boundsMax: this._boundsMax,
+      gridShape: this._gridShape,
+      center: this._center,
+      right: this._right,
+      up: this._up,
+      forward: this._forward,
+      blastOrigin: this._blastOrigin,
+      stressRefMPa: STRESS_LUT_MAX_MPA,
+      ppvRefMps: LUT_MAX_CMPS / 100.0,
+      thresholdMps: PPV_VISIBLE_THRESHOLD_CMPS / 100.0,
+      stressVisiblePa: STRESS_VISIBLE_THRESHOLD_PA
+    }
   }
 
   setVisible(v) {
     this._visible = !!v
-    if (this._mesh) this._mesh.visible = this._visible
   }
 
   get visible() {
     return this._visible
   }
 
-  setOpacity(o) {
-    this._opacity = Math.max(0, Math.min(1, Number(o) || 0))
-    if (this._material) this._material.uniforms.uOpacity.value = this._opacity
-  }
+  setOpacity() {} // 兼容旧接口：不再使用体积不透明度
 
-  setRaySteps(n) {
-    this._raySteps = Math.max(8, Math.min(128, Math.round(Number(n) || DEFAULT_RAY_STEPS)))
-    if (this._material) this._material.uniforms.uRaySteps.value = this._raySteps
-  }
+  setRaySteps() {} // 兼容旧接口：不再使用 raymarch 步数
 
   /** 当前显示模式是否有可渲染的场（已 init 且至少收到过一帧数据） */
   get hasField() {
@@ -645,6 +464,12 @@ export class BlastVibrationFieldRenderer {
     if (this._displayMode === DISPLAY_MODE.STRESS) return this._hasStress
     if (this._displayMode === DISPLAY_MODE.DAMAGE) return this._hasDamage
     return this._hasPpv
+  }
+
+  /** 三场中任意一场是否有数据 */
+  get hasAnyField() {
+    if (!this._gridShape) return false
+    return this._hasPpv || this._hasStress || this._hasDamage
   }
 
   /** 最近帧元信息（供 UI 显示当前场时间/帧/模式） */
@@ -669,20 +494,8 @@ export class BlastVibrationFieldRenderer {
     }
   }
 
-  /** 释放 mesh / 材质 / 几何 / 3D 纹理（LUT 在 dispose 中释放） */
+  /** 释放 3D 纹理（LUT 在 dispose 中释放） */
   disposeMesh() {
-    if (this._mesh) {
-      this.scene.remove(this._mesh)
-      this._mesh = null
-    }
-    if (this._geometry) {
-      this._geometry.dispose()
-      this._geometry = null
-    }
-    if (this._material) {
-      this._material.dispose()
-      this._material = null
-    }
     if (this._ppvTexture) {
       this._ppvTexture.dispose()
       this._ppvTexture = null
@@ -696,6 +509,13 @@ export class BlastVibrationFieldRenderer {
       this._damageTexture = null
     }
     this._gridShape = null
+    this._boundsMin = null
+    this._boundsMax = null
+    this._center = null
+    this._right = null
+    this._up = null
+    this._forward = null
+    this._blastOrigin = null
     this._lastFrame = -1
     this._lastT = -1
     this._hasPpv = false

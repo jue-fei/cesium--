@@ -34,20 +34,25 @@
  *    - 选择理由：多接触点判定计算量大，单点启发式已能形成视觉合理的堆积
  *    - 已知偏差：堆积形态偏松散，真实安息角应为多接触点稳定判定
  *
- * 4. 未使用第三方物理库
- *    - project_memory.md 历史条目提到的 cannon-es 集成未实际落地
- *    - 选择理由：手写引擎已能满足可视化需求，避免引入大型依赖
- *    - 未来升级方向：rapier-wasm（支持凸包碰撞体）或 cannon-es
+ * 4. 第三方物理库
+ *    - 本引擎为手写物理引擎，用于碎片弹道轨迹模拟。
+ *    - 仓库中同时存在 rapierPhysicsEngine.js（基于 @dimforge/rapier3d-compat），
+ *      用于需要精确碰撞检测的场景。
+ *    - 手写引擎在 200+ 碎片实时可视化场景下性能优于 rapier，且能保证视觉效果。
  */
+
+import { DEFAULT_RESTITUTION, DEFAULT_FRICTION, DEFAULT_MAX_BOUNCES } from '../blastDefaults.js'
 
 // ─── 物理常量 ──────────────────────────────────────────
 const GRAVITY = 9.8
 
 // 碎片间碰撞参数
 const SPATIAL_HASH_CELL = 0.6 // 空间散列网格尺寸 ≈ 最大碎片直径
-const RESTITUTION_INTER = 0.12 // 碎片间恢复系数（岩屑低弹性，快速堆积）
-const FRICTION_INTER = 0.6 // 碎片间摩擦系数（高摩擦稳定堆积）
-const ANGLE_OF_REPOSE = (37 * Math.PI) / 180 // 安息角
+const RESTITUTION_INTER = 0.1 // 碎片间恢复系数（岩屑近乎非弹性，就地堆积）
+const FRICTION_INTER = 0.75 // 碎片间摩擦系数（高摩擦：碎片落定后不再滚动外滑，坡面更陡更稳定）
+// 安息角：真实爆破岩块（棱角状、10~35mm 级）实测 37°~44°（Singh & Cheung 2017），
+// 取 40° 以兼顾"堆得高"与"不无限陡"。切勿低于 35°，否则爆堆过缓过平。
+const ANGLE_OF_REPOSE = (40 * Math.PI) / 180
 const SETTLE_SPEED = 0.8 // 冻结速度阈值(m/s)（提高以加速堆积冻结）
 const SETTLE_FRAMES = 3 // 持续低速帧数才冻结（降低以加速堆积冻结）
 
@@ -118,6 +123,7 @@ const FLAG_LANDED = 0x02
 /**
  * @typedef {Object} BodyState - 对外导出的身体状态
  * @property {number} posX/posY/posZ - 世界坐标位置
+ * @property {number} velX/velY/velZ - 世界坐标速度（供爆堆渲染器判定"已停稳但未置 landed"的碎片）
  * @property {number} quatX/quatY/quatZ/quatW - 四元数旋转
  * @property {number} size - 显示尺寸
  * @property {number} alive - 是否存活
@@ -203,10 +209,10 @@ export class BlastPhysicsEngine {
         angVelX: (this._rng() - 0.5) * 8,
         angVelY: (this._rng() - 0.5) * 8,
         angVelZ: (this._rng() - 0.5) * 8,
-        restitution: s.restitution ?? 0.15,
-        friction: s.friction ?? 0.7,
+        restitution: s.restitution ?? DEFAULT_RESTITUTION,
+        friction: s.friction ?? DEFAULT_FRICTION,
         bounceCount: 0,
-        maxBounces: s.maxBounces ?? 2,
+        maxBounces: s.maxBounces ?? DEFAULT_MAX_BOUNCES,
         // 分段起爆：delayTime > 0 的碎片在 simTime < delayTime 时不参与物理更新
         // 由 step() 中的 delayTime 检查实现，初始时若 simTime < delayTime 则标记为未激活
         delayTime: Math.max(0, Number(s.delayTime) || 0),
@@ -333,6 +339,8 @@ export class BlastPhysicsEngine {
       // 4. 隧道壁碰撞
       if (this._tunnelBounds) {
         this._resolveWallCollision(b)
+        // 掌子面轴向封堵（在侧壁之后，防碎片反向飞进未爆破岩体）
+        this._resolveFaceCollision(b)
       }
 
       // 5. 底板碰撞（先检查，因为碰撞解析可能要求取 tunnelBounds）
@@ -547,7 +555,17 @@ export class BlastPhysicsEngine {
       const landed = !!(b.flags & FLAG_LANDED)
 
       if (landed) {
-        // 落地碎片：检查是否处于不稳定斜面（安息角判定）
+        // 落地碎片：已无贴靠支撑（悬空漂浮）→ 解除 LANDED 重新下落，
+        // 否则碎片会在拱腰/掌子面处永久悬浮，表现为"卡石悬空"。
+        if (!this._hasRestingSupport(b, grid)) {
+          b.flags &= ~FLAG_LANDED
+          b.velX = 0
+          b.velY = 0
+          b.velZ = 0
+          b.lowSpeedFrames = 0
+          continue
+        }
+        // 安息角判定：下方支撑坡面过陡 → 解除 LANDED 沿坡下滑
         const neighbors = this._queryNeighbors(grid, b)
         let support = null
         let minHoriz = Infinity
@@ -575,37 +593,61 @@ export class BlastPhysicsEngine {
               b.lowSpeedFrames = 0
             }
           }
-        } else if (!support) {
-          // 修正：下方完全无支撑（悬空）但被标记为 LANDED 的碎片会永久悬浮
-          // 检查是否在底板之上，如果是则解除 LANDED 让它重新下落
-          const tb = this._tunnelBounds
-          const fragR = b.physSize * 0.5
-          const floorY = tb ? tb.floorY : 0
-          if (b.posY > floorY + fragR + 0.1) {
-            b.flags &= ~FLAG_LANDED
-            b.velX = 0
-            b.velY = 0
-            b.velZ = 0
-            b.lowSpeedFrames = 0
-          }
         }
       } else {
-        // 飞行碎片：低速持续帧数判定后才冻结（避免立即冻结导致漂浮）
+        // 飞行碎片：低速需连续持续才冻结，且必须贴靠支撑（底板/下方已落地碎片）。
+        // 否则碎片在半空（拱腰/掌子面处）就会被冻住，重力停止作用，永久悬空卡石。
         const speed = Math.sqrt(b.velX ** 2 + b.velY ** 2 + b.velZ ** 2)
         if (speed < SETTLE_SPEED) {
-          b.lowSpeedFrames = (b.lowSpeedFrames || 0) + 1
-          if (b.lowSpeedFrames >= SETTLE_FRAMES) {
-            b.flags |= FLAG_LANDED
-            b.velX = b.velY = b.velZ = 0
-            b.angVelX *= 0.1
-            b.angVelY *= 0.1
-            b.angVelZ *= 0.1
+          if (this._hasRestingSupport(b, grid)) {
+            b.lowSpeedFrames = (b.lowSpeedFrames || 0) + 1
+            if (b.lowSpeedFrames >= SETTLE_FRAMES) {
+              b.flags |= FLAG_LANDED
+              b.velX = b.velY = b.velZ = 0
+              b.angVelX *= 0.1
+              b.angVelY *= 0.1
+              b.angVelZ *= 0.1
+            }
+          } else {
+            // 悬空无支撑：不冻结，清空计数，让它继续下落
+            b.lowSpeedFrames = 0
           }
         } else {
           b.lowSpeedFrames = 0
         }
       }
     }
+  }
+
+  /**
+   * 检查碎片是否贴靠支撑（底板或下方已落地碎片的顶部）。
+   * 用于禁止"悬空冻结"：无支撑的半空碎片不应被标记 LANDED，
+   * 否则碎片会在拱腰/掌子面处永久悬浮（重力停止作用），表现为"卡石"。
+   * @param {Object} b - 碎片 body
+   * @param {Map} grid - 空间散列网格
+   * @returns {boolean}
+   */
+  _hasRestingSupport(b, grid) {
+    const tb = this._tunnelBounds
+    const fragR = b.physSize * 0.5
+    const floorY = tb ? tb.floorY : 0
+    // 贴底板（含底板上薄层已落地碎片）
+    if (b.posY - fragR <= floorY + 0.15) return true
+    const bBottom = b.posY - fragR
+    const neighbors = this._queryNeighbors(grid, b)
+    for (const n of neighbors) {
+      if (n === b) continue
+      if (!(n.flags & FLAG_LANDED)) continue
+      if (n.posY >= b.posY) continue // 仅看下方
+      const nTop = n.posY + n.physSize * 0.5
+      const horiz = Math.sqrt((n.posX - b.posX) ** 2 + (n.posZ - b.posZ) ** 2)
+      const span = fragR + n.physSize * 0.5
+      // 水平贴近（容许斜靠坡面）+ 竖向贴靠（b 底部不高出支撑顶面过多）
+      if (horiz <= span * 1.3 && bBottom - nTop <= fragR * 0.6) {
+        return true
+      }
+    }
+    return false
   }
 
   /**
@@ -735,6 +777,47 @@ export class BlastPhysicsEngine {
   }
 
   /**
+   * 掌子面轴向封堵：阻止碎片反向飞进未爆破岩体（"卡进掌子面"）。
+   * 掌子面平面位于 center + forward*faceOffset；碎片中心允许达到
+   * faceOffset - fragR（表面贴面），越过即被推回并作低恢复反弹，
+   * 使贴面碎片沿面滑落入堆而非穿透岩面或被冻结在岩面上。
+   */
+  _resolveFaceCollision(b) {
+    const tb = this._tunnelBounds
+    if (!tb || tb.faceOffset == null) return
+    const fragR = b.physSize * 0.5
+    const axial =
+      (b.posX - tb.centerX) * tb.forwardX +
+      (b.posY - tb.centerY) * tb.forwardY +
+      (b.posZ - tb.centerZ) * tb.forwardZ
+    const limit = tb.faceOffset - fragR
+    if (axial <= limit) return
+
+    // 位置修正：推回掌子面前方
+    const d = axial - limit
+    b.posX -= tb.forwardX * d
+    b.posY -= tb.forwardY * d
+    b.posZ -= tb.forwardZ * d
+
+    // 反射轴向速度（低恢复：几乎非弹性）
+    const vn = b.velX * tb.forwardX + b.velY * tb.forwardY + b.velZ * tb.forwardZ
+    if (vn > 0) {
+      // 贴面摩擦阻尼：先消除沿面切向速度，使碎片顺势滑落而非贴壁滞留
+      const tx = b.velX - vn * tb.forwardX
+      const ty = b.velY - vn * tb.forwardY
+      const tz = b.velZ - vn * tb.forwardZ
+      b.velX -= tx * 0.5
+      b.velY -= ty * 0.5
+      b.velZ -= tz * 0.5
+      // 再反射法向（低恢复，几乎非弹性）
+      const refl = 0.1
+      b.velX -= (1 + refl) * vn * tb.forwardX
+      b.velY -= (1 + refl) * vn * tb.forwardY
+      b.velZ -= (1 + refl) * vn * tb.forwardZ
+    }
+  }
+
+  /**
    * 底板碰撞检测与反弹
    */
   _resolveFloorCollision(b) {
@@ -746,14 +829,20 @@ export class BlastPhysicsEngine {
       b.posY = floorThreshold
       if (b.velY < 0) {
         b.bounceCount++
-        const restitutionScale = Math.pow(0.75, b.bounceCount - 1)
+        const restitutionScale = Math.pow(0.7, b.bounceCount - 1)
         b.velY = -b.velY * b.restitution * restitutionScale
-        b.velX *= 1 - b.friction * 0.5
-        b.velZ *= 1 - b.friction * 0.5
+        // 水平向强阻尼 + 角速度阻尼：爆破岩块落地后几乎不打滑/不滚动，就地堆积，
+        // 否则碎块会沿隧道底板滑出很远的长度，把本应在掌子面附近成形的爆堆摊平。
+        const horizDamp = 1 - b.friction * 0.8
+        b.velX *= Math.max(0.02, horizDamp)
+        b.velZ *= Math.max(0.02, horizDamp)
+        b.angVelX *= 0.35
+        b.angVelY *= 0.5
+        b.angVelZ *= 0.35
         // 随机水平偏转（模拟撞击不平整面）
         const speed = Math.sqrt(b.velX * b.velX + b.velY * b.velY + b.velZ * b.velZ)
         const deflectAngle = this._rng() * Math.PI * 2
-        const deflectStr = Math.min(0.5, speed * 0.015)
+        const deflectStr = Math.min(0.4, speed * 0.012)
         b.velX += Math.cos(deflectAngle) * speed * deflectStr
         b.velZ += Math.sin(deflectAngle) * speed * deflectStr
 
@@ -781,6 +870,9 @@ export class BlastPhysicsEngine {
       posX: b.posX,
       posY: b.posY,
       posZ: b.posZ,
+      velX: b.velX,
+      velY: b.velY,
+      velZ: b.velZ,
       quatX: b.quatX,
       quatY: b.quatY,
       quatZ: b.quatZ,

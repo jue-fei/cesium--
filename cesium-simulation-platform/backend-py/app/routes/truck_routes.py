@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pymysql import Connection
 from app.database import get_db
 from app.schemas import TruckRouteCreate, TruckRouteUpdate
+from app.security import require_token
 
 router = APIRouter(prefix="/api/truck-routes", redirect_slashes=False, tags=["矿卡路线"])
 
@@ -45,8 +46,8 @@ def get_route(route_id: int, db: Connection = Depends(get_db)):
     return {"code": 0, "data": _parse_route(row)}
 
 
-@router.post("")
-@router.post("/")
+@router.post("", dependencies=[Depends(require_token)])
+@router.post("/", dependencies=[Depends(require_token)])
 def create_route(body: TruckRouteCreate, db: Connection = Depends(get_db)):
     name = body.name.strip()
     points = body.points
@@ -71,7 +72,7 @@ def create_route(body: TruckRouteCreate, db: Connection = Depends(get_db)):
     return {"code": 0, "message": "路线创建成功", "data": {"id": route_id}}
 
 
-@router.put("/{route_id}")
+@router.put("/{route_id}", dependencies=[Depends(require_token)])
 def update_route(route_id: int, body: TruckRouteUpdate, db: Connection = Depends(get_db)):
     with db.cursor() as cursor:
         cursor.execute("SELECT id FROM truck_routes WHERE id = %s", (route_id,))
@@ -103,7 +104,7 @@ def update_route(route_id: int, body: TruckRouteUpdate, db: Connection = Depends
     return {"code": 0, "message": "路线更新成功"}
 
 
-@router.put("/{route_id}/set-default")
+@router.put("/{route_id}/set-default", dependencies=[Depends(require_token)])
 def set_default_route(route_id: int, db: Connection = Depends(get_db)):
     with db.cursor() as cursor:
         cursor.execute("SELECT id FROM truck_routes WHERE id = %s", (route_id,))
@@ -115,7 +116,7 @@ def set_default_route(route_id: int, db: Connection = Depends(get_db)):
     return {"code": 0, "message": "已设为默认路线"}
 
 
-@router.delete("/{route_id}")
+@router.delete("/{route_id}", dependencies=[Depends(require_token)])
 def delete_route(route_id: int, db: Connection = Depends(get_db)):
     with db.cursor() as cursor:
         cursor.execute("SELECT id, is_default FROM truck_routes WHERE id = %s", (route_id,))

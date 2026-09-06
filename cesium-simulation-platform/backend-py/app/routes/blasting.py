@@ -25,6 +25,7 @@ from app.services.blasting.blast_physics import (
 )
 from app.services.blasting.compare import compare_multiple_events
 from app.schemas import KCOValidateRequest, JwlRequest, VibrationRequest
+from app.security import require_token
 
 logger = logging.getLogger(__name__)
 
@@ -571,8 +572,8 @@ def get_event(event_id: str, db: Connection = Depends(get_db)):
     return {"code": 0, "data": {"event": event, "design": design, "result": result}}
 
 
-@router.post("/events")
-@router.post("/events/")
+@router.post("/events", dependencies=[Depends(require_token)])
+@router.post("/events/", dependencies=[Depends(require_token)])
 def create_event(body: dict, db: Connection = Depends(get_db)):
     """创建事件：INSERT blasting_events + 级联创建 blasting_design/blasting_result 空行"""
     data = _from_camel(body, EVENT_FIELDS_REV)
@@ -615,7 +616,7 @@ def create_event(body: dict, db: Connection = Depends(get_db)):
     return {"code": 0, "msg": "爆破事件创建成功", "data": {"eventId": event_id}}
 
 
-@router.put("/events/{event_id}")
+@router.put("/events/{event_id}", dependencies=[Depends(require_token)])
 def update_event(event_id: str, body: dict, db: Connection = Depends(get_db)):
     """更新事件基本信息（blasting_events 表，不允许修改 event_id）"""
     data = _from_camel(body, EVENT_FIELDS_REV)
@@ -635,7 +636,7 @@ def update_event(event_id: str, body: dict, db: Connection = Depends(get_db)):
     return {"code": 0, "msg": "爆破事件更新成功"}
 
 
-@router.delete("/events/{event_id}")
+@router.delete("/events/{event_id}", dependencies=[Depends(require_token)])
 def delete_event(event_id: str, db: Connection = Depends(get_db)):
     """删除事件：blasting_events 删除后，design/holes/result 通过 ON DELETE CASCADE 自动级联"""
     with db.cursor() as cursor:
@@ -682,7 +683,7 @@ def get_design(event_id: str, db: Connection = Depends(get_db)):
     return {"code": 0, "data": {"design": design, "holes": holes}}
 
 
-@router.post("/events/{event_id}/design")
+@router.post("/events/{event_id}/design", dependencies=[Depends(require_token)])
 def save_design(event_id: str, body: dict, db: Connection = Depends(get_db)):
     """保存爆破设计（事务：upsert blasting_design + 批量替换 blasting_design_holes）"""
     design_data = _from_camel(body, DESIGN_FIELDS_REV)
@@ -771,7 +772,7 @@ def get_result(event_id: str, db: Connection = Depends(get_db)):
     return {"code": 0, "data": result}
 
 
-@router.put("/events/{event_id}/result")
+@router.put("/events/{event_id}/result", dependencies=[Depends(require_token)])
 def update_result(event_id: str, body: dict, db: Connection = Depends(get_db)):
     """更新爆破效果（blasting_result 表，不允许修改 event_id）"""
     data = _from_camel(body, RESULT_FIELDS_REV)
@@ -794,7 +795,7 @@ def update_result(event_id: str, body: dict, db: Connection = Depends(get_db)):
     return {"code": 0, "msg": "爆破效果更新成功"}
 
 
-@router.post("/events/{event_id}/runtime-stats")
+@router.post("/events/{event_id}/runtime-stats", dependencies=[Depends(require_token)])
 def save_runtime_stats(event_id: str, body: dict, db: Connection = Depends(get_db)):
     """保存运行时统计快照（每次 replay 生成一行）"""
     data = _from_camel(body, RUNTIME_STATS_FIELDS_REV)
@@ -850,7 +851,7 @@ def list_runtime_stats(event_id: str, db: Connection = Depends(get_db)):
 # 对比（1 个）
 # ============================================================
 
-@router.post("/results/compare")
+@router.post("/results/compare", dependencies=[Depends(require_token)])
 def compare_results(body: dict, db: Connection = Depends(get_db)):
     """多事件效果对比：批量取 blasting_result，调用 compare.compare_multiple_events 生成对比矩阵"""
     event_ids = body.get("event_ids") or body.get("eventIds") or []
@@ -906,7 +907,7 @@ def compare_results(body: dict, db: Connection = Depends(get_db)):
 # 服务层接入（3 个新增）
 # ============================================================
 
-@router.post("/validate/kco")
+@router.post("/validate/kco", dependencies=[Depends(require_token)])
 def validate_kco(req: KCOValidateRequest):
     """KCO 碎块分布模型验证（调用 kco_validator.calculate_kco）
 
@@ -917,6 +918,7 @@ def validate_kco(req: KCOValidateRequest):
     inp = KCOInput(
         Q=req.Q, A=req.A, RWS=req.RWS, B=req.B, S=req.S, d=req.d,
         H=req.H, xmax=req.xmax, b=req.b, W_abs=req.W_abs,
+        x_allow=req.x_allow,
     )
     out = calculate_kco(inp)
     return {"code": 0, "data": {
@@ -928,7 +930,7 @@ def validate_kco(req: KCOValidateRequest):
     }}
 
 
-@router.post("/physics/jwl")
+@router.post("/physics/jwl", dependencies=[Depends(require_token)])
 def physics_jwl(req: JwlRequest):
     """JWL 状态方程计算爆生气压力（调用 blast_physics.jwl_pressure）
 
@@ -945,9 +947,13 @@ def physics_jwl(req: JwlRequest):
     }}
 
 
-@router.post("/physics/vibration")
+@router.post("/physics/vibration", dependencies=[Depends(require_token)])
 def physics_vibration(req: VibrationRequest):
-    """萨道夫斯基振动预测（调用 blast_physics.sadosky_vibration）"""
+    """萨道夫斯基振动预测（调用 blast_physics.sadosky_vibration）
+
+    A1 单位统一：sadosky_vibration 现统一返回 m/s（公式原始量纲 cm/s，函数内 ×0.01）。
+    响应 'velocity' 单位为 m/s（'unit' 字段显式标注，避免下游误当 cm/s）。
+    """
     rock = RockMedium(
         density=req.density,
         p_wave_speed=req.pWaveSpeed,
@@ -958,6 +964,7 @@ def physics_vibration(req: VibrationRequest):
     velocity = sadosky_vibration(req.chargeKg, req.distance, rock)
     return {"code": 0, "data": {
         "velocity": velocity,
+        "unit": "m/s",
         "chargeKg": req.chargeKg,
         "distance": req.distance,
     }}

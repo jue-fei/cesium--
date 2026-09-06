@@ -165,6 +165,124 @@ export const ROCK_VARIANT_COUNT = 5 // 0:块状 1:板状 2:楔形 3:不规则 4:
 // 每种形态的子变体数（不同 seed 产生的同类形状）
 const SUB_VARIANTS_PER_TYPE = 3
 
+// ─── 变体最大半径表（供碎片初始位置约束使用） ─────────
+// 渲染网格 InstancedMesh 的 scale = dispSize，几何体顶点的最大球半径
+//（maxR）就是渲染尺寸倍率：渲染球半径 = maxR × dispSize。
+// 而物理碰撞体按 physSize/2/maxR 缩放、半径恒为 physSize/2——
+// 因此视觉网格可以比物理碰撞体大（实测 Blocky≈1.2、Irregular≈2.0），
+// 初始位置若按过小的半径收拢，碎石网格就会穿出隧道壁"在隧道外渲染"。
+let _variantMaxRadius = null
+
+/** 计算并缓存每个岩石几何变体的最大顶点球半径（索引同 createRockGeometryPool） */
+export function getRockVariantMaxRadius() {
+  if (_variantMaxRadius) return _variantMaxRadius
+  const pool = createRockGeometryPool()
+  _variantMaxRadius = pool.map(geo => {
+    const p = geo.attributes.position
+    let m = 0
+    for (let i = 0; i < p.count; i++) {
+      const r = Math.hypot(p.getX(i), p.getY(i), p.getZ(i))
+      if (r > m) m = r
+    }
+    return m
+  })
+  return _variantMaxRadius
+}
+
+let _variantHalfExtents = null
+
+/**
+ * 计算并缓存每个岩石几何变体的 AABB 半轴长 [hx, hy, hz]
+ *（索引同 createRockGeometryPool）。乘以实例 scale（dispSize）即得该碎片的
+ * 渲染包围盒半轴，配合四元数可算出任意方向上的精确支撑半长
+ *（爆堆轮廓据此紧贴碎石投影，见 muckPileOutlineRenderer）。
+ */
+export function getRockVariantHalfExtents() {
+  if (_variantHalfExtents) return _variantHalfExtents
+  const pool = createRockGeometryPool()
+  _variantHalfExtents = pool.map(geo => {
+    geo.computeBoundingBox()
+    const bb = geo.boundingBox
+    return [(bb.max.x - bb.min.x) / 2, (bb.max.y - bb.min.y) / 2, (bb.max.z - bb.min.z) / 2]
+  })
+  return _variantHalfExtents
+}
+
+let _variantUnitVolumes = null
+
+/**
+ * 每个几何变体的"单位体积"（scale=1 时的实心体积，m³/单位立方）。
+ *
+ * 渲染用 InstancedMesh scale = dispSize，则一块变体的实心体积 = V_unit×dispSize³。
+ * 而物理/账目体积按 KCO 球形口径 Σ(π/6)·physSize³ 计算。因 V_unit 各变体
+ * 差异巨大（0.22~3.06，由几何填充度决定），渲染几何体积并不等于球形账目体积
+ * ——这正是"渲染出来显多/显满"的一个来源。fragmentSpecGenerator.js 据此对
+ * dispSize 施加按变体的归一化因子 f=cbrt((π/6)/V_unit)，使
+ * Σ V_unit×(dispSize·f)³ = Σ(π/6)·physSize³，渲染体积退回球形账目标。
+ * 体积用"自原点四面体分解"求和（几何均围绕原点构建，abs 计正）。
+ */
+export function getRockVariantUnitVolumes() {
+  if (_variantUnitVolumes) return _variantUnitVolumes
+  const pool = createRockGeometryPool()
+  _variantUnitVolumes = pool.map(polyhedronVolume)
+  return _variantUnitVolumes
+}
+
+/** 计算三角网格的实心体积（自原点四面体分解，逐三角形取 abs） */
+function polyhedronVolume(geo) {
+  const positions = geo.attributes.position
+  const index = geo.index ? geo.index.array : null
+  const triCount = index ? index.length / 3 : positions.count / 3
+  let vol = 0
+  for (let t = 0; t < triCount; t++) {
+    const i = index ? index[t * 3] : t * 3
+    const j = index ? index[t * 3 + 1] : t * 3 + 1
+    const k = index ? index[t * 3 + 2] : t * 3 + 2
+    const ax = positions.getX(i)
+    const ay = positions.getY(i)
+    const az = positions.getZ(i)
+    const bx = positions.getX(j)
+    const by = positions.getY(j)
+    const bz = positions.getZ(j)
+    const cx = positions.getX(k)
+    const cy = positions.getY(k)
+    const cz = positions.getZ(k)
+    vol += Math.abs(ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx))
+  }
+  return vol / 6
+}
+
+let _variantVertices = null
+
+/**
+ * 每个几何变体的基础顶点数组（scale=1，未缩放），索引同几何池。
+ * 供包裹壳做"真实投影轮廓"：把基础顶点按 dispSize 缩放、旋转变换到世界，
+ * 投影到 (s,t) 平面取凸包，即碎块的可见外沿轮廓（而非旋转 AABB 的整矩形）。
+ */
+export function getRockVariantVertices() {
+  if (_variantVertices) return _variantVertices
+  const pool = createRockGeometryPool()
+  _variantVertices = pool.map(geo => geo.attributes.position.array.slice())
+  return _variantVertices
+}
+
+/**
+ * 给几何体补充全 1.0 的白色 color 顶点属性。
+ *
+ * 原因：碎片材质启用了 vertexColors（使 InstancedMesh 的 instanceColor 生效，
+ * 支持按 physSize 着色与区间高亮），但 r169 中材质启用 USE_COLOR 后片元着色器
+ * 会用 geometry.attributes.color 乘以 vColor。若几何体缺少该属性，颜色输出为黑。
+ * 补全 1.0 白色后：vColor = color(1,1,1) × instanceColor = instanceColor，
+ * 使每个碎片的实例颜色（岩石色/高亮色）完整生效。
+ * @param {THREE.BufferGeometry} geo
+ */
+function addWhiteColorAttribute(geo) {
+  if (geo.attributes.color) return
+  const count = geo.attributes.position.count
+  const colors = new Float32Array(count * 3).fill(1)
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+}
+
 /**
  * 创建完整的岩石几何体池
  * 总计 ROCK_VARIANT_COUNT × SUB_VARIANTS_PER_TYPE = 15 个几何体
@@ -183,7 +301,9 @@ export function createRockGeometryPool() {
   for (let type = 0; type < creators.length; type++) {
     for (let sub = 0; sub < SUB_VARIANTS_PER_TYPE; sub++) {
       const seed = type * 1000 + sub * 337
-      pool.push(creators[type](seed))
+      const geo = creators[type](seed)
+      addWhiteColorAttribute(geo)
+      pool.push(geo)
     }
   }
   return pool
@@ -201,7 +321,6 @@ export function createRockGeometryPool() {
  */
 export function selectVariantBySize(physSize, x50, x80, xmax, rng = Math.random) {
   const safeX80 = x80 > 0 ? x80 : x50 * 1.6
-  const safeXmax = xmax > 0 ? xmax : x50 * 3
 
   let type
   if (physSize > safeX80) {
@@ -219,4 +338,12 @@ export function selectVariantBySize(physSize, x50, x80, xmax, rng = Math.random)
   return type * SUB_VARIANTS_PER_TYPE + sub
 }
 
-export default { createRockGeometryPool, selectVariantBySize, ROCK_VARIANT_COUNT }
+export default {
+  createRockGeometryPool,
+  selectVariantBySize,
+  getRockVariantMaxRadius,
+  getRockVariantHalfExtents,
+  getRockVariantUnitVolumes,
+  getRockVariantVertices,
+  ROCK_VARIANT_COUNT
+}

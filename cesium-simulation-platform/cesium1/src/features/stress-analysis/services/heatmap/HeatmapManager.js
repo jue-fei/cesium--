@@ -1138,6 +1138,13 @@ export class HeatmapManager {
     return true
   }
 
+  static createMutableIdentityMatrix() {
+    // Cesium 的 Matrix4.IDENTITY 是 Object.freeze 冻结的只读单例，
+    // 直接作为 CustomShader uniform 值会被 setUniform 内 clone 写入而抛「只读属性」错误，
+    // 因此统一使用可变副本。
+    return Cesium.Matrix4.clone(Cesium.Matrix4.IDENTITY, new Cesium.Matrix4())
+  }
+
   prepareField(field) {
     if (!field || field.type !== 'grid' || !field.data) {
       const texture = this.getEmptyTexture()
@@ -1149,7 +1156,7 @@ export class HeatmapManager {
         textureSize: new Cesium.Cartesian2(1, 1),
         gridSize: new Cesium.Cartesian3(1, 1, 1),
         size: new Cesium.Cartesian3(1, 1, 1),
-        worldToLocal: Cesium.Matrix4.IDENTITY
+        worldToLocal: HeatmapManager.createMutableIdentityMatrix()
       }
     }
 
@@ -1168,7 +1175,7 @@ export class HeatmapManager {
         textureSize: new Cesium.Cartesian2(1, 1),
         gridSize: new Cesium.Cartesian3(1, 1, 1),
         size: new Cesium.Cartesian3(1, 1, 1),
-        worldToLocal: Cesium.Matrix4.IDENTITY
+        worldToLocal: HeatmapManager.createMutableIdentityMatrix()
       }
     }
 

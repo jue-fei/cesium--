@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pymysql import Connection
 from app.database import get_db, build_insert_sql, build_update_sql
 from app.schemas import TruckCreate, TruckUpdate
+from app.security import require_token
 import json
 
 router = APIRouter(prefix="/api/trucks", redirect_slashes=False, tags=["矿卡信息"])
@@ -41,7 +42,7 @@ def get_truck(truck_id: str, db: Connection = Depends(get_db)):
     return {"code": 0, "data": _parse_json_fields(row)}
 
 
-@router.post("/")
+@router.post("/", dependencies=[Depends(require_token)])
 def create_truck(body: TruckCreate, db: Connection = Depends(get_db)):
     sql, safe_fields = build_insert_sql("truck_info", TRUCK_FIELDS, TRUCK_FIELDS)
     values = []
@@ -57,7 +58,7 @@ def create_truck(body: TruckCreate, db: Connection = Depends(get_db)):
     return {"code": 0, "message": "矿卡创建成功"}
 
 
-@router.put("/{truck_id}")
+@router.put("/{truck_id}", dependencies=[Depends(require_token)])
 def update_truck(truck_id: str, body: TruckUpdate, db: Connection = Depends(get_db)):
     body_dict = body.model_dump(exclude_none=True)
     sql, values = build_update_sql("truck_info", body_dict, TRUCK_UPDATE_FIELDS, "truck_id")
@@ -79,7 +80,7 @@ def update_truck(truck_id: str, body: TruckUpdate, db: Connection = Depends(get_
     return {"code": 0, "message": "矿卡更新成功"}
 
 
-@router.delete("/{truck_id}")
+@router.delete("/{truck_id}", dependencies=[Depends(require_token)])
 def delete_truck(truck_id: str, db: Connection = Depends(get_db)):
     with db.cursor() as cursor:
         cursor.execute("DELETE FROM truck_info WHERE truck_id = %s", (truck_id,))

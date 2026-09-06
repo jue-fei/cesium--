@@ -150,16 +150,37 @@ export function solveX80(x50, xmax, n, b) {
 }
 
 /**
- * Cunningham 均匀性指数 n
- *   n = (2.2 - 14*d/B) * (1 - W_abs/B) / 2，clamp 到 [0.5, 2.5]
+ * Cunningham 均匀性指数 n（Cunningham 1983/1987 完整形式）
+ *   n = (2.2 - 14*B/d_mm) * (1 - W_abs/B) * sqrt(1 + (S/B - 1)/2) * (L/H)
+ *   并 clamp 到 [0.5, 2.5]
+ *
+ * 公式说明：主导项中 d 必须以 mm 计（B 以 m 计），系数 14 是按 mm 标定的
+ * （等价形式：B/D，D 以 cm、系数 1.4）。本函数入参 d 为 m，内部换算 ×1000。
+ *
+ * 来源：
+ * - Cunningham, C. (1983). The Kuz-Ram model for prediction of fragmentation
+ *   from blasting. Proc. 1st Int. Symp. Rock Frag. by Blasting, Lulea, 439-454.
+ * - 公式形式见 Khodayari et al. (2026, Mining Technology, 式2，引 Cunningham 1987)
+ *   与 Figueiredo et al. (2023, Appl. Sci. 13(12):7090, 式4)。
+ *
+ * 修正说明（2026-08）：旧实现 n = (2.2-14d/B)(1-W_abs/B)/2 含无出处的外部 `/2`
+ * 且缺孔距项/装药项；随后改为 2.2-14*d/B 但 d 以 m 同 B 计，系数 14 仍按 mm 标定，
+ * 致主导项被高估、与文献/论文反向。现统一为 2.2-14*B/d_mm，与 Cunningham/论文一致。
+ *
  * @param {number} B - 抵抗线(m)
- * @param {number} d - 孔径(m，与 B 同单位)
+ * @param {number} d - 孔径(m，函数内 ×1000 转为 mm 后用于主导项)
  * @param {number} W_abs - 钻孔偏差(m)
+ * @param {number} S - 孔距(m)
+ * @param {number} L - 装药长度(m)
+ * @param {number} H - 台阶高度(m)
  * @returns {number}
  */
-export function cunninghamN(B, d, W_abs) {
+export function cunninghamN(B, d, W_abs, S, L, H) {
   if (B <= 0) return 1.0
-  const raw = ((2.2 - (14 * d) / B) * (1 - W_abs / B)) / 2
+  const spacing = Math.sqrt(1 + (S / B - 1) / 2)
+  const chargeRatio = H > 0 ? L / H : 1.0
+  const d_mm = d * 1000 // 孔径(m) → mm（Cunningham 式主导项要求 d 以 mm 计）
+  const raw = (2.2 - (14 * B) / d_mm) * (1 - W_abs / B) * spacing * chargeRatio
   return Math.max(0.5, Math.min(2.5, raw))
 }
 

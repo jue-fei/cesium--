@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pymysql import Connection
 from app.database import get_db, parse_json_field, build_insert_sql, build_update_sql
 from app.schemas import BoreholeCreate, BoreholeUpdate
+from app.security import require_token
 
 router = APIRouter(prefix="/api/boreholes", redirect_slashes=False, tags=["钻孔配置"])
 
@@ -31,7 +32,7 @@ def get_borehole(borehole_id: str, db: Connection = Depends(get_db)):
     return {"code": 0, "data": row}
 
 
-@router.post("/")
+@router.post("/", dependencies=[Depends(require_token)])
 def create_borehole(body: BoreholeCreate, db: Connection = Depends(get_db)):
     sql, safe_fields = build_insert_sql("borehole_config", BOREHOLE_FIELDS, BOREHOLE_FIELDS)
     values = [getattr(body, f) for f in safe_fields]
@@ -42,7 +43,7 @@ def create_borehole(body: BoreholeCreate, db: Connection = Depends(get_db)):
     return {"code": 0, "message": "钻孔创建成功"}
 
 
-@router.put("/{borehole_id}")
+@router.put("/{borehole_id}", dependencies=[Depends(require_token)])
 def update_borehole(borehole_id: str, body: BoreholeUpdate, db: Connection = Depends(get_db)):
     sql, values = build_update_sql("borehole_config", body.model_dump(exclude_none=True), BOREHOLE_UPDATE_FIELDS, "borehole_id")
     if sql is None:
@@ -56,7 +57,7 @@ def update_borehole(borehole_id: str, body: BoreholeUpdate, db: Connection = Dep
     return {"code": 0, "message": "钻孔更新成功"}
 
 
-@router.delete("/{borehole_id}")
+@router.delete("/{borehole_id}", dependencies=[Depends(require_token)])
 def delete_borehole(borehole_id: str, db: Connection = Depends(get_db)):
     with db.cursor() as cursor:
         cursor.execute("DELETE FROM borehole_config WHERE borehole_id = %s", (borehole_id,))

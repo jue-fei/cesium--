@@ -3,6 +3,20 @@ import { logger } from './logger.js'
 
 const NOTIFY_DEBOUNCE_MS = 3000
 
+// 浏览器良性警告：第三方库（Element Plus / Cesium 等）内部 ResizeObserver
+// 回调在单帧内未完成通知投递时，浏览器会以 error 事件形式上报。
+// 这类警告不影响功能，不应作为错误弹窗打扰用户。
+const BENIGN_ERROR_PATTERNS = [
+  /ResizeObserver loop (completed with undelivered notifications|limit exceeded)/i
+]
+
+function isBenignError(errorLike) {
+  const message =
+    (errorLike instanceof Error && errorLike.message) ||
+    (typeof errorLike === 'string' ? errorLike : '')
+  return BENIGN_ERROR_PATTERNS.some(pattern => pattern.test(message))
+}
+
 let installed = false
 let cleanupHandlers = []
 let lastNotification = {
@@ -72,6 +86,7 @@ export function installGlobalErrorCapture(app) {
 
   const onWindowError = event => {
     const error = event?.error || event?.message || '未知错误'
+    if (isBenignError(error)) return
     logger.error(
       'window',
       '捕获到全局脚本错误',
@@ -87,6 +102,7 @@ export function installGlobalErrorCapture(app) {
 
   const onUnhandledRejection = event => {
     const reason = event?.reason || '未知异步错误'
+    if (isBenignError(reason)) return
     logger.error('promise', '捕获到未处理的异步异常', null, reason)
     notifyError(buildUserFacingMessage('异步错误', reason))
   }

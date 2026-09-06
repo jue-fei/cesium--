@@ -11,7 +11,14 @@ __pycache__/
 
 # IDE / tooling
 .trae/
+.vscode/
 *.trae-html-share-packages/
+
+# Browser runtime artifacts
+.cdp-profile/
+
+# Generated outputs (patent docs etc.)
+outputs/
 
 # Backups
 *.bak

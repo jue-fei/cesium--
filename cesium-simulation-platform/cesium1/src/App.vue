@@ -3,6 +3,32 @@
 
   <RightSidebar />
 
+  <!-- 浮动爆破播放器：独立于面板挂载，面板隐藏时依然保留，不随 activeTool 收起 -->
+  <PlaybackFloatingPanel
+    v-if="dataset"
+    :dataset="dataset"
+    :is-playing="isPlaying"
+    :current-frame="currentFrame"
+    :max-frame="maxFrame"
+    :playback-speed-ms="playbackSpeedMs"
+    :playback-rate="playbackRate"
+    :playback-rates="playbackRates"
+    :is-looping="isLooping"
+    :ab-loop="abLoop"
+    :replay-ready="replayReady"
+    :replay-precompute="replayPrecompute"
+    @toggle-playback="togglePlayback"
+    @step-frame="stepFrame"
+    @rate-change="setPlaybackRate"
+    @replay-blast="replayBlast"
+    @frame-change="setFrame"
+    @speed-change="onSpeedChange"
+    @toggle-loop="toggleLoop"
+    @mark-ab-loop="markAbLoopPoint"
+    @clear-ab-loop="clearAbLoop"
+    @save-result="saveSimulationResult"
+  />
+
   <!-- 工具面板 -->
   <transition
     enter-active-class="transition ease-out duration-300"
@@ -45,6 +71,7 @@ import { logger } from './utils/logger.js'
 import RightSidebar from './components/RightSidebar.vue'
 import BasePanel from './components/BasePanel.vue'
 import GlobalMessage from './components/GlobalMessage.vue'
+import PlaybackFloatingPanel from './features/blasting-simulation/components/PlaybackFloatingPanel.vue'
 import {
   TOOL_REGISTRY,
   useBlasting,
@@ -58,6 +85,7 @@ import {
 import useViewer from './composables/useViewer.js'
 import useMessage from './composables/useMessage.js'
 import useUI from './composables/useUI.js'
+import { restoreUIState, attachSessionSave } from './composables/useSessionPersist.js'
 import { useLifecycle } from './composables/useLifecycle.js'
 import { useCesiumSceneLabels } from './composables/useCesiumSceneLabels.js'
 import { useDepthRuler } from './composables/useDepthRuler.js'
@@ -72,6 +100,31 @@ const { loadMeasurementHistory } = useMeasurement()
 const { showMessage: notify } = useMessage()
 const { initMonitoringManager, destroyMonitoringManager } = useMonitoring()
 const { initBlastingManager } = useBlasting()
+const {
+  dataset,
+  isPlaying,
+  currentFrame,
+  maxFrame,
+  playbackSpeedMs,
+  playbackRate,
+  isLooping,
+  abLoop,
+  replayReady,
+  replayPrecompute,
+  togglePlayback,
+  stepFrame,
+  setPlaybackRate,
+  playbackRates,
+  replayBlast,
+  setFrame,
+  toggleLoop,
+  markAbLoopPoint,
+  clearAbLoop,
+  saveSimulationResult
+} = useBlasting()
+const onSpeedChange = v => {
+  playbackSpeedMs.value = Number(v || 50)
+}
 const { activeTool, closeTool } = useUI()
 
 const lifecycle = useLifecycle()
@@ -88,6 +141,8 @@ const bootstrap = createAppBootstrap({
   lifecycle
 })
 
+let sessionDetach = null
+
 const componentMap = Object.fromEntries(
   TOOL_REGISTRY.map(t => [t.id, defineAsyncComponent(t.loader)])
 )
@@ -97,15 +152,29 @@ const activeToolName = computed(
 )
 
 onMounted(async () => {
+  let viewerInstance = null
   try {
-    await bootstrap.start('cesiumContainer')
+    viewerInstance = await bootstrap.start('cesiumContainer')
   } catch (err) {
     logger.error('app', '应用初始化失败', null, err)
     notify('应用初始化失败', 'error')
   }
+  // 浏览器回收标签页重新加载后，恢复离开时的工具面板与相机视角
+  restoreUIState({
+    getViewer: () => viewerInstance,
+    setActiveTool: id => {
+      activeTool.value = id
+    },
+    isToolIdValid: id => TOOL_REGISTRY.some(t => t.id === id)
+  })
+  sessionDetach = attachSessionSave({
+    getViewer: () => viewerInstance,
+    getActiveTool: () => activeTool.value
+  })
 })
 
 onUnmounted(() => {
+  sessionDetach?.()
   bootstrap.stop()
 })
 </script>

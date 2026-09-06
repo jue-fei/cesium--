@@ -37,7 +37,16 @@ const VISUAL_METRICS = [
     lowerIsBetter: false
   }
 ]
-const DISPLAY_METRICS = ['rmse', 'mae', 'r2', 'maxError', 'mape']
+const DISPLAY_METRICS = ['rmse', 'mae', 'bias', 'variance', 'r2', 'maxError', 'mape']
+
+/**
+ * 兼容新旧指标格式：交叉验证模式下 metrics[key] 为聚合对象 {mean,std,cv}，
+ * 单次模式下为数值。统一提取用于展示的均值/数值。
+ */
+function metricValue(metrics, key) {
+  const v = metrics?.[key]
+  return v && typeof v === 'object' ? v.mean : v
+}
 
 const STABILITY_LEVELS = [
   { maxCv: 5, label: '很稳定', tone: 'good' },
@@ -122,9 +131,9 @@ export default function useExperimentPanel() {
       metrics: DISPLAY_METRICS.map(key => ({
         key,
         label: METRIC_LABELS[key] || key,
-        value: formatMetricValue(row.metrics?.[key], METRIC_UNITS[key]),
+        value: formatMetricValue(metricValue(row.metrics, key), METRIC_UNITS[key]),
         unit: METRIC_UNITS[key] || '',
-        raw: row.metrics?.[key]
+        raw: metricValue(row.metrics, key)
       }))
     }))
   })
@@ -138,8 +147,11 @@ export default function useExperimentPanel() {
         .map(row => ({
           key: row.key,
           methodLabel: METHOD_LABELS[row.key] || row.method,
-          raw: Number(row.metrics?.[metric.key]),
-          formatted: formatMetricValue(row.metrics?.[metric.key], METRIC_UNITS[metric.key])
+          raw: Number(metricValue(row.metrics, metric.key)),
+          formatted: formatMetricValue(
+            metricValue(row.metrics, metric.key),
+            METRIC_UNITS[metric.key]
+          )
         }))
         .filter(row => Number.isFinite(row.raw))
 
@@ -177,7 +189,7 @@ export default function useExperimentPanel() {
       .map(row => ({
         key: row.key,
         methodLabel: METHOD_LABELS[row.key] || row.method,
-        rmse: Number(row.metrics?.rmse)
+        rmse: Number(metricValue(row.metrics, 'rmse'))
       }))
       .filter(row => Number.isFinite(row.rmse))
 
@@ -197,8 +209,8 @@ export default function useExperimentPanel() {
   const psoVisual = computed(() => {
     // 仅当 PSO 实际运行并成功优化时才显示对比
     if (!results.value?.idw?.optimalParams) return null
-    const defaultRmse = Number(results.value?.idwDefault?.metrics?.rmse)
-    const optimizedRmse = Number(results.value?.idw?.metrics?.rmse)
+    const defaultRmse = Number(metricValue(results.value?.idwDefault?.metrics, 'rmse'))
+    const optimizedRmse = Number(metricValue(results.value?.idw?.metrics, 'rmse'))
     if (!Number.isFinite(defaultRmse) || !Number.isFinite(optimizedRmse) || defaultRmse <= 0)
       return null
     const improvement = ((defaultRmse - optimizedRmse) / defaultRmse) * 100
@@ -276,7 +288,7 @@ export default function useExperimentPanel() {
     let bestMethod = null,
       bestRMSE = Infinity
     for (const row of rows) {
-      const rmse = row.metrics?.rmse
+      const rmse = metricValue(row.metrics, 'rmse')
       if (rmse !== undefined && rmse !== null && rmse < bestRMSE) {
         bestRMSE = rmse
         bestMethod = METHOD_LABELS[row.key] || row.method
@@ -289,6 +301,25 @@ export default function useExperimentPanel() {
       summary: bestMethod
         ? `最佳插值方法为 ${bestMethod}，RMSE = ${formatMetricValue(bestRMSE, METRIC_UNITS.rmse)}`
         : '暂无结论'
+    }
+  })
+
+  // 交叉验证模式的两两配对显著性检验结果
+  const significance = computed(() => {
+    const sig = results.value?.comparison?.significance
+    const pairs = sig?.pairs || []
+    return {
+      rows: pairs.map(p => ({
+        methodA: METHOD_LABELS[p.methodA] || p.methodA,
+        methodB: METHOD_LABELS[p.methodB] || p.methodB,
+        t: p.t,
+        p: p.p,
+        meanDiff: p.meanDiff,
+        n: p.n,
+        significant: Number.isFinite(p.p) && p.p < 0.05
+      })),
+      metric: sig?.metric || 'rmse',
+      note: sig?.note || '配对 t 检验（H0: 两方法该指标无差异）'
     }
   })
 
@@ -511,6 +542,7 @@ export default function useExperimentPanel() {
     stabilityRows,
     heatmapImages,
     conclusion,
+    significance,
     showMethodIntro,
     EXPERIMENT_PHASES,
     METHOD_INTRO,

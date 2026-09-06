@@ -25,7 +25,7 @@ import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.services.blasting.blast_physics import (
-    build_ppv_grid, ppv_field_3d, pack_ppv_binary,
+    build_ppv_grid, ppv_field_3d, ppv_field_3d_multi, pack_ppv_binary,
     stress_field_from_ppv, damage_zone_classify,
     pack_stress_binary, pack_damage_binary,
     make_fdtd_engine, RockMedium,
@@ -104,13 +104,15 @@ class BlastConnectionManager:
 
     async def start_stream(self, event_id: str, duration: float, timestep: float,
                           holes: Optional[list[dict]] = None,
+                          sources: Optional[list[dict]] = None,
                           charge_kg: float = 100.0,
                           blast_center: tuple = (0.0, 0.0, 0.0),
                           tunnel_width: float = 18.0,
                           tunnel_height: float = 15.0,
                           explosive_type: str = "emulsion",
                           use_jwl: bool = True,
-                          rock_params: Optional[dict] = None) -> None:
+                          rock_params: Optional[dict] = None,
+                          k: float = 30.0, alpha: float = 1.5) -> None:
         """启动（或重启）指定事件的模拟推送循环
 
         async 修正：先 await 旧任务取消完成（含 stopped 广播），再创建新任务，
@@ -122,10 +124,37 @@ class BlastConnectionManager:
         :param tunnel_height: 隧道高度(m)
         :param explosive_type: 炸药类型 'emulsion'|'anfo'|'dynamite'（JWL 模式用）
         :param use_jwl: True=JWL+FDTD 精确模式；False=萨道夫斯基近似 fallback
+        :param sources: 多装药源列表 [{x,y,z,chargeKg,delayMs}]（前端按实际炮孔布孔推算）。
+            提供时萨道夫斯基 fallback 走多源矢量叠加（多应力波干涉波场，非单一同心圆）；
+            未提供则退化为单源（blast_center）。
         :param rock_params: 岩体参数 {density, p_wave_speed, s_wave_speed, ...}（可选）
+        :param k: 萨道夫斯基场地常数（默认 30，供近似模式使用）
+        :param alpha: 萨道夫斯基衰减指数（默认 1.5）
         """
         # 取消已有任务并 await 其清理完成（含 stopped 广播）
         await self.stop_stream_async(event_id)
+
+        # 归一化多装药源 → 后端 {pos, charge_kg, delay_s}
+        multi_sources: list[dict] = []
+        if isinstance(sources, list) and sources:
+            for s in sources:
+                if not isinstance(s, dict):
+                    continue
+                q = float(s.get('chargeKg') or s.get('charge_kg') or 0)
+                if q <= 0:
+                    continue
+                pos = [
+                    float(s.get('x') or s.get('posX') or 0),
+                    float(s.get('y') or s.get('posY') or 0),
+                    float(s.get('z') or s.get('posZ') or 0),
+                ]
+                multi_sources.append({
+                    'pos': pos,
+                    'charge_kg': q,
+                    'delay_s': float(s.get('delayMs') or s.get('delay_ms') or 0) / 1000.0,
+                })
+        if multi_sources:
+            logger.info("[BlastingWS] 多装药源叠加模式启用 event=%s 源数=%d", event_id, len(multi_sources))
 
         # 预计算分段起爆事件（按 delayMs 排序）
         blast_events: list[tuple[float, dict]] = []
@@ -163,10 +192,20 @@ class BlastConnectionManager:
                     attenuation_p=float(rock_params.get("attenuationP", rock.attenuation_p)),
                     attenuation_s=float(rock_params.get("attenuationS", rock.attenuation_s)),
                 )
+            # 多装药源（JWL 模式用）：每个炮孔装药段作为独立 JWL 爆腔源→多应力波叠加
+            fdtd_sources = None
+            if multi_sources:
+                fdtd_sources = [
+                    {"x": s["pos"][0], "y": s["pos"][1], "z": s["pos"][2],
+                     "chargeKg": s["charge_kg"], "delayMs": s["delay_s"] * 1000.0}
+                    for s in multi_sources
+                ]
             try:
                 fdtd_engine = make_fdtd_engine(
                     grid_xyz, grid_shape, bounds_min, bounds_max,
-                    charge_kg, explosive_type, rock
+                    charge_kg, explosive_type, rock,
+                    blast_center=np.array(blast_center, dtype=np.float32),
+                    sources=fdtd_sources
                 )
                 # 每推送帧的 FDTD 子步数 = timestep / dt（CFL 稳定步长）
                 n_substeps = max(1, int(round(timestep / fdtd_engine.dt)))
@@ -195,7 +234,11 @@ class BlastConnectionManager:
             explosive_type=explosive_type,
             fdtd_engine=fdtd_engine,
             n_substeps=n_substeps,
+            multi_sources=multi_sources,
+            k=k, alpha=alpha,
         )
+        # 损伤峰值累积缓冲（见 StreamState.peak_ppv 说明）
+        state.peak_ppv = np.zeros(grid_xyz.shape[0], dtype=np.float32)
         self._streams[event_id] = state
         self._tasks[event_id] = asyncio.create_task(
             self._stream_loop(event_id, state)
@@ -241,6 +284,8 @@ class BlastConnectionManager:
         t = 0.0
         frame = 0
         evt_idx = 0
+        # ── 第六章实验·运行时统计（仅日志，不改变任何推流行为）────────────
+        run_stats = {"frames_bin": 0, "bytes_ppv": 0, "bytes_stress": 0, "bytes_damage": 0}
 
         try:
             # 起爆通知
@@ -277,27 +322,55 @@ class BlastConnectionManager:
                         ppv = state.fdtd_engine.get_ppv()
                     else:
                         # 萨道夫斯基近似 fallback（后端不可用 JWL 或 use_jwl=False）
-                        ppv = ppv_field_3d(
-                            state.grid_xyz, state.blast_center,
-                            state.charge_kg, t=t
-                        )
-                    await self.broadcast_bytes(event_id, pack_ppv_binary(
+                        # K/α 由客户端经 start 指令传入（k/alpha），未提供时默认 K=30、α=1.5
+                        # 有多装药源时走矢量叠加（多应力波干涉，非单一同心圆）
+                        if state.multi_sources:
+                            ppv = ppv_field_3d_multi(
+                                state.grid_xyz, state.multi_sources,
+                                state.k, state.alpha, t=t, visual_c_p=35.0
+                            )
+                        else:
+                            ppv = ppv_field_3d(
+                                state.grid_xyz, state.blast_center,
+                                state.charge_kg, K=state.k, alpha=state.alpha, t=t,
+                                visual_c_p=35.0
+                            )
+                    ppv_bytes = pack_ppv_binary(
                         frame, t, state.grid_shape,
                         state.bounds_min, state.bounds_max, ppv
-                    ))
+                    )
+                    await self.broadcast_bytes(event_id, ppv_bytes)
+                    run_stats["frames_bin"] += 1
+                    run_stats["bytes_ppv"] += len(ppv_bytes)
 
                     # 结构力学应力反演（σ_vm）+ Persson 损伤分区
                     # 复用同一 PPV 场，避免重复正演；σ_vm 单通道、zones int8，带宽增量小
-                    stress = stress_field_from_ppv(ppv)
-                    await self.broadcast_bytes(event_id, pack_stress_binary(
+                    if state.use_jwl and state.fdtd_engine is not None:
+                        # JWL+FDTD 精确模式：由速度-应力 FDTD 的完整应力张量
+                        # （sxx..syz）直接算 von Mises，保留真实波场径向压+切向拉的
+                        # 空间分布，比 PPV 标量反演的一阶近似更接近数值解。
+                        stress = {'sigma_vm': state.fdtd_engine.get_sigma_vm()}
+                    else:
+                        # 萨道夫斯基 fallback：弹性球面波一阶反演（σ_vm = σ_rr/(1−ν)）
+                        stress = stress_field_from_ppv(ppv)
+                    stress_bytes = pack_stress_binary(
                         frame, t, state.grid_shape,
                         state.bounds_min, state.bounds_max, stress['sigma_vm']
-                    ))
-                    zones = damage_zone_classify(ppv)
-                    await self.broadcast_bytes(event_id, pack_damage_binary(
+                    )
+                    await self.broadcast_bytes(event_id, stress_bytes)
+                    run_stats["bytes_stress"] += len(stress_bytes)
+                    # 损伤持久性：累积各点经历过的最大 PPV（np.maximum 原位更新），
+                    # damage 帧按峰值分区——损伤不可逆，不随波峰后的时变衰减回落，
+                    # 避免"动画后期损伤区域颜色消失"。波前未到达处 ppv=0，峰值保持 0。
+                    # FDTD 模式 get_ppv() 返回三维数组 (nx,ny,nz)，与一维 peak_ppv(36482,) 对齐后累积
+                    np.maximum(state.peak_ppv, np.asarray(ppv).reshape(-1), out=state.peak_ppv)
+                    zones = damage_zone_classify(state.peak_ppv)
+                    damage_bytes = pack_damage_binary(
                         frame, t, state.grid_shape,
                         state.bounds_min, state.bounds_max, zones
-                    ))
+                    )
+                    await self.broadcast_bytes(event_id, damage_bytes)
+                    run_stats["bytes_damage"] += len(damage_bytes)
 
                 # 分段起爆事件（在当前时间窗口内触发的）
                 while evt_idx < len(state.blast_events) and state.blast_events[evt_idx][0] <= t:
@@ -310,6 +383,20 @@ class BlastConnectionManager:
                 "totalFrames": state.total_frames,
                 "timestamp": datetime.now().isoformat(),
             })
+            # ── 第六章实验·运行时统计汇总（真实推送测得的字节与网格维度）──
+            nx, ny, nz = state.grid_shape
+            V = nx * ny * nz
+            per_ppv = 45 + 4 * V
+            logger.info(
+                "[CH6_RUNTIME] event=%s grid_shape=%sx%sx%s V=%d "
+                "bin_frames=%d per_frame_ppv=%dB per_frame_stress=%dB per_frame_damage=%dB "
+                "total_ppv=%.1fKB total_stress=%.1fKB total_damage=%.1fKB total_all=%.1fKB",
+                event_id, nx, ny, nz, V,
+                run_stats["frames_bin"], 45 + 4 * V, 45 + 4 * V, 45 + V,
+                run_stats["bytes_ppv"] / 1024, run_stats["bytes_stress"] / 1024,
+                run_stats["bytes_damage"] / 1024,
+                (run_stats["bytes_ppv"] + run_stats["bytes_stress"] + run_stats["bytes_damage"]) / 1024,
+            )
         except asyncio.CancelledError:
             await self.broadcast(event_id, {"type": "stopped"})
             raise
@@ -324,7 +411,8 @@ class StreamState:
     __slots__ = ("duration", "timestep", "total_frames", "blast_events",
                  "charge_kg", "blast_center", "grid_xyz", "grid_shape",
                  "bounds_min", "bounds_max",
-                 "use_jwl", "explosive_type", "fdtd_engine", "n_substeps")
+                 "use_jwl", "explosive_type", "fdtd_engine", "n_substeps",
+                 "multi_sources", "k", "alpha", "peak_ppv")
 
     def __init__(self, duration: float, timestep: float,
                  total_frames: int, blast_events: list[tuple[float, dict]],
@@ -332,7 +420,9 @@ class StreamState:
                  grid_xyz: Optional[np.ndarray] = None, grid_shape: Optional[tuple] = None,
                  bounds_min: Optional[np.ndarray] = None, bounds_max: Optional[np.ndarray] = None,
                  use_jwl: bool = True, explosive_type: str = "emulsion",
-                 fdtd_engine=None, n_substeps: int = 0):
+                 fdtd_engine=None, n_substeps: int = 0,
+                 multi_sources: Optional[list] = None,
+                 k: float = 30.0, alpha: float = 1.5):
         self.duration = duration
         self.timestep = timestep
         self.total_frames = total_frames
@@ -348,6 +438,14 @@ class StreamState:
         self.explosive_type = explosive_type
         self.fdtd_engine = fdtd_engine  # ElasticWaveFDTD3D 实例（use_jwl=True 时非空）
         self.n_substeps = n_substeps    # 每推送帧的 FDTD 子步数 = timestep/dt
+        # 多装药源（萨道夫斯基 fallback 走多源矢量叠加时非空）
+        self.multi_sources = multi_sources or []
+        self.k = k                      # 萨道夫斯基场地常数
+        self.alpha = alpha              # 萨道夫斯基衰减指数
+        # 损伤持久性：各网格点经历过的最大 PPV 累积（损伤不可逆，不随波峰后
+        # 的时变衰减回落；波前到达前保持 0）。由 _stream_loop 逐帧 np.maximum 更新，
+        # damage 帧按该峰值分区，保证动画后期损伤区域不消失。
+        self.peak_ppv = None
 
 
 # 全局单例（FastAPI 应用级别共享）
@@ -407,6 +505,16 @@ async def blasting_stream(ws: WebSocket, event_id: str):
                 use_jwl = msg.get("useJwl", True)
                 use_jwl = bool(use_jwl) if use_jwl is not None else True
                 rock_params = msg.get("rockParams")  # 可选 dict
+                # 多装药源（各炮孔装药段）：[{x,y,z,chargeKg,delayMs}] 驱动多应力波矢量叠加
+                sources_raw = msg.get("sources")
+                sources = (
+                    [s for s in sources_raw if isinstance(s, dict)]
+                    if isinstance(sources_raw, list)
+                    else None
+                )
+                # 萨道夫斯基 K/α 参数（客户端可调，未提供时默认 K=30、α=1.5）
+                k = float(msg.get("k", 30.0))
+                alpha = float(msg.get("alpha", 1.5))
                 # start_stream 改为 async：先 await 旧任务取消完成（含 stopped 广播），再创建新任务
                 await mgr.start_stream(
                     event_id, duration, timestep, holes,
@@ -417,6 +525,8 @@ async def blasting_stream(ws: WebSocket, event_id: str):
                     explosive_type=explosive_type,
                     use_jwl=use_jwl,
                     rock_params=rock_params,
+                    sources=sources,
+                    k=k, alpha=alpha,
                 )
             elif ctype == "stop":
                 mgr.stop_stream(event_id)

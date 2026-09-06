@@ -359,6 +359,8 @@ export class BlastingWsConnector {
    * @param {string} [opts.explosiveType] - 炸药类型 'emulsion'|'anfo'|'dynamite'（JWL 模式用）
    * @param {boolean} [opts.useJwl] - True=JWL+FDTD 精确模式；False=萨道夫斯基近似 fallback
    * @param {Object} [opts.rockParams] - 岩体参数 {density,pWaveSpeed,sWaveSpeed,...}（可选）
+   * @param {number} [opts.k] - 萨道夫斯基场地常数（可选，默认 30）
+   * @param {number} [opts.alpha] - 萨道夫斯基衰减指数（可选，默认 1.5）
    */
   startStream(duration, timestep, holes, opts = {}) {
     const payload = { type: CommandType.START, duration, timestep, holes }
@@ -373,6 +375,11 @@ export class BlastingWsConnector {
     if (opts.explosiveType !== undefined) payload.explosiveType = String(opts.explosiveType)
     if (opts.useJwl !== undefined) payload.useJwl = Boolean(opts.useJwl)
     if (opts.rockParams !== undefined) payload.rockParams = opts.rockParams
+    // 萨道夫斯基 K/α 参数（未提供时后端默认 K=30、α=1.5）
+    if (opts.k !== undefined) payload.k = Number(opts.k)
+    if (opts.alpha !== undefined) payload.alpha = Number(opts.alpha)
+    // 多装药源（各炮孔装药段位置/药量/延时）：后端据此做多应力波矢量叠加（非单一同心圆）
+    if (Array.isArray(opts.sources)) payload.sources = opts.sources
     this.send(payload)
   }
 

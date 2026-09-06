@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pymysql import Connection
 from app.database import get_db, parse_json_field, build_insert_sql, build_update_sql
 from app.schemas import OrebodyCreate, OrebodyUpdate
+from app.security import require_token
 
 router = APIRouter(prefix="/api/orebodies", redirect_slashes=False, tags=["矿体信息"])
 
@@ -37,7 +38,7 @@ def get_orebody(orebody_id: str, db: Connection = Depends(get_db)):
     return {"code": 0, "data": row}
 
 
-@router.post("/")
+@router.post("/", dependencies=[Depends(require_token)])
 def create_orebody(body: OrebodyCreate, db: Connection = Depends(get_db)):
     sql, safe_fields = build_insert_sql("orebodies", OREBODY_FIELDS, OREBODY_FIELDS)
     values = [getattr(body, f) for f in safe_fields]
@@ -48,7 +49,7 @@ def create_orebody(body: OrebodyCreate, db: Connection = Depends(get_db)):
     return {"code": 0, "message": "矿体创建成功"}
 
 
-@router.put("/{orebody_id}")
+@router.put("/{orebody_id}", dependencies=[Depends(require_token)])
 def update_orebody(orebody_id: str, body: OrebodyUpdate, db: Connection = Depends(get_db)):
     sql, values = build_update_sql("orebodies", body.model_dump(exclude_none=True), OREBODY_UPDATE_FIELDS, "orebody_id")
     if sql is None:
@@ -62,7 +63,7 @@ def update_orebody(orebody_id: str, body: OrebodyUpdate, db: Connection = Depend
     return {"code": 0, "message": "矿体更新成功"}
 
 
-@router.delete("/{orebody_id}")
+@router.delete("/{orebody_id}", dependencies=[Depends(require_token)])
 def delete_orebody(orebody_id: str, db: Connection = Depends(get_db)):
     with db.cursor() as cursor:
         cursor.execute("DELETE FROM orebodies WHERE orebody_id = %s", (orebody_id,))

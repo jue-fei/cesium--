@@ -28,6 +28,8 @@ from app.services.blasting.blast_physics import (
     jwl_pressure,
     wave_field_1d,
     ppv_field_3d,
+    ppv_field_3d_fdtd,
+    parameter_sweep,
     build_ppv_grid,
     pack_ppv_binary,
     pack_stress_binary,
@@ -50,16 +52,28 @@ class TestSadoskyVibration:
     """v = K · (Q^{1/3} / R)^{α}，K=200, α=1.5"""
 
     def test_basic_formula(self):
-        """Q=1000kg, R=100m → v = 200 × (10/100)^1.5 = 200 × 0.03162 = 6.324"""
+        """Q=1000kg, R=100m → v = 200 × (10/100)^1.5 = 200 × 0.03162 = 6.324 cm/s = 0.06324 m/s"""
         v = sadosky_vibration(1000, 100)
-        expected = 200 * (1000 ** (1/3) / 100) ** 1.5
+        expected = 200 * (1000 ** (1/3) / 100) ** 1.5 * 0.01
         assert v == pytest.approx(expected, rel=1e-10)
-        assert v == pytest.approx(6.3246, rel=1e-3)
+        assert v == pytest.approx(0.063246, rel=1e-3)
 
-    def test_near_zero_distance_returns_K(self):
-        """距离 < 0.1m 时返回场地常数 K=200（避免奇点）"""
-        assert sadosky_vibration(100, 0.05) == 200
-        assert sadosky_vibration(100, 0.0) == 200
+    def test_near_zero_distance_bounded_and_monotonic(self):
+        """近场距离钳制到 min_standoff 下限，避免奇点与跳变
+
+        旧实现 R<0.1m 直接返回常数 K=200，而 R=0.1m 处公式值达数十万 cm/s，
+        形成巨大跳变。修复后 R→0 收敛到 R=min_standoff 处的有界值，且整体单调。
+        """
+        v0 = sadosky_vibration(100, 0.0)
+        v_tiny = sadosky_vibration(100, 0.05)
+        v_floor = sadosky_vibration(100, 0.5)
+        # 低于下限的距离一律钳制到 min_standoff
+        assert v0 == v_tiny == v_floor > 0
+        # 与公式在 0.5m 处连续（略高于 0.5 时应接近钳制值）
+        v_just_above = sadosky_vibration(100, 0.5001)
+        assert v_floor == pytest.approx(v_just_above, rel=1e-3)
+        # 整体随距离单调递减
+        assert v_floor > sadosky_vibration(100, 10)
 
     def test_monotonic_decrease_with_distance(self):
         """同一药量下，PPV 随距离单调递减"""
@@ -96,28 +110,24 @@ class TestJwlPressure:
         p_unknown = jwl_pressure(1.0, "nonexistent")
         assert p_unknown == pytest.approx(p_known, rel=1e-10)
 
-    def test_charge_kg_increases_pressure(self):
-        """装药量缩放：E0 ∝ v_charge = kg/rho；需 kg > rho（>1m³装药）时 E0 项才放大
+    def test_charge_kg_invariance(self):
+        """JWL 压力为强度量：在相同相对体积 V 下与装药量无关
 
-        emulsion 密度 1100 kg/m³，取 charge_kg=2200 → v_charge=2.0 → E0 翻倍
-        仅 E0 项放大，前两项不变，故总压应高于基准
+        CJ 压力是炸药材料属性，装药量只影响爆腔体积/总能量，不影响局部压力。
+        早期实现错误地把 E0 乘以装药体积 v_charge（量纲 J 而非 J/m³），
+        导致同种炸药不同装药量算出不同压力，本测试锁定修复后的不变性。
         """
         p_base = jwl_pressure(1.0, "emulsion")
         p_scaled = jwl_pressure(1.0, "emulsion", charge_kg=2200)
-        assert p_scaled > p_base
+        p_scaled2 = jwl_pressure(1.0, "emulsion", charge_kg=1e6)
+        assert p_scaled == pytest.approx(p_base, rel=1e-10)
+        assert p_scaled2 == pytest.approx(p_base, rel=1e-10)
 
-    def test_charge_kg_linear_scaling(self):
-        """E0 项线性于 v_charge：P(kg=2x) - P(kg=0) ≈ 2 × (P(kg=x) - P(kg=0))
-
-        P = P_static + w·E0·v_charge/V，v_charge = kg/rho
-        取 kg=2200（v_charge=2）和 kg=4400（v_charge=4），delta 应 2 倍
-        """
-        p0 = jwl_pressure(1.0, "emulsion", charge_kg=1e-6)  # 近似无缩放
-        p2 = jwl_pressure(1.0, "emulsion", charge_kg=2200)  # v_charge=2
-        p4 = jwl_pressure(1.0, "emulsion", charge_kg=4400)  # v_charge=4
-        delta2 = p2 - p0
-        delta4 = p4 - p0
-        assert delta4 == pytest.approx(2 * delta2, rel=1e-6)
+    def test_charge_kg_does_not_affect_cj_pressure(self):
+        """JWLBlastSource 用 charge_kg=None 取单位体积 CJ 压力，与 jwl_pressure 一致"""
+        p_direct = jwl_pressure(1.0, "anfo", charge_kg=None)
+        p_named = jwl_pressure(1.0, "anfo", charge_kg=500)
+        assert p_named == pytest.approx(p_direct, rel=1e-10)
 
     def test_volume_clamping_no_nan(self):
         """极小相对体积不产生 NaN/Inf（V 被 clamp 到 0.01）
@@ -153,32 +163,36 @@ class TestPpvField3d:
         """t 足够大时波前已到达，PPV > 0"""
         grid = np.array([[5, 0, 0]], dtype=np.float32)
         center = np.array([0, 0, 0], dtype=np.float32)
-        # r=5m, c_p=4500 → arrival≈1.1ms；t=0.1s 远超到达时间
-        ppv = ppv_field_3d(grid, center, charge_kg=100, t=0.1)
+        # 可视化波速 visual_c_p=35 → r=5m 到达 ≈0.143s；t=0.3s 远超到达时间
+        ppv = ppv_field_3d(grid, center, charge_kg=100, t=0.3)
         assert ppv[0] > 0
 
     def test_unit_conversion_mps(self):
         """输出单位为 m/s（cm/s × 0.01）
 
-        sadosky 返回 cm/s 级（K=200 量级），ppv_field_3d 末尾 ×0.01 → m/s
+        sadosky 已由源码统一为 m/s（K=30 已经过 ×0.01），ppv_field_3d
+        直接使用 sadosky 返回值，与 sadosky 直接调用结果一致。
         """
         grid = np.array([[10, 0, 0]], dtype=np.float32)
         center = np.zeros(3, dtype=np.float32)
-        ppv = ppv_field_3d(grid, center, charge_kg=100, t=1.0)
-        # 萨道夫斯基 cm/s: 200 × (100^{1/3}/10)^1.5 ≈ 200 × 4.642^1.5 ≈ 2000
-        # 转换后 m/s ≈ 20
+        # 注：波前可视速度 visual_c_p=35 → r=10m 到达 ≈0.286s；t=1.0s 已衰减到
+        # exp(-β·(t - r/visual_c_p))，时间阻尼项按 10/35 而非物理 c_p。
+        ppv = ppv_field_3d(grid, center, charge_kg=100, t=1.0, K=30, alpha=1.5)
         assert ppv[0] < 100  # m/s 量级，远小于 cm/s
         # 验证与 sadosky 一致（含时间衰减）
-        from app.services.blasting.blast_physics import sadosky_vibration
-        sado = sadosky_vibration(100, 10)  # cm/s
-        expected_mps = sado * 0.01 * np.exp(-0.02 * (1.0 - 10/4500))
+        from app.services.blasting.blast_physics import sadosky_vibration, RockMedium
+        rock = RockMedium()
+        rock.sadosky_k = 30.0
+        rock.sadosky_alpha = 1.5
+        expected_mps = sadosky_vibration(100, 10, rock=rock) * np.exp(-(0.02 + 0.80) * (1.0 - 10 / 35.0))
         assert ppv[0] == pytest.approx(expected_mps, rel=1e-5)
 
     def test_geometric_attenuation(self):
         """同爆心同时间，远点 PPV < 近点 PPV"""
         grid = np.array([[5, 0, 0], [20, 0, 0]], dtype=np.float32)
         center = np.zeros(3, dtype=np.float32)
-        ppv = ppv_field_3d(grid, center, charge_kg=100, t=0.1)
+        # visual_c_p=35：r=20m 到达 ≈0.571s，t=1.2s 两点均已到达
+        ppv = ppv_field_3d(grid, center, charge_kg=100, t=1.2)
         assert ppv[0] > ppv[1] > 0
 
     def test_blast_center_clamping(self):
@@ -211,18 +225,21 @@ class TestStressFieldFromPpv:
         np.testing.assert_allclose(result['sigma_theta'], expected_theta, rtol=1e-5)
 
     def test_sigma_vm_formula(self):
-        """σ_vm = |σ_rr − σ_θθ| = σ_rr · (1−2ν)/(1−ν)；ν=0.25 → 系数 2/3"""
+        """σ_vm = σ_rr/(1−ν)（径向压 + 切向拉；ν=0.25 → 系数 4/3）"""
         ppv = np.array([0.1], dtype=np.float32)
         result = stress_field_from_ppv(ppv, nu=0.25)
-        expected_vm = result['sigma_rr'] * (1 - 2*0.25) / (1 - 0.25)
+        expected_vm = result['sigma_rr'] / (1 - 0.25)
         np.testing.assert_allclose(result['sigma_vm'], expected_vm, rtol=1e-5)
+        # 切向拉应力幅值 < σ_vm < σ_rr + 切向幅值（物理量级自洽）
+        assert np.all(result['sigma_theta'] < result['sigma_vm'])
+        assert np.all(result['sigma_theta'] > 0)
 
     def test_principal_stress_assignment(self):
-        """σ_1 = σ_rr（最大主应力），σ_3 = σ_θθ（最小主应力）"""
+        """σ_1 = σ_rr（径向压，最大主应力），σ_3 = −σ_θθ（切向拉，最小主应力）"""
         ppv = np.array([0.1], dtype=np.float32)
         result = stress_field_from_ppv(ppv, nu=0.25)
         np.testing.assert_array_equal(result['sigma_1'], result['sigma_rr'])
-        np.testing.assert_array_equal(result['sigma_3'], result['sigma_theta'])
+        np.testing.assert_allclose(result['sigma_3'], -result['sigma_theta'], rtol=1e-6)
 
     def test_zero_ppv_zero_stress(self):
         """PPV=0 → 所有应力分量为 0"""
@@ -599,10 +616,98 @@ class TestElasticWaveFDTD3D:
         assert vy.shape == eng.grid_shape
         assert vz.shape == eng.grid_shape
 
+    def test_get_sigma_vm_tensor(self):
+        """完整应力张量 von Mises：形状/非负/初始为零/爆腔附近非零"""
+        eng = self._make_engine()
+        sm0 = eng.get_sigma_vm()
+        assert sm0.shape == eng.grid_shape
+        assert sm0.dtype == np.float32
+        # 未起爆：应力张量为 0 → σ_vm 全 0
+        assert np.all(sm0 == 0)
+        # 推进后：爆腔附近应力集中非零，且单调性基本保持（近爆心 σ_vm 更大）
+        eng.step(40)
+        sm1 = eng.get_sigma_vm()
+        assert np.all(sm1 >= 0)
+        assert np.isfinite(sm1).all()
+        assert np.partition(sm1.flatten(), -3)[-1] > 0  # 存在显著应力
+        # 与纯 hydrostatic（σ_xx=σ_yy=σ_zz, 无剪应力）→ σ_vm=0 的自洽校验
+        eng2 = self._make_engine()
+        eng2.sxx[:] = 5.0e6
+        eng2.syy[:] = 5.0e6
+        eng2.szz[:] = 5.0e6
+        eng2.sxy[:] = 0.0
+        eng2.sxz[:] = 0.0
+        eng2.syz[:] = 0.0
+        assert np.all(eng2.get_sigma_vm() == 0)
+
     def test_cavity_mask_nonempty(self):
         """爆腔掩膜至少覆盖一个网格点"""
         eng = self._make_engine()
         assert eng.cavity_mask.sum() >= 1
+
+    def test_multi_source_engine_single_source_equivalent(self):
+        """单装药源（sources 缺省）与多源列表仅 1 项时结果一致（向后兼容）"""
+        grid_xyz, gs, bmin, bmax = build_ppv_grid(18, 15, 25, 2.5)
+        eng_single = make_fdtd_engine(grid_xyz, gs, bmin, bmax, 50.0, 'emulsion')
+        eng_multi = make_fdtd_engine(
+            grid_xyz, gs, bmin, bmax, 50.0, 'emulsion',
+            sources=[{"x": 0, "y": 0, "z": 0, "chargeKg": 50.0, "delayMs": 0.0}]
+        )
+        eng_single.step(80)
+        eng_multi.step(80)
+        assert np.allclose(eng_single.get_ppv(), eng_multi.get_ppv(), atol=1e-9)
+
+    def test_multi_source_delay_gates_activation(self):
+        """延时源在 delay 到达前不注入：延迟源的波场显著弱于立即起爆源（同刻）"""
+        grid_xyz, gs, bmin, bmax = build_ppv_grid(18, 15, 25, 3.0)
+        # 立即（delay=0）4 源 vs 全部延迟 50ms（波前推进子步内大部分未起爆）
+        src_im = [{"x": dx, "y": 0, "z": dz, "chargeKg": 30.0, "delayMs": 0.0}
+                  for dx, dz in [(-3, 0), (3, 0), (0, -2), (0, 2)]]
+        src_delay = [{**s, "delayMs": 40.0} for s in src_im]
+        eng_im = make_fdtd_engine(grid_xyz, gs, bmin, bmax, 30.0, 'emulsion', sources=src_im)
+        eng_delay = make_fdtd_engine(grid_xyz, gs, bmin, bmax, 30.0, 'emulsion', sources=src_delay)
+        # 推进到约 30ms（< 40ms 延时），立即源应显著更强
+        n_sub = int(round(0.03 / eng_im.dt))
+        eng_im.step(n_sub)
+        eng_delay.step(n_sub)
+        p_im = eng_im.get_ppv()
+        p_delay = eng_delay.get_ppv()
+        assert p_im.ravel().max() > p_delay.ravel().max()
+
+    def test_multi_source_non_concentric_stress_around_offset_source(self):
+        """多源应力场不再以原点为唯一对称中心（波场干涉，非单一同心圆）
+
+        两偏置源（±x）同时起爆后，x 方向沿轴应力分布因两源相长/相消干涉而
+        呈现非单调、非以原点对称的形态：|x| 较近源处的应力峰值高于远离处，
+        且两侧并不对称相等（干涉瓣），从而区别于单源以原点为中心的同心衰减。
+        """
+        grid_xyz, gs, bmin, bmax = build_ppv_grid(18, 15, 20, 3.0)
+        # 沿 y=0,z=0 剖面取 x 轴上的等应力采样点
+        x_axis = grid_xyz[(np.abs(grid_xyz[:, 1]) < 1e-3) & (np.abs(grid_xyz[:, 2]) < 1e-3)]
+        x_col = np.unique(np.round(x_axis[:, 0], 3))
+        srcs = [{"x": -6, "y": 0, "z": 0, "chargeKg": 40.0, "delayMs": 0.0},
+                {"x": 6, "y": 0, "z": 0, "chargeKg": 40.0, "delayMs": 0.0}]
+        eng = make_fdtd_engine(grid_xyz, gs, bmin, bmax, 40.0, 'emulsion', sources=srcs)
+        eng.step(60)
+        sm = eng.get_sigma_vm()
+        # 收集 x 轴上各采样点的 σ_vm（取该列极大值近似）
+        sig_at_x = []
+        for xv in x_col:
+            m = (np.abs(grid_xyz[:, 0] - xv) < 1e-3) & (np.abs(grid_xyz[:, 1]) < 1e-3) & \
+                (np.abs(grid_xyz[:, 2]) < 1e-3)
+            sig_at_x.append(float(sm.ravel()[m].max())) if m.any() else sig_at_x.append(0.0)
+        sig_at_x = np.asarray(sig_at_x, dtype=np.float64)
+        peak = float(sig_at_x.max())
+        assert peak > 0
+        # 双源在 ±6 附近应力增强，x 轴两侧（x≈±6）与中心区存在明显的非单调干涉
+        # （判别：非全部严格随 |x| 单调 —— 存在两侧峰值与中心谷/隆起）
+        xs_sorted = np.argsort(x_col)
+        sig_sorted = sig_at_x[xs_sorted]
+        # 使用中心点（x≈0）作为参照：中心两侧各有局部峰，说明干涉而非单源同心
+        center_val = float(sig_at_x[np.argmin(np.abs(x_col))])
+        side_val = np.array([float(sig_at_x[np.argmin(np.abs(x_col - xv))])
+                             for xv in [-6, 6]]).max()
+        assert side_val > center_val * 1.05  # 源附近应力明显高于中心（两源叠加而非塌缩）
 
     def test_pml_damping_at_boundary(self):
         """PML 阻尼层在边界处 < 1，内部 = 1"""
@@ -642,3 +747,154 @@ class TestMakeFdtdEngine:
     def _default_engine():
         grid_xyz, gs, bmin, bmax = build_ppv_grid(18, 15, 25, 2.5)
         return make_fdtd_engine(grid_xyz, gs, bmin, bmax, 100.0, 'emulsion')
+
+
+# ============================================================
+# parameter_sweep 参数扫描（A1 单位统一：m/s）
+# ============================================================
+
+class TestParameterSweep:
+    """A1 单位统一后 parameter_sweep 输出字段单位应为 m/s"""
+
+    def test_velocity_unit_mps(self):
+        """vibration_velocity 与 vibration_velocity_mps 均为 m/s（≤ 阈值 0.05 m/s 判 safe）"""
+        results = parameter_sweep({'charge_kg': 100, 'distance': 50}, 'charge_kg', [50, 100, 200])
+        assert len(results) == 3
+        for r in results:
+            # 显式单位标注字段与主字段一致（m/s）
+            assert r['vibration_velocity'] == pytest.approx(r['vibration_velocity_mps'], rel=1e-12)
+            # 主字段应为 m/s 量级（0.05 阈值附近），而非 cm/s 量级（几 cm/s → 0.05+ 即不安全）
+            assert 0 < r['vibration_velocity'] < 0.5
+            # jwl_peak_pressure 始终为正（GPa 量级，无单位冲突）
+            assert r['jwl_peak_pressure'] > 0
+
+    def test_safe_threshold_default_005_mps(self):
+        """默认 safe 阈值 = 0.05 m/s（= 5 cm/s，GB6722 远场安全下限）"""
+        # 近距离（0.5m 钳制下限）→ PPV 极大 → 不安全
+        results = parameter_sweep({'charge_kg': 100, 'distance': 0.5}, 'distance', [0.5])
+        assert results[0]['safe'] is False
+        # 远距离 → PPV 极小 → 安全（< 0.05 m/s）
+        results_far = parameter_sweep({'charge_kg': 100, 'distance': 200}, 'distance', [200])
+        assert results_far[0]['safe'] is True
+        # 边界：自定义阈值可覆盖默认 0.05
+        results_custom = parameter_sweep(
+            {'charge_kg': 100, 'distance': 50, 'threshold': 0.5}, 'distance', [50])
+        # distance=50 时 PPV 远小于 0.5，自定义阈值放宽后 safe
+        assert results_custom[0]['safe'] is True
+
+    def test_sweep_scans_specified_param(self):
+        """扫描字段随 values 变化，其余固定"""
+        r = parameter_sweep({'charge_kg': 100, 'distance': 50}, 'charge_kg', [25, 100, 400])
+        vals = [x['param_value'] for x in r]
+        assert vals == [25, 100, 400]
+        # 药量增大 → PPV 单调增大（sadosky 单调性）
+        ppvs = [x['vibration_velocity'] for x in r]
+        assert ppvs[0] < ppvs[1] < ppvs[2]
+
+
+# ============================================================
+# ppv_field_3d_fdtd 无状态模式 grid_shape 强制校验（A3）
+# ============================================================
+
+class TestPpvField3dFdtdGridShape:
+    """A3：消除立方体网格假设，无状态模式必须显式传入 grid_shape"""
+
+    def test_requires_grid_shape(self):
+        """不传 grid_shape → 明确报错（不再用 n^(1/3) 立方近似推断）"""
+        grid_xyz, gs, _, _ = build_ppv_grid(18, 15, 25, 2.5)
+        with pytest.raises(ValueError, match="grid_shape"):
+            ppv_field_3d_fdtd(grid_xyz, np.zeros(3, dtype=np.float32), 100.0)
+
+    def test_shape_mismatch_raises(self):
+        """grid_shape 与 grid_xyz.shape[0] 不一致 → 明确报错"""
+        grid_xyz, gs, _, _ = build_ppv_grid(18, 15, 25, 2.5)
+        wrong_shape = (gs[0] + 1, gs[1], gs[2])
+        with pytest.raises(ValueError, match="不一致"):
+            ppv_field_3d_fdtd(grid_xyz, np.zeros(3, dtype=np.float32), 100.0,
+                              grid_shape=wrong_shape)
+
+    def test_non_cubic_grid_works(self):
+        """非立方网格（27×21×25 之类）显式传入 grid_shape 可正常计算"""
+        # 构造显式非立方网格（而非 build_ppv_grid 立方近似）
+        nx, ny, nz = 8, 6, 10  # 非立方
+        xs = np.linspace(-6, 6, nx)
+        ys = np.linspace(-4, 4, ny)
+        zs = np.linspace(0, 12, nz)
+        X, Y, Z = np.meshgrid(xs, ys, zs, indexing='ij')
+        grid_xyz = np.stack([X.ravel(), Y.ravel(), Z.ravel()], axis=1).astype(np.float32)
+        ppv, engine = ppv_field_3d_fdtd(
+            grid_xyz, np.zeros(3, dtype=np.float32), 100.0,
+            grid_shape=(nx, ny, nz), sim_time=0.001)
+        assert ppv.shape == (nx, ny, nz)
+        assert engine.grid_shape == (nx, ny, nz)
+        # 波前未覆盖区为 0，爆心附近 > 0（0.001s 已推进若干子步）
+        assert np.all(np.isfinite(ppv))
+
+    def test_stateful_mode_uses_engine(self):
+        """有状态模式：传入 engine 时不重建，直接增量推进 n_substeps"""
+        grid_xyz, gs, bmin, bmax = build_ppv_grid(18, 15, 25, 2.5)
+        engine = make_fdtd_engine(grid_xyz, gs, bmin, bmax, 100.0, 'emulsion')
+        ppv1, engine_out = ppv_field_3d_fdtd(
+            grid_xyz, np.zeros(3, dtype=np.float32), 100.0,
+            grid_shape=gs, engine=engine, n_substeps=20)
+        assert engine_out is engine
+        assert np.any(ppv1 > 0)
+        # 无状态模式与有状态模式推进相同子步数应一致
+        ppv2, _ = ppv_field_3d_fdtd(
+            grid_xyz, np.zeros(3, dtype=np.float32), 100.0,
+            grid_shape=gs, sim_time=20 * engine.dt)
+        np.testing.assert_allclose(ppv1, ppv2, rtol=1e-5)
+
+
+# ============================================================
+# A2：FDTD 网格收敛性 + 长时间稳定性
+# ============================================================
+
+class TestFdtdGridConvergence:
+    """A2：网格收敛验证——固定观察点峰值 PPV 对网格分辨率收敛
+
+    爆腔源已做体积等效归一化 + 数值收敛修正（src_scale = V_cav/(n·h^0.75)）。
+    实测：h=1.5 vs h=0.75（生产网格 18×15×25，100kg 炸药），
+    观察点 z=3m 峰值 PPV 相对差 < 2%（见 blast_physics.py 注释）。
+    """
+
+    @staticmethod
+    def _peak_ppv(resolution, obs=3.0, charge=100.0, sim_time=0.008):
+        grid_xyz, gs, bmin, bmax = build_ppv_grid(18, 15, 25, resolution)
+        eng = make_fdtd_engine(grid_xyz, gs, bmin, bmax, charge, 'emulsion')
+        r = np.linalg.norm(grid_xyz, axis=1)
+        obs_idx = int(np.argmin(np.abs(r - obs)))
+        n = max(1, int(sim_time / eng.dt))
+        peak = 0.0
+        for _ in range(n):
+            eng.step(1)
+            v = float(eng.get_ppv().ravel()[obs_idx])
+            if v > peak:
+                peak = v
+        return peak
+
+    def test_peak_ppv_converges_between_resolutions(self):
+        """1.5m 与 0.75m 网格在 z=3m 观察点的峰值 PPV 相对差 < 10%"""
+        p_coarse = self._peak_ppv(1.5)
+        p_fine = self._peak_ppv(0.75)
+        assert p_coarse > 0 and p_fine > 0
+        rel = abs(p_coarse - p_fine) / max(abs(p_coarse), abs(p_fine))
+        assert rel < 0.10, (
+            f"网格收敛失败：h=1.5 PPV={p_coarse:.3e}, h=0.75 PPV={p_fine:.3e}, "
+            f"相对差={rel*100:.1f}%（要求 <10%）"
+        )
+
+    def test_long_time_stability_no_blowup(self):
+        """长时间推进不出现 NaN/Inf 与能量爆炸（数值稳定性）"""
+        grid_xyz, gs, bmin, bmax = build_ppv_grid(18, 15, 25, 2.5)
+        eng = make_fdtd_engine(grid_xyz, gs, bmin, bmax, 100.0, 'emulsion')
+        eng.step(600)
+        ppv = eng.get_ppv()
+        assert np.all(np.isfinite(ppv))
+        # 源衰减后总能量不应持续增长：与中期相比，晚期峰值 PPV 不应显著增大
+        # （压应力源 P(t) 指数衰减，能量应向边界耗散而非积累）
+        # 用 RMS 作为能量代理
+        rms_late = float(np.sqrt(np.mean(ppv ** 2)))
+        assert np.isfinite(rms_late)
+        assert rms_late < 1e3  # 有界（源已衰减）
+

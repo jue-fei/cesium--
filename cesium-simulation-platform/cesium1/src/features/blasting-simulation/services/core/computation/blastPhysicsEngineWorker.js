@@ -26,6 +26,7 @@
 import { BlastPhysicsEngine } from './blastPhysicsEngine.js'
 // 共享 LCG RNG（utils/rng.js 无 Three.js 依赖，可在 Worker/computation 层安全引入）
 import { makeRng } from '../utils/rng.js'
+import { DEFAULT_RESTITUTION, DEFAULT_FRICTION, DEFAULT_MAX_BOUNCES } from '../blastDefaults.js'
 
 // bodyStates Float32Array 字段布局常量（与 blastPhysicsWorker.js 保持一致）
 const FLOATS_PER_BODY = 13
@@ -61,6 +62,45 @@ export class BlastPhysicsEngineWorker {
     this._cachedEnergyStats = null
     /** @type {number|null} 上次 init 的随机种子（供 seekToAsync 复用，确保快进确定性） */
     this._randomSeed = null
+    /** @type {boolean} Worker 是否已就绪（收到 ready 消息） */
+    this._workerReady = false
+    /** @type {number|null} Worker 就绪超时定时器（Rapier WASM 加载失败时降级） */
+    this._readyTimer = null
+    /**
+     * 状态代数（epoch）：每次 reset/seekToAsync 递增。Worker 推送的 bodyStates/
+     * seekComplete 携带产生该状态的 epoch，主线程只接受与当前 epoch 一致的数据，
+     * 丢弃旧代数残留（如循环重播时仍在途的上一轮爆堆位置），避免碎片被
+     * 陈旧物理状态覆盖导致"动画未重播"。
+     */
+    this._epoch = 0
+    /**
+     * 步进恢复模式：循环重播 reset 后置 true，期间同一时刻只允许 1 个 step
+     * 在途（收到 bodyStates 前不再发送），避免 step 队列在 Worker 重建
+     * 4500 个凸包期间不断堆积，把 reset/init 埋到队尾永远轮不到执行。
+     */
+    this._recoverSteps = false
+    /** 恢复模式下当前是否有 step 在途 */
+    this._stepInFlight = false
+    /** 恢复模式超时定时器（5s 未收到 initDone 则强制退出） */
+    this._recoverTimer = null
+    /**
+     * 关键帧回放数据（Worker 预烘焙完成后的缓存）：
+     * { durationS, keyDt, keyCount, bodyCount, floatsPerBody, keys: Float32Array, landings: Float32Array }
+     * 播放倍速/循环重播/进度条时长均基于该数据，动画与进度条解耦。
+     */
+    this._replay = null
+    /** 当前回放帧解包对象数组（getBodyStates 返回它，fragmentRenderer/muckPile 无需改动） */
+    this._replayCache = null
+    /** 当前回放帧索引（避免同帧重复解包） */
+    this._replayCacheKeyIdx = -1
+    /**
+     * 烘焙会话号：仅在 reset()（重建场景/新事件）时递增。
+     * Worker 烘焙完成回传该会话号，主线程据此丢弃旧会话的陈旧关键帧；
+     * resetToInitial（循环重播回 t=0）不改变会话号 → 同一事件的烘焙始终有效。
+     */
+    this._blastSession = 0
+    /** 全速预计算进度（Worker 推送）：{ active, pct } */
+    this._replayProgress = { active: false, pct: 0 }
 
     this._tryCreateWorker()
   }
@@ -81,6 +121,14 @@ export class BlastPhysicsEngineWorker {
         this._fallbackToSync()
       }
       this._useWorker = true
+      // Rapier WASM 异步加载：6s 内未就绪视为加载失败，降级到手写引擎
+      // 避免 Worker 静默挂起导致物理模拟永不推进（碎片悬空、无抛掷）
+      this._readyTimer = setTimeout(() => {
+        if (!this._workerReady) {
+          console.warn('[BlastPhysics] Worker 6s 未就绪（Rapier WASM 加载超时），降级为同步模式')
+          this._fallbackToSync()
+        }
+      }, 6000)
     } catch (err) {
       console.warn('[BlastPhysics] Worker 创建失败，降级为同步模式:', err.message)
       this._fallbackToSync()
@@ -89,6 +137,8 @@ export class BlastPhysicsEngineWorker {
 
   _fallbackToSync() {
     this._useWorker = false
+    this._recoverSteps = false
+    this._stepInFlight = false
     if (this._worker) {
       try {
         this._worker.terminate()
@@ -116,20 +166,36 @@ export class BlastPhysicsEngineWorker {
     switch (msg.type) {
       case 'ready':
         // Worker 加载完成
+        this._workerReady = true
+        if (this._readyTimer) {
+          clearTimeout(this._readyTimer)
+          this._readyTimer = null
+        }
         break
       case 'bodyStates':
+        if (msg.epoch !== undefined && msg.epoch !== this._epoch) return
         this._cachedStates = msg.data
         this._cachedCount = msg.count
+        this._stepInFlight = false
+        // 直播 step 到达说明预计算已被打断（进入直播录制模式），清除"预计算中"指示
+        this._replayProgress = { active: false, pct: 0 }
         break
       case 'seekComplete':
+        if (msg.epoch !== undefined && msg.epoch !== this._epoch) return
         this._cachedStates = msg.data
         this._cachedCount = msg.count
         this._seekInProgress = false
+        this._stepInFlight = false
         if (this._onSeekComplete) {
           const cb = this._onSeekComplete
           this._onSeekComplete = null
           cb(msg.count)
         }
+        break
+      case 'initDone':
+        // 新代数初始化完成：退出步进恢复模式
+        if (msg.epoch !== undefined && msg.epoch !== this._epoch) return
+        this.endStepRecovery()
         break
       case 'bodyLanded':
         if (this._onBodyLanded) {
@@ -144,11 +210,47 @@ export class BlastPhysicsEngineWorker {
           timeSeries: msg.timeSeries
         }
         break
+      case 'replayComplete':
+        // Worker 关键帧预烘焙完成：缓存关键帧数据供回放采样。
+        // keys 为 transfer 移交的 Float32Array（主线程侧直接可用）。
+        // blastSession 校验：拒绝旧事件/旧重建残留的陈旧烘焙数据。
+        if (msg.blastSession !== undefined && msg.blastSession !== this._blastSession) break
+        this._replayProgress = { active: false, pct: 100 }
+        this._replay = msg.keys
+          ? {
+              durationS: msg.durationS,
+              keyDt: msg.keyDt,
+              keyCount: msg.keyCount,
+              bodyCount: msg.bodyCount,
+              floatsPerBody: msg.floatsPerBody,
+              keys: msg.keys,
+              landings: msg.landings || null
+            }
+          : null
+        this._replayCache = null
+        this._replayCacheKeyIdx = -1
+        if (this._replay) {
+          console.warn(
+            `[BlastPhysics] 关键帧回放就绪 duration=${msg.durationS.toFixed(1)}s ` +
+              `keys=${msg.keyCount} bodies=${msg.bodyCount}`
+          )
+        }
+        break
+      case 'precomputeStart':
+        // Worker 开始全速预计算整段物理
+        this._replayProgress = { active: true, pct: 0 }
+        break
+      case 'replayProgress':
+        // 预计算进度回报（主线程显示"物理预计算中 x%"）
+        this._replayProgress = { active: !!msg.active, pct: Number(msg.pct) || 0 }
+        break
       case 'stats':
         // 暂未使用，预留
         break
       case 'error':
+        // Worker 内异常（含 Rapier WASM 加载失败）：降级为同步模式
         console.error('[BlastPhysics] Worker 内异常:', msg.message, msg.stack)
+        this._fallbackToSync()
         break
       default:
         console.warn('[BlastPhysics] 未知 Worker 消息:', msg.type)
@@ -227,7 +329,10 @@ export class BlastPhysicsEngineWorker {
           velocities: vBuf,
           bounds: this._cachedBounds,
           randomSeed: options.randomSeed,
-          requestId: 0
+          blastTriggerTime: options.blastTriggerTime,
+          blastSession: this._blastSession,
+          requestId: 0,
+          epoch: this._epoch
         },
         [sBuf.buffer, pBuf.buffer, vBuf.buffer]
       )
@@ -250,6 +355,27 @@ export class BlastPhysicsEngineWorker {
     }
   }
 
+  /** 进入步进恢复模式（循环重播 reset 后调用） */
+  beginStepRecovery() {
+    this._recoverSteps = true
+    this._stepInFlight = false
+    clearTimeout(this._recoverTimer)
+    this._recoverTimer = setTimeout(() => {
+      if (this._recoverSteps) {
+        console.warn('[BlastPhysics] 步进恢复超时（5s），强制退出')
+        this.endStepRecovery()
+      }
+    }, 5000)
+  }
+
+  /** 退出步进恢复模式（Worker init 完成、新代数数据开始到达时调用） */
+  endStepRecovery() {
+    this._recoverSteps = false
+    this._stepInFlight = false
+    clearTimeout(this._recoverTimer)
+    this._recoverTimer = null
+  }
+
   /** 设置碎片间碰撞开关（性能模式切换时调用） */
   setEnableInterCollision(value) {
     if (this._useWorker) {
@@ -269,7 +395,12 @@ export class BlastPhysicsEngineWorker {
   step(dt) {
     if (dt <= 0) return
     if (this._useWorker) {
-      this._postMessage({ type: 'step', dt, requestId: 0 })
+      // 恢复模式：同一时刻最多 1 个 step 在途，避免队列堆积
+      if (this._recoverSteps) {
+        if (this._stepInFlight) return
+        this._stepInFlight = true
+      }
+      this._postMessage({ type: 'step', dt, requestId: 0, epoch: this._epoch })
     } else if (this._syncEngine) {
       this._syncEngine.step(dt)
       this._syncCacheFromEngine()
@@ -293,6 +424,8 @@ export class BlastPhysicsEngineWorker {
     this._cachedBounds = bounds
     this._lastInitData = { specs, positions, velocities, randomSeed: this._randomSeed }
     this._cachedEnergyStats = null
+    // seek 本质也是重建：递增 epoch，丢弃 seek 前在途的旧状态
+    this._epoch++
 
     if (this._useWorker) {
       const sBuf = packSpecs(specs)
@@ -307,7 +440,8 @@ export class BlastPhysicsEngineWorker {
           velocities: vBuf,
           bounds,
           randomSeed: this._randomSeed,
-          requestId: this._seekRequestId
+          requestId: this._seekRequestId,
+          epoch: this._epoch
         },
         [sBuf.buffer, pBuf.buffer, vBuf.buffer]
       )
@@ -349,32 +483,180 @@ export class BlastPhysicsEngineWorker {
 
   /** 重置引擎 */
   reset() {
+    // 递增 epoch：使在途的旧代数 bodyStates 全部失效
+    this._epoch++
+    // 重建场景/新事件：烘焙会话切换，旧会话的关键帧作废
+    this._blastSession++
     this._cachedStates = null
     this._cachedCount = 0
     this._lastInitData = null
     this._seekInProgress = false
     this._onSeekComplete = null
     this._cachedEnergyStats = null
+    // 旧关键帧数据作废（reset 通常紧接新 init，烘焙由新 init 重新启动）
+    this._replay = null
+    this._replayCache = null
+    this._replayCacheKeyIdx = -1
+    this._replayProgress = { active: false, pct: 0 }
     if (this._useWorker) {
-      this._postMessage({ type: 'reset' })
+      this._postMessage({ type: 'reset', epoch: this._epoch })
     } else if (this._syncEngine) {
       this._syncEngine.reset()
     }
   }
 
   /**
+   * 原位重置到初始状态（循环重播回到 t=0 时调用）。
+   * 复用 Worker 内已有刚体/凸包，仅重设位置/速度/启用状态并立即回传
+   * bodyStates，避免 reset+init 重建数千凸包造成的长时间 n=0 冻结
+   * （表现为"碎石回到掌子面后不抛掷"）。
+   * @param {FragmentSpec[]} specs - 初始规格（与首次 init 一致）
+   * @param {Array<{x,y,z}>} positions - 初始位置
+   * @param {Array<{x,y,z}>} velocities - 初始速度
+   */
+  resetToInitial(specs, positions, velocities) {
+    this._lastInitData = { specs, positions, velocities, randomSeed: this._randomSeed }
+    this._cachedEnergyStats = null
+    // 递增 epoch：使在途的旧代数 bodyStates 全部失效
+    this._epoch++
+    this._cachedStates = null
+    this._cachedCount = 0
+    this._seekInProgress = false
+    this._onSeekComplete = null
+    if (this._useWorker) {
+      const pBuf = packVec3(positions)
+      const vBuf = packVec3(velocities)
+      this._postMessage(
+        {
+          type: 'resetToInitial',
+          positions: pBuf,
+          velocities: vBuf,
+          requestId: 0,
+          epoch: this._epoch
+        },
+        [pBuf.buffer, vBuf.buffer]
+      )
+    } else if (this._syncEngine) {
+      this._syncEngine.reset()
+      this._syncEngine.init(specs, positions, velocities)
+      this._syncCacheFromEngine()
+    }
+  }
+
+  /**
    * 获取所有身体状态（供渲染器使用）
    * 返回对象数组，与原 BlastPhysicsEngine.getBodyStates() 兼容。
-   * Worker 模式下读取上次 Worker 推送的缓存（可能延迟 1 帧）。
+   * Worker 模式下读取上次 Worker 推送的缓存（可能延迟 1 帧）；
+   * 关键帧回放就绪后返回当前回放帧的状态（fragmentRenderer/muckPile 无需改动）。
    * @returns {Array<Object>}
    */
   getBodyStates() {
     if (this._useWorker) {
+      if (this.isReplayReady() && this._replayCache) return this._replayCache
       return unpackBodyStates(this._cachedStates, this._cachedCount)
     } else if (this._syncEngine) {
       return this._syncEngine.getBodyStates()
     }
     return []
+  }
+
+  // ─── 关键帧回放（Replay）API ─────────────────────────
+
+  /** 关键帧回放是否就绪（Worker 预烘焙完成） */
+  isReplayReady() {
+    return (
+      this._useWorker &&
+      !!this._replay &&
+      !!this._replay.keys &&
+      this._replay.keyCount > 0 &&
+      this._replay.bodyCount > 0
+    )
+  }
+
+  /** 回放总时长（全部落地 + 保持 3s，秒）；未就绪返回 null */
+  getReplayDurationS() {
+    return this.isReplayReady() ? this._replay.durationS : null
+  }
+
+  /** 全速预计算进度：{ active: boolean, pct: 0-100 }（供 UI 显示"物理预计算中"） */
+  getReplayProgress() {
+    return this._replayProgress
+  }
+
+  /**
+   * 将回放采样到指定模拟时刻（秒）。
+   * 命中最近关键帧并解包为 bodyStates 对象数组缓存，
+   * 之后 getBodyStates() 直接返回缓存（同时刻重复调用零开销）。
+   * @param {number} t - 模拟时间（秒）
+   * @returns {boolean} 是否回放就绪并已采样
+   */
+  applyReplayAtTime(t) {
+    if (!this.isReplayReady()) return false
+    const r = this._replay
+    const k = Math.round(t / r.keyDt)
+    const idx = Math.max(0, Math.min(r.keyCount - 1, k))
+    if (idx === this._replayCacheKeyIdx && this._replayCache) return true
+    this._replayCache = this._unpackReplayKey(idx)
+    this._replayCacheKeyIdx = idx
+    return true
+  }
+
+  /**
+   * 全量落地事件（预烘焙时记录）：布局 [t,x,y,z,speed] 每组 5 个 float。
+   * 由渲染器按"落地时刻在 [上次游标, 当前]"区间消费，驱动撞击扬尘。
+   * @returns {Float32Array|null}
+   */
+  getReplayLandings() {
+    if (!this.isReplayReady() || !this._replay.landings) return null
+    return this._replay.landings
+  }
+
+  /**
+   * 解包第 idx 个关键帧为对象数组（与 unpackBodyStates 输出形状一致）。
+   * 速度用相邻关键帧位置差分估算（供爆堆测量"飞行中碎片"过滤使用）。
+   */
+  _unpackReplayKey(idx) {
+    const r = this._replay
+    const keys = r.keys
+    const stride = r.bodyCount * r.floatsPerBody
+    const base = idx * stride
+    const prevBase = idx > 0 ? (idx - 1) * stride : -1
+    const specsArr = this._lastInitData ? this._lastInitData.specs : null
+    const N = r.bodyCount
+    const out = new Array(N)
+    for (let i = 0; i < N; i++) {
+      const o = base + i * r.floatsPerBody
+      const flags = keys[o + 7]
+      const alive = (flags & 1) !== 0
+      const landed = (flags & 2) !== 0
+      let velX = 0
+      let velY = 0
+      let velZ = 0
+      if (prevBase >= 0) {
+        const p = prevBase + i * r.floatsPerBody
+        velX = (keys[o] - keys[p]) / r.keyDt
+        velY = (keys[o + 1] - keys[p + 1]) / r.keyDt
+        velZ = (keys[o + 2] - keys[p + 2]) / r.keyDt
+      }
+      out[i] = {
+        posX: keys[o],
+        posY: keys[o + 1],
+        posZ: keys[o + 2],
+        quatX: keys[o + 3],
+        quatY: keys[o + 4],
+        quatZ: keys[o + 5],
+        quatW: keys[o + 6],
+        velX,
+        velY,
+        velZ,
+        flags,
+        alive,
+        landed,
+        physSize: specsArr && specsArr[i] ? Number(specsArr[i].physSize) || 0.3 : 0.3,
+        bounceCount: 0
+      }
+    }
+    return out
   }
 
   /** 碎片总数（兼容 engine.bodies.length） */
@@ -427,6 +709,9 @@ export class BlastPhysicsEngineWorker {
     this._syncEngine = null
     this._cachedStates = null
     this._useWorker = false
+    this._replay = null
+    this._replayCache = null
+    this._replayCacheKeyIdx = -1
   }
 
   // ─── 内部工具 ─────────────────────────────────────────
@@ -454,9 +739,9 @@ function packSpecs(specs) {
     const o = i * 9
     buf[o] = s.physSize || 0.1
     buf[o + 1] = s.density || 2700
-    buf[o + 2] = s.restitution ?? 0.15
-    buf[o + 3] = s.friction ?? 0.7
-    buf[o + 4] = s.maxBounces ?? 2
+    buf[o + 2] = s.restitution ?? DEFAULT_RESTITUTION
+    buf[o + 3] = s.friction ?? DEFAULT_FRICTION
+    buf[o + 4] = s.maxBounces ?? DEFAULT_MAX_BOUNCES
     buf[o + 5] = s.variantIndex || 0
     buf[o + 6] = s.dispSize || 0.2
     buf[o + 7] = (s.color && s.color.r) || 0.5
