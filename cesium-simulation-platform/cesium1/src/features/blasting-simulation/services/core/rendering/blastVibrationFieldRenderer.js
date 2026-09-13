@@ -42,36 +42,89 @@ import {
 /** LUT 采样数（1D 纹理宽度） */
 const LUT_SIZE = 256
 
-/** σ_vm 低于此值（Pa）视为透明 */
-const STRESS_VISIBLE_THRESHOLD_PA = 5.0e4 // 0.05 MPa
-
-/** PPV 低于此值（cm/s）视为透明，避免场外围噪声淹没场景 */
-const PPV_VISIBLE_THRESHOLD_CMPS = 0.1
-
 /** 显示模式枚举（与材质 uDisplayMode 对应） */
 const DISPLAY_MODE = { PPV: 0, STRESS: 1, DAMAGE: 2 }
 
-// ─── LUT 构建 ─────────────────────────────────────────────────────
+// ─── 3D 可分离高斯平滑（损伤场去像素化） ─────────────────────────
+//
+// 损伤分区在数据层是"整数档位 0~4"（elastic→throw），配合较粗的体素网格，即使
+// 片元着色器做了三线性，离散整数阶跃仍会在隧道轮廓/损伤外沿形成"红色像素方块"
+// 和生硬矩形边界。此处对写入纹素的整型分区做一次 3D 高斯卷积，把整数档位磨成
+// 连续的浮点场（0~4 带小数，含跨挡平滑过渡），再由 shader 三线性 + LUT 线性取色，
+// 得到全程连续的损伤梯度——像素块与矩形硬边界一并消除。
+//
+// 是可分离卷积（X→Y→Z 三次一维卷积），复杂度 O(N·(2r+1)·3)，远优于全 3D 核。
 
 /**
- * 线性插值取色（GB6722 色阶）
- * @param {number} ppvCmps - PPV（cm/s）
- * @returns {[number,number,number]} [r,g,b] 0..1
+ * 沿指定轴对三维场做一维高斯卷积（可分离 3D 高斯的第一步）。
+ * @param {Float32Array} inp  输入（只读）
+ * @param {Float32Array} out  输出（就地覆盖）
+ * @param {number} nx,ny,nz    体素尺寸
+ * @param {number} axis         0=X(步长1) 1=Y(步长nx) 2=Z(步长nx*ny)
+ * @param {Float32Array} weights 一维高斯核（中心对称，(2r+1) 元素）
+ * @param {number} r           核半径
  */
-function sampleColorStops(ppvCmps) {
-  const stops = GB6722_COLOR_STOPS
-  if (ppvCmps <= stops[0][0]) return stops[0][1]
-  if (ppvCmps >= stops[stops.length - 1][0]) return stops[stops.length - 1][1]
-  for (let i = 0; i < stops.length - 1; i++) {
-    const [p0, c0] = stops[i]
-    const [p1, c1] = stops[i + 1]
-    if (ppvCmps >= p0 && ppvCmps <= p1) {
-      const k = (ppvCmps - p0) / (p1 - p0)
-      return [c0[0] + (c1[0] - c0[0]) * k, c0[1] + (c1[1] - c0[1]) * k, c0[2] + (c1[2] - c0[2]) * k]
+function _convAxis(inp, out, nx, ny, nz, axis, weights, r) {
+  out.fill(0)
+  const w = weights
+  if (axis === 0) {
+    const sY = nx,
+      sZ = nx * ny
+    for (let j = 0; j < ny; j++) {
+      for (let k = 0; k < nz; k++) {
+        const base = j * sY + k * sZ
+        for (let i = 0; i < nx; i++) {
+          let acc = 0
+          for (let kk = -r; kk <= r; kk++) {
+            let ii = i + kk
+            if (ii < 0) ii = 0
+            else if (ii >= nx) ii = nx - 1
+            acc += inp[base + ii] * w[kk + r]
+          }
+          out[base + i] = acc
+        }
+      }
+    }
+  } else if (axis === 1) {
+    const sX = 1,
+      sZ = nx * ny
+    for (let i = 0; i < nx; i++) {
+      for (let k = 0; k < nz; k++) {
+        const base = i * sX + k * sZ
+        for (let j = 0; j < ny; j++) {
+          let acc = 0
+          for (let kk = -r; kk <= r; kk++) {
+            let jj = j + kk
+            if (jj < 0) jj = 0
+            else if (jj >= ny) jj = ny - 1
+            acc += inp[base + jj * nx] * w[kk + r]
+          }
+          out[base + j * nx] = acc
+        }
+      }
+    }
+  } else {
+    const sY = nx
+    const sZ = nx * ny
+    for (let i = 0; i < nx; i++) {
+      for (let j = 0; j < ny; j++) {
+        const base = i + j * sY
+        for (let k = 0; k < nz; k++) {
+          let acc = 0
+          for (let kk = -r; kk <= r; kk++) {
+            let kkk = k + kk
+            if (kkk < 0) kkk = 0
+            else if (kkk >= nz) kkk = nz - 1
+            acc += inp[base + kkk * sZ] * w[kk + r]
+          }
+          out[base + k * sZ] = acc
+        }
+      }
     }
   }
-  return stops[stops.length - 1][1]
 }
+
+// ─── LUT 构建 ─────────────────────────────────────────────────────
 
 /**
  * 构建 GB6722 色阶 1D LUT 纹理（256×1 RGBA）
@@ -93,17 +146,20 @@ function buildLUT(stops, max) {
         const [p1, c1] = stops[j + 1]
         if (val >= p0 && val <= p1) {
           const k = (val - p0) / (p1 - p0)
-          col = [c0[0] + (c1[0] - c0[0]) * k, c0[1] + (c1[1] - c0[1]) * k, c0[2] + (c1[2] - c0[2]) * k]
+          col = [
+            c0[0] + (c1[0] - c0[0]) * k,
+            c0[1] + (c1[1] - c0[1]) * k,
+            c0[2] + (c1[2] - c0[2]) * k
+          ]
           break
         }
       }
     }
-    // alpha 曲线：低值更透、高值更实
-    const a = Math.pow(norm, 0.7)
+    // alpha 通道未参与着色（shader 仅取 .rgb），固定不透明
     data[i * 4] = Math.round(col[0] * 255)
     data[i * 4 + 1] = Math.round(col[1] * 255)
     data[i * 4 + 2] = Math.round(col[2] * 255)
-    data[i * 4 + 3] = Math.round(a * 255)
+    data[i * 4 + 3] = 255
   }
   const tex = new THREE.DataTexture(data, LUT_SIZE, 1, THREE.RGBAFormat)
   tex.minFilter = THREE.LinearFilter
@@ -139,12 +195,19 @@ export class BlastVibrationFieldRenderer {
     this._forward = null
     // 爆源（网格局部坐标，缺省网格原点）：解析外推/波环距离的波源位置
     this._blastOrigin = null
+    // 洞身几何参数 getter（遮挡/轴向延展修正用，渲染层注入）
+    this._holeGeomProvider = null
     this._lastT = -1
     this._lastFrame = -1
     // 各场是否已收到首帧
     this._hasPpv = false
     this._hasStress = false
     this._hasDamage = false
+    // 连续场数据层高斯平滑（替代屏幕空间抖动去带条）；默认 0.8 体素
+    this._fieldBlurSigma = 0.4
+    this._fieldBlurBuf = null
+    this._fieldBlurTmp = null
+    this._fieldBlurKernel = null
   }
 
   /**
@@ -180,13 +243,21 @@ export class BlastVibrationFieldRenderer {
       tex.format = THREE.RedFormat
       tex.type = THREE.FloatType
       tex.unpackAlignment = 4
-      // 3D 场纹理保持最近邻采样；平滑插值在片元着色器内手动 trilinear 完成，
-      // 不依赖 OES_texture_float_linear 扩展，保证所有 GPU 上色带连续（无方块色斑）。
-      tex.minFilter = THREE.NearestFilter
-      tex.magFilter = THREE.NearestFilter
+      // 【颗粒感根因 → LinearFilter + Mipmap】旧版用 NearestFilter → 粗网格(1.5m)
+      // 整格量化采样,叠加 14 档硬色阶 → 网格级马赛克。LinearFilter + Mipmap 让 GPU
+      // 在不同 LOD 自带硬件三线性(并自动 mipmap 内 mip 插值),这是工程图常见做法
+      // (用户取证 dump_frame.py 1.5m 网格本身光滑,马赛克纯属采样方式问题)。
+      tex.minFilter = THREE.LinearFilter
+      tex.magFilter = THREE.LinearFilter
       tex.wrapS = THREE.ClampToEdgeWrapping
       tex.wrapT = THREE.ClampToEdgeWrapping
       tex.wrapR = THREE.ClampToEdgeWrapping
+      tex.generateMipmaps = true
+      tex.minFilter = THREE.LinearMipmapLinearFilter
+      // 各向异性过滤：3D 场纹理在倾斜/斜视角岩面上若用正方形 mip 主干会被拉到
+      // 低分辨率 → 整片"糊"。设 anisotropy 让斜向采样走各向异性 mip，近处细节
+      // （载波干涉纹波峰/波谷）在斜视下仍保持锐利（three 仅硬件支持时启用，无害）。
+      tex.anisotropy = 8
       tex.needsUpdate = true
       return tex
     }
@@ -217,11 +288,7 @@ export class BlastVibrationFieldRenderer {
       return
     }
     const tex = this._ppvTexture
-    if (tex.image.data.length !== expected) {
-      tex.image.data = new Float32Array(ppv)
-    } else {
-      tex.image.data.set(ppv)
-    }
+    this._blurInto(tex, ppv, this._fieldBlurSigma)
     tex.needsUpdate = true
     this._lastT = t
     this._lastFrame = frame
@@ -246,18 +313,86 @@ export class BlastVibrationFieldRenderer {
       return
     }
     const tex = this._stressTexture
-    if (tex.image.data.length !== expected) {
-      tex.image.data = new Float32Array(sigmaVm)
-    } else {
-      tex.image.data.set(sigmaVm)
-    }
+    this._blurInto(tex, sigmaVm, this._fieldBlurSigma)
     tex.needsUpdate = true
     this._hasStress = true
   }
 
   /**
+   * 设置损伤场 3D 高斯平滑强度（体素单位，0=关闭）。
+   * 默认开启，把离散整数分区磨成连续浮点场，消除"红色像素方块"与矩形硬边界。
+   * @param {number} sigma
+   */
+  setDamageBlurSigma(sigma) {
+    this._dmgBlurSigma = Number.isFinite(Number(sigma)) && Number(sigma) >= 0 ? Number(sigma) : 1.2
+  }
+
+  /**
+   * 设置 PPV/应力连续场的数据层高斯平滑强度（体素单位，0=关闭）。
+   * 用于替代屏幕空间抖动：在数据写入 3D 纹理前磨掉粗网格阶梯，使色带自然均匀，
+   * 不引入任何"雪花/颗粒"噪声。
+   * 默认 σ=0.4 体素（抹平相邻体素阶跃防马赛克，同时保留 8Hz 载波产生的细密
+   * 干涉纹波峰/波谷；过高 σ 会把这些细节糊成一团）。
+   * @param {number} sigma
+   */
+  setFieldBlurSigma(sigma) {
+    this._fieldBlurSigma =
+      Number.isFinite(Number(sigma)) && Number(sigma) >= 0 ? Number(sigma) : 0.4
+  }
+
+  /**
+   * 把一块连续场写入纹理，若 sigma>0 先做 3D 可分离高斯平滑（复用 _convAxis）。
+   * 使用共享缓冲避免每帧 GC；与损伤场平滑同口径（X→Y→Z 三趟一维卷积）。
+   * @param {THREE.Data3DTexture} tex
+   * @param {Float32Array} arr - 宿主字节序源数据（只读）
+   * @param {number} sigma - 0=不平滑直接写入
+   */
+  _blurInto(tex, arr, sigma) {
+    const [nx, ny, nz] = this._gridShape
+    const expected = nx * ny * nz
+    let data = tex.image.data
+    if (data.length !== expected) {
+      data = new Float32Array(expected)
+      tex.image.data = data
+    }
+    if (sigma == null || sigma <= 0.001) {
+      for (let i = 0; i < expected; i++) data[i] = arr[i]
+      return
+    }
+    let src = this._fieldBlurBuf
+    if (!src || src.length !== expected) {
+      src = new Float32Array(expected)
+      this._fieldBlurBuf = src
+    }
+    for (let i = 0; i < expected; i++) src[i] = arr[i]
+    const r = Math.max(1, Math.round(sigma * 2))
+    let w = this._fieldBlurKernel
+    if (!w || w.length !== 2 * r + 1) {
+      w = new Float32Array(2 * r + 1)
+      let sum = 0
+      for (let k = -r; k <= r; k++) {
+        const v = Math.exp(-(k * k) / (2 * sigma * sigma))
+        w[k + r] = v
+        sum += v
+      }
+      for (let i = 0; i < w.length; i++) w[i] /= sum
+      this._fieldBlurKernel = w
+    }
+    let tmp = this._fieldBlurTmp
+    if (!tmp || tmp.length !== expected) {
+      tmp = new Float32Array(expected)
+      this._fieldBlurTmp = tmp
+    }
+    _convAxis(src, tmp, nx, ny, nz, 0, w, r)
+    _convAxis(tmp, data, nx, ny, nz, 1, w, r)
+    _convAxis(data, tmp, nx, ny, nz, 2, w, r)
+    for (let i = 0; i < expected; i++) data[i] = tmp[i]
+  }
+
+  /**
    * 更新损伤分区场（每收到一个 DAMAGE 二进制帧调用一次）
-   * @param {Int8Array} zones - 分区 id 数组（0~4），长度须 = nx*ny*nz
+   * @param {Int8Array|Float32Array|ArrayBuffer} zones - 分区值数组（0~4），长度须 = nx*ny*nz；
+   *   支持整型分区（离散档位）或已达连续的浮点场（本类直接上传）
    */
   updateDamageField(zones) {
     if (!this._damageTexture || !this._gridShape) return
@@ -272,14 +407,56 @@ export class BlastVibrationFieldRenderer {
       )
       return
     }
-    // int8 → float32 上传（兼容 sampler3D float 采样）
     const tex = this._damageTexture
-    const data = tex.image.data
-    if (data.length !== expected) {
-      tex.image.data = new Float32Array(zones)
-    } else {
+    let data = tex.image.data
+    if (data.length !== expected) data = new Float32Array(expected)
+
+    const sigma = this._dmgBlurSigma == null ? 1.2 : this._dmgBlurSigma
+
+    if (sigma <= 0.001) {
+      // 平滑关闭：直接按值上传（不区分 int/float）
       for (let i = 0; i < expected; i++) data[i] = zones[i]
+    } else {
+      // 先把源数据读进临时浮点缓冲（zones 可能是单字节视图，不能就地卷积）
+      let src = this._dmgBlurBuf
+      if (!src || src.length !== expected) {
+        src = new Float32Array(expected)
+        this._dmgBlurBuf = src
+      }
+      for (let i = 0; i < expected; i++) src[i] = zones[i]
+
+      const r = Math.max(1, Math.round(sigma * 2))
+      let w = this._dmgBlurKernel
+      if (!w || w.length !== 2 * r + 1) {
+        w = new Float32Array(2 * r + 1)
+        let sum = 0
+        for (let k = -r; k <= r; k++) {
+          const v = Math.exp(-(k * k) / (2 * sigma * sigma))
+          w[k + r] = v
+          sum += v
+        }
+        for (let i = 0; i < w.length; i++) w[i] /= sum
+        this._dmgBlurKernel = w
+      }
+
+      // 亮场再均衡：平滑把整数档位 0/1/2/3/4 各向邻域扩散，中心峰被削低。为保证
+      // 损伤核心（zone≥3/4）仍保持强红、外沿渐弱，卷积后沿 LUT 整体提升，恢复峰值档。
+      const pass = (inp, out, axis) => _convAxis(inp, out, nx, ny, nz, axis, w, r)
+
+      let tmp = this._dmgBlurTmp
+      if (!tmp || tmp.length !== expected) {
+        tmp = new Float32Array(expected)
+        this._dmgBlurTmp = tmp
+      }
+      pass(src, tmp, 0)
+      pass(tmp, data, 1)
+      pass(data, tmp, 2)
+      // tmp 为最终 X→Y→Z 三次卷积结果
+      for (let i = 0; i < expected; i++) data[i] = tmp[i]
+      // （每点已被归一化权重加权，区间仍在 [min,max]，无须额外 clamp 到 0~4）
     }
+
+    tex.image.data = data
     tex.needsUpdate = true
     this._hasDamage = true
   }
@@ -318,12 +495,15 @@ export class BlastVibrationFieldRenderer {
     const dy = wy - c.y
     const dz = wz - c.z
     // 局部坐标（right/up/forward 单位向量的点积 = 沿该轴投影距离）
-    const r = this._right, u = this._up, f = this._forward
+    const r = this._right,
+      u = this._up,
+      f = this._forward
     let lx = dx * r.x + dy * r.y + dz * r.z
     let ly = dx * u.x + dy * u.y + dz * u.z
     let lz = dx * f.x + dy * f.y + dz * f.z
 
-    const bmin = this._boundsMin, bmax = this._boundsMax
+    const bmin = this._boundsMin,
+      bmax = this._boundsMax
     // 归一化到网格内 0..1 的体素坐标（voxel center 对齐：i+0.5）
     const fx = (lx - bmin[0]) / (bmax[0] - bmin[0])
     const fy = (ly - bmin[1]) / (bmax[1] - bmin[1])
@@ -333,7 +513,18 @@ export class BlastVibrationFieldRenderer {
     const gz = fz * nz - 0.5
 
     const inside = fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1 && fz >= 0 && fz <= 1
-    if (!inside) return { inside, gridX: 0, gridY: 0, gridZ: 0, local: [lx, ly, lz], metric: 0, ppvCmps: 0, stressMPa: 0, zone: 0 }
+    if (!inside)
+      return {
+        inside,
+        gridX: 0,
+        gridY: 0,
+        gridZ: 0,
+        local: [lx, ly, lz],
+        metric: 0,
+        ppvCmps: 0,
+        stressMPa: 0,
+        zone: 0
+      }
 
     // 越界 clamp（边界采样）
     const xi = Math.max(0, Math.min(nx - 2, Math.floor(gx)))
@@ -343,7 +534,7 @@ export class BlastVibrationFieldRenderer {
     const ty = Math.max(0, Math.min(1, gy - yi))
     const tz = Math.max(0, Math.min(1, gz - zi))
     const idx = (i, j, k) => (k * ny + j) * nx + i
-    const trilinear = (src) =>
+    const trilinear = src =>
       src[idx(xi, yi, zi)] * (1 - tx) * (1 - ty) * (1 - tz) +
       src[idx(xi + 1, yi, zi)] * tx * (1 - ty) * (1 - tz) +
       src[idx(xi, yi + 1, zi)] * (1 - tx) * ty * (1 - tz) +
@@ -353,16 +544,56 @@ export class BlastVibrationFieldRenderer {
       src[idx(xi + 1, yi, zi + 1)] * tx * (1 - ty) * tz +
       src[idx(xi + 1, yi + 1, zi + 1)] * tx * ty * tz
 
-    const ppvMps = trilinear(data)
+    // 洞身遮挡/轴向延展修正：与 sceneBuilder.js 片元 shader 同款后因子（纹理数据
+    // 不含这两个纯几何显示修正），点选值乘同款系数 → 与屏幕热力图颜色同口径。
+    const occAgn = this._occlusionAxialGain(lx, ly, lz)
+    const ppvMps = trilinear(data) * occAgn
     return {
       inside: true,
-      gridX: gx, gridY: gy, gridZ: gz,
+      gridX: gx,
+      gridY: gy,
+      gridZ: gz,
       local: [lx, ly, lz],
       metric: 1,
       ppvCmps: ppvMps * 100.0, // m/s → cm/s
-      stressMPa: stressData ? trilinear(stressData) / 1e6 : null,
+      stressMPa: stressData ? (trilinear(stressData) * occAgn) / 1e6 : null,
       zone: zoneData ? Math.round(trilinear(zoneData)) : null
     }
+  }
+
+  /**
+   * 洞身遮挡×轴向延展后因子（与 sceneBuilder.js holeOcclusion/axialGain 同源同值）。
+   * holeGeom 由渲染层经 setHoleGeomProvider 注入 getter（岩体重建后自动取最新），
+   * 缺省（无隧道几何信息）时返回 1，退化为纯数据值。
+   */
+  _occlusionAxialGain(lx, ly, lz) {
+    // 【洞身遮挡已禁用】与 sceneBuilder.js 着色器同口径：视线-圆柱求交的近似
+    // 会在岩面上产生一对直线切线投影（X 形/斜向黑影伪影），已关闭。
+    // 保留轴向延展因子 agn（uLateralAttn≈0.95，幅值温和、无直线边界）。
+    const hg = this._holeGeomProvider?.()
+    if (!hg) return 1
+    const o = this._blastOrigin
+    if (!o) return 1
+    const ox = Number(o.x ?? o[0]) || 0
+    const oy = Number(o.y ?? o[1]) || 0
+    const oz = Number(o.z ?? o[2]) || 0
+    const px = lx - ox
+    const py = ly - oy
+    const pz = lz - oz
+    const plen = Math.sqrt(px * px + py * py + pz * pz)
+    if (plen < 1e-3) return 1
+    const ss = (a, b, x) => {
+      const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
+      return t * t * (3 - 2 * t)
+    }
+    const ax = pz / plen // 局部 +z = 隧道轴向
+    const lat = hg.lateralAttn ?? 0.95
+    return lat + (1 - lat) * ss(0.0, 0.55, Math.abs(ax))
+  }
+
+  /** 注入洞身几何参数 getter：() => ({radius, len, lateralAttn}) | null */
+  setHoleGeomProvider(fn) {
+    this._holeGeomProvider = fn
   }
 
   /** 当前场在世界坐标处的 PPV 值（cm/s）；失配/缺场返回 null。JS 层语义便捷封装。 */
@@ -421,7 +652,6 @@ export class BlastVibrationFieldRenderer {
    *   forward: THREE.Vector3|null,
    *   stressRefMPa: number,
    *   ppvRefMps: number,
-   *   thresholdMps: number,
    * }} 场数据
    */
   getFieldData() {
@@ -440,9 +670,7 @@ export class BlastVibrationFieldRenderer {
       forward: this._forward,
       blastOrigin: this._blastOrigin,
       stressRefMPa: STRESS_LUT_MAX_MPA,
-      ppvRefMps: LUT_MAX_CMPS / 100.0,
-      thresholdMps: PPV_VISIBLE_THRESHOLD_CMPS / 100.0,
-      stressVisiblePa: STRESS_VISIBLE_THRESHOLD_PA
+      ppvRefMps: LUT_MAX_CMPS / 100.0
     }
   }
 
@@ -453,8 +681,6 @@ export class BlastVibrationFieldRenderer {
   get visible() {
     return this._visible
   }
-
-  setOpacity() {} // 兼容旧接口：不再使用体积不透明度
 
   setRaySteps() {} // 兼容旧接口：不再使用 raymarch 步数
 
@@ -470,6 +696,26 @@ export class BlastVibrationFieldRenderer {
   get hasAnyField() {
     if (!this._gridShape) return false
     return this._hasPpv || this._hasStress || this._hasDamage
+  }
+
+  /**
+   * 【Seek 清屏】把 PPV/应力/损伤三张 3D 纹理数据全部清零并标记重传。
+   *
+   * 拖动进度条后"糊成色块"的直接来源：GPU 纹理里仍驻留着 seek 前的场数据
+   * （峰值/损伤是"未来帧最大值"，应力是旧时刻切片），新帧落地前着色器读到的
+   * 是新旧混合内容。清零后在新帧到达前不再显示任何残留。
+   * 不改 hasField 标志：图层保持开启，只是内容为空（等价于阻塞读取旧数据）。
+   */
+  clearFieldTextures() {
+    for (const tex of [this._ppvTexture, this._stressTexture, this._damageTexture]) {
+      const data = tex && tex.image && tex.image.data
+      if (data && typeof data.fill === 'function') {
+        data.fill(0)
+        tex.needsUpdate = true
+      }
+    }
+    this._lastFrame = -1
+    this._lastT = -1
   }
 
   /** 最近帧元信息（供 UI 显示当前场时间/帧/模式） */

@@ -26,7 +26,12 @@
 import { BlastPhysicsEngine } from './blastPhysicsEngine.js'
 // 共享 LCG RNG（utils/rng.js 无 Three.js 依赖，可在 Worker/computation 层安全引入）
 import { makeRng } from '../utils/rng.js'
-import { DEFAULT_RESTITUTION, DEFAULT_FRICTION, DEFAULT_MAX_BOUNCES } from '../blastDefaults.js'
+import {
+  DEFAULT_RESTITUTION,
+  DEFAULT_FRICTION,
+  DEFAULT_MAX_BOUNCES,
+  REST_SPEED
+} from '../blastDefaults.js'
 
 // bodyStates Float32Array 字段布局常量（与 blastPhysicsWorker.js 保持一致）
 const FLOATS_PER_BODY = 13
@@ -672,6 +677,40 @@ export class BlastPhysicsEngineWorker {
   /** 已落地碎片数量 */
   get landedFragmentCount() {
     return countFlags(this._cachedStates, FLAG_LANDED)
+  }
+
+  /**
+   * 静止质量比（与 BlastPhysicsEngine.restMassRatio 同口径，供"抛掷结束"时长判据）。
+   * Worker 模式用最近一帧缓存的位姿/速度/physSize 估算：密度对所有碎片一致时
+   * 质量比与密度无关（m ∝ size³），故以 physSize³ 作权重。
+   * @returns {number} 静止质量占比 0~1
+   */
+  get restMassRatio() {
+    if (!this._useWorker) {
+      return this._syncEngine?.restMassRatio ?? 0
+    }
+    const buf = this._cachedStates
+    if (!buf || buf.length < FLOATS_PER_BODY) return 0
+    const N = buf.length / FLOATS_PER_BODY
+    let rest = 0
+    let total = 0
+    for (let i = 0; i < N; i++) {
+      const o = i * FLOATS_PER_BODY
+      const flags = buf[o + 10]
+      if ((flags & FLAG_ALIVE) === 0) continue
+      const size = Math.max(buf[o + 11], 0.01)
+      const w = size * size * size
+      total += w
+      if (flags & FLAG_LANDED) {
+        rest += w
+        continue
+      }
+      const vx = buf[o + 7]
+      const vy = buf[o + 8]
+      const vz = buf[o + 9]
+      if (vx * vx + vy * vy + vz * vz <= REST_SPEED * REST_SPEED) rest += w
+    }
+    return total > 0 ? rest / total : 0
   }
 
   /**

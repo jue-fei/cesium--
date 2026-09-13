@@ -11,6 +11,9 @@
  * - 底板碰撞：弹性反弹 + 能量衰减 + 摩擦力
  */
 
+// blastDefaults.js 为纯常量/纯函数模块（无 Three.js 依赖），可安全引入
+import { REST_SPEED } from '../blastDefaults.js'
+
 /**
  * 模型保真度声明（Model Fidelity Statement）
  * ============================================
@@ -903,6 +906,35 @@ export class BlastPhysicsEngine {
       if (b.flags & FLAG_LANDED) c++
     }
     return c
+  }
+
+  /**
+   * 静止质量比（动画"抛掷结束"判据，质量加权，0~1）。
+   *
+   * 与 getEnergyStats().settledMassRatio 的区别：后者只认 FLAG_LANDED，而
+   * "落地"要求反弹次数用尽或速度 < 1.5 m/s——少数贴合不良/反复滚动的边角石
+   * 永远不置位。实测该比值会在 ~0.993 处进入平台期（约 0.7% 质量永不落地），
+   * 于是"99% 碎片落地"这一时长判据在真实布孔下可能**永不达成**，
+   * 回放时长直接回退到 REPLAY_MAX_DURATION 硬上限（40s）——
+   * 用户实测"波和抛掷早结束了，时间条还剩一大截"的直接根因。
+   *
+   * 本口径以"速度是否可忽略"为准，天然收敛到 1，不受该平台期影响。
+   * @returns {number} 静止质量占比 0~1
+   */
+  get restMassRatio() {
+    let restMass = 0
+    let totalMass = 0
+    for (const b of this.bodies) {
+      if (!(b.flags & FLAG_ALIVE)) continue
+      totalMass += b.mass
+      if (b.flags & FLAG_LANDED) {
+        restMass += b.mass
+        continue
+      }
+      const v2 = b.velX * b.velX + b.velY * b.velY + b.velZ * b.velZ
+      if (v2 <= REST_SPEED * REST_SPEED) restMass += b.mass
+    }
+    return totalMass > 0 ? restMass / totalMass : 0
   }
 
   /**

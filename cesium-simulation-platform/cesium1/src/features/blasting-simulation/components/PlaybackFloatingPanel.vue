@@ -100,6 +100,9 @@
             @update:model-value="val => $emit('frame-change', val)"
           />
           <span class="pf-frame">{{ currentFrame + 1 }}/{{ maxFrame + 1 }}</span>
+          <span class="pf-time" title="绝对 / 总延时（物理关键帧间隔 50ms）">{{
+            timeLabelMs
+          }}</span>
         </div>
 
         <!-- 主控区 -->
@@ -264,6 +267,14 @@ const ringProgress = computed(() => {
   return Math.min(1, Math.max(0, (props.currentFrame + 1) / total))
 })
 const ringOffset = computed(() => RING_CURCUM * (1 - ringProgress.value))
+
+// 绝对 / 总延时(ms)：物理关键帧间隔 50ms（与 playBlast 播放 dt 一致，见 blastingManager 帧烘焙）
+const FRAME_MS = 50
+const timeLabelMs = computed(() => {
+  const f = Math.max(0, props.currentFrame ?? 0)
+  const m = Math.max(0, props.maxFrame ?? 0)
+  return `${Math.round(f * FRAME_MS)} / ${Math.round(m * FRAME_MS)} ms`
+})
 
 function onMarkAb() {
   emit('mark-ab-loop')
@@ -490,6 +501,14 @@ function onDragEnd() {
   color: var(--text-muted);
   font-family: 'Consolas', monospace;
   white-space: nowrap;
+}
+
+.pf-time {
+  font-size: 11px;
+  color: var(--primary-light);
+  font-family: 'Consolas', monospace;
+  white-space: nowrap;
+  margin-left: 8px;
 }
 
 .pf-main {

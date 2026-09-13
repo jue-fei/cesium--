@@ -148,5 +148,8 @@ def cunningham_n(B, d, W_abs, S, L, H):
     spacing = math.sqrt(1 + (S / B - 1) / 2)
     charge_ratio = (L / H) if H > 0 else 1.0
     d_mm = d * 1000  # 孔径(m) → mm（Cunningham 式主导项要求 d 以 mm 计）
+    if d_mm == 0:
+        # 与前端 JS 同口径：14*B/0 → -Infinity → clamp 下界 0.5（避免 ZeroDivisionError）
+        return 0.5
     raw = (2.2 - 14.0 * B / d_mm) * (1.0 - W_abs / B) * spacing * charge_ratio
     return max(0.5, min(2.5, raw))

@@ -1,0 +1,9 @@
+{
+  "_comment": "前后端一致性基线（实时互算契约）。前端 kcoFormulas.test.js 与后端 test_kco_formulas.py / test_kco_validator.py 共用；任一端公式改动而不同步本文件/对端实现，对应测试即失败。数值由 Swebrec 公式定义 P(x) = 1 - exp(-ln2 * (x/x50)^n / ((xmax-x)/(xmax-x50))^b) 以 mpmath 50 位精度独立计算后取双精度（2026-09-10 重建，原文件未入库已丢失）。",
+  "swebrecCdf": {
+    "x=0.5, x50=0.3, xmax=2.0, n=1.2, b=2.0": 0.8066900763516754
+  },
+  "solveX80": {
+    "x50=0.3, xmax=2.0, n=1.2, b=2.0": 0.4944131740849282
+  }
+}

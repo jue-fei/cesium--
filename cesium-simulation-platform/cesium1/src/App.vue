@@ -21,7 +21,7 @@
     @step-frame="stepFrame"
     @rate-change="setPlaybackRate"
     @replay-blast="replayBlast"
-    @frame-change="setFrame"
+    @frame-change="(_f) => setFrame(_f, true)"
     @speed-change="onSpeedChange"
     @toggle-loop="toggleLoop"
     @mark-ab-loop="markAbLoopPoint"

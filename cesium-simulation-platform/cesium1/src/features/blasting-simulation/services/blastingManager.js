@@ -6,9 +6,24 @@ import {
   VibrationParticleSystem,
   VibrationComputeClient,
   buildChargeSources,
-  resolveChargePosition
+  resolveChargePosition,
+  computeSurfacePeakField,
+  computeMonitorTimeHistory,
+  computePointVector,
+  computePpvDecayProfile,
+  tunnelFaceBoostFactor,
+  nearFieldRadius,
+  nearFieldGain,
+  NEAR_FIELD_GAIN
 } from './core/computation/localVibrationSimulator.js'
+import { extractContours, computeContourLevels } from './core/computation/contourExtractor.js'
 import { buildNanshanTunnelDesign } from './core/computation/nanshanTunnelDesign.js'
+import { buildKunyangTunnelDesign } from './core/computation/kunyangTunnelDesign.js'
+import { buildDabalaiTunnelDesign } from './core/computation/dabalaiTunnelDesign.js'
+import { buildSanlengshanTunnelDesign } from './core/computation/sanlengshanTunnelDesign.js'
+import { buildYuyangTunnelDesign } from './core/computation/yuyangTunnelDesign.js'
+import { buildDongwujunTunnelDesign } from './core/computation/dongwujunTunnelDesign.js'
+import { buildFengyinTunnelDesign } from './core/computation/fengyinTunnelDesign.js'
 import {
   DEFAULT_TUNNEL_WIDTH,
   DEFAULT_TUNNEL_WALL_HEIGHT,
@@ -16,6 +31,7 @@ import {
   DEFAULT_FRAGMENT_RENDER_LIMIT,
   calcTunnelArea
 } from './core/blastDefaults.js'
+import { INDUSTRIAL_BANDS_DEFAULT } from './core/rendering/vibrationColorScales.js'
 
 /**
  * 将 { lon, lat, height } 形式的位置转换为 Cesium.Cartesian3
@@ -137,21 +153,71 @@ export class BlastingManager {
     this._vibFieldUpdateInterval = 0.2
     // 上一步振动模拟时刻（时间轴一致性：识别回卷/前跳，见 stepLocalVibration）
     this._vibLastStepT = -1
+    // 损伤边界可调参数（P0-1：damageMaxRadius 由 UI 滑块下发）。
+    // _vibInfluenceRadius = 波场可达半径：由岩体几何尺度自动取（见 setInfluenceRadiusAuto），
+    // 使波一直衰减到模型边界、不在岩体中部形成能量断崖。默认给一个足够大的占位值。
+    this._vibInfluenceRadius = 60
+    this._vibDamageMaxRadius = 7
     // 振动场计算 Web Worker 客户端：把多源矢量叠加的 PPV/应力/损伤场计算卸载到
     // Worker 线程，避免主线程因"网格点数×源数×幂/指数"计算卡死爆破动画。
     this._vibComputeClient = new VibrationComputeClient()
     this._vibComputeReqId = 0
     this._vibComputeReqInFlight = false // 当前是否有一个计算请求在途（只允许一个）
     this._vibComputePending = null // 在途期间到达的最新目标 { t, frame }，完成后补算
+    // 等值线提取管线（峰值场 MS 提取，与热力图 0.2s 节流计算解耦）：
+    // 峰值场与 t 无关 → 一次性计算；仅在几何版本/显示模式/标尺/事件参数变化时重提取。
+    this._contourBuiltFp = null // 已构建折线的指纹（null=待构建）
+    this._contourConfiguredVersion = -1 // 已下发 Worker 的岩面顶点集版本
+    this._contourReqId = 0 // computeContour 请求 id（过期结果丢弃）
+    this._contourInFlight = false // 等值线峰值场计算在途（coalesce 单在途）
+    this._contourDirty = false // 在途期间指纹又变化 → 完成后补算
+    this._contourStats = null // 最近一次提取诊断 stats（面板显示）
+    this._contourDensity = 12 // 色带分档数（等值线条数 = density-1）
     // 上次热力图重算的墙钟时刻：与模拟时间节流共用（高倍速下重算频率仍被墙钟封顶，
     // 避免"模拟时间节流×倍速"把主线程重算压到每帧一次导致时序卡顿、与时间轴失同步）
     this._vibLastUpdateWallMs = 0
     // WS 应力/损伤帧最近到达时间（新鲜度检测：WS 帧新鲜时本地兜底让位，避免交替写入闪烁）
     this._lastWsStressMs = 0
     this._lastWsDamageMs = 0
+    // 热力图双缓冲 + 时间插值：全量重算被 throttle 到 ~0.2s，但相邻两帧精确场之间
+    // 按当前模拟时间在每一帧线性混合后写纹理，使显示平滑跟随 t（消除"旧场停留→猛跳"的闪烁）
+    this._fieldPrev = null // { t, ppv, sigmaVm } —— 上一帧精确场
+    this._fieldCur = null // { t, ppv, sigmaVm } —— 最近一帧精确场
+    this._vibLerpBuf = null // { ppv, sigma } —— 插值输出复用 scratch（避免逐帧分配大数组）
     // 动画总时长（秒）：优先取渲染器实测/回放时长（全部落地+保持3s），
     // 未就绪时回退数据集 simulationDurationS（默认 10s）。
     this._durationS = null
+    // 雷管起爆延期误差（蒙特卡洛，σ ms）：>0 时在 buildChargeSources 对每段装药延期
+    // 叠加确定性高斯抖动（rngSeed+源索引），GPU 着色器/局部模拟/等值线/点采样共用同一
+    // 批抖动后源 → 打破"完美同心圆"对称干涉。默认 5ms（真实雷段误差量级）。
+    this._delayJitterMs = 5
+    this._rngSeed = 20240910
+    // 监测点（测点波形）：3D 放置，存 {id,label,x,y,z}；时程在放置/雷管误差变更时重算
+    this._monitorPoints = []
+    this._monitorSeq = 1
+    // 振动场矢量箭头（P1-6）：开关 + 每帧计算粗网格箭头（跟随播放时钟）
+    this._vibVectorFieldOn = false
+    // 掌子面自由面反射（P0-2 镜象源法）：默认开启
+    this._vibReflectOn = true
+    this._vibReflectCoeff = 0.85
+    // 波动相位载波：瞬时质点速度 v(t)=A·e^-βt·sin(2πf·t) 是真实地震动波形（非伪造），
+    // 多源相位差(延期差+路径差)产生相长/相消干涉条纹。默认 8Hz 使昆阳 43 孔微差起爆
+    // 的干涉叠加可见；0=关闭退化为单调包络（UI 可调）。前后端必须同频——后端纹理
+    // (载波)与前端解析(无载波)不同频会在网格盒边界接缝处显形为"中心矩形切块"。
+    this._vibCarrierHz = 8
+    // 显示侧满量程展开因子（P99.9 反解）：默认 1（不缩放），值线峰值场到达后更新
+    this._fieldAutoScale = 1
+    // 半透明渲染（D）：1=热力场上限 0.55 露出岩底轮廓，0=实色 0.85
+    this._vibTranslucent = false
+    // 隧道轮廓自由面放大（P1 诚实化）：回退到中性 coeff=0（完全关闭）。
+    // 用 SDF 系数放大隧道壁法向振速只是"贴纸式"视觉增强，并非真实自由面反射——
+    // shader 分支 `if (uFaceBoostCoeff>0.001)` 下任何非零值都会把岩面乘上
+    // 1+coeff·exp(-d/λ)（coeff=1 时隧道壁附近最高 ~2× 的几何放大），属"用视觉参数
+    // 扭曲物理规律"。真实反射统一由 _vibReflectOn 的镜象源法承担（物理近似），
+    // 此处恒 0 关闭，不做任何伪造轮廓放大。
+    this._vibFaceBoostCoeff = 0
+    // 轮廓放大空间衰减长度（m）：随 coeff 中性化，λ 仅保留默认值不再参与放大
+    this._vibFaceBoostLambda = 0.7
   }
 
   /**
@@ -191,8 +257,16 @@ export class BlastingManager {
     this._vibComputeClient.dispose()
     this._vibComputeReqInFlight = false
     this._vibComputePending = null
+    // 等值线管线随场景作废：新事件新 Worker 未收 contourConfig，指纹/版本全部重置
+    this._contourBuiltFp = null
+    this._contourConfiguredVersion = -1
+    this._contourInFlight = false
+    this._contourDirty = false
+    this._contourStats = null
     // 动画时长信号随场景重建作废（新事件重新观测/烘焙）
     this._durationS = null
+    // 实测自愈量程随事件作废：旧事件的实测峰值与新事件岩性/装药无关，
+    // 残留会把新事件色标满刻度顶得过高（整图偏暗）
   }
 
   /**
@@ -215,29 +289,100 @@ export class BlastingManager {
   }
 
   /**
-   * 将南山隧道楔形掏槽文献设计写回 dataset.design（仅 wedge 事件，即 002）。
-   * 数据库种子对 wedge 事件仍生成"4 孔菱形 + 10×9m 断面 + 孔深 2.0m"，
-   * 与文献（南山隧道 15.56×10.23m 马蹄形；楔形 6 孔 ±1.2/2.0/2.8、微差 0ms、
-   * 掏槽单眼 2.4kg；孔深 3.0m）不符，故在此统一覆盖，保证 3D 模型与 UI 一致。
+   * 按事件选择对应的文献化隧道设计（CO 按 event_id/名称赠送对应文献模型）。
+   * 避免此前"凡 wedge 一律盖章南山"导致 006(Da Balai/昆阳) 与 002(南山) 模型完全相同。
+   *   - 002 / 名称含「南山」→ 南山隧道 15.56×10.23m 楔形掏槽（K=113.64, α=1.341）
+   *   - 004 / 名称含「昆阳」→ 昆阳磷矿 4.7×3.75m 三心拱 楔形掏槽（K=90.63, α=1.58）
+   *   - 001 / 名称含「达巴莱」→ 达巴莱隧道 9.0×7.0m 楔形掏槽（K=150, α=1.7）
+   *   - 003 / 名称含「三棱山」→ 三棱山隧道 13.5×10.25m 楔形掏槽（K=19.3, α=1.082）
+   *   - 005 / 名称含「余漾」→ 余漾隧道 10.8×7.4m 楔形掏槽（块度 x50≈0.19m）
+   *   - 006 / 名称含「天江里/董武俊」→ 天江里隧道 12.25×9.25m 台阶法全断面（x50≈0.19m）
+   *   - 007 / 名称含「备战铁矿/冯银」→ 备战铁矿巷道 4.2×4.0m 双楔形掏槽（环间延时）
+   *   - 其余 → 保持数据库原始设计（不盖章）
+   * @returns {{ key: 'nanshan'|'kunyang'|'dabalai'|'sanlengshan'|'yuyang'|'dongwujun'|'fengyin'|null,
+   *    design?: {section, holes}, holeDepth?: number, utilization?: number }}
+   */
+  _resolveLiteratureDesign() {
+    const evId = String(this.dataset?.event?.event_id || '')
+    const evName = String(this.dataset?.event?.name || '')
+    if (evId.endsWith('002') || evName.includes('南山')) {
+      return {
+        key: 'nanshan',
+        design: buildNanshanTunnelDesign(),
+        holeDepth: 3.0,
+        utilization: 0.85
+      }
+    }
+    if (evId.endsWith('004') || evName.includes('昆阳')) {
+      return {
+        key: 'kunyang',
+        design: buildKunyangTunnelDesign(),
+        holeDepth: 3.0,
+        utilization: 0.85
+      }
+    }
+    if (evId.endsWith('001') || evName.includes('Da Balai') || evName.includes('达巴莱')) {
+      return {
+        key: 'dabalai',
+        design: buildDabalaiTunnelDesign(),
+        holeDepth: 3.0,
+        utilization: 0.85
+      }
+    }
+    if (evId.endsWith('003') || evName.includes('三棱山')) {
+      return {
+        key: 'sanlengshan',
+        design: buildSanlengshanTunnelDesign(),
+        holeDepth: 3.0,
+        utilization: 0.9
+      }
+    }
+    if (evId.endsWith('005') || evName.includes('余漾')) {
+      return { key: 'yuyang', design: buildYuyangTunnelDesign(), holeDepth: 3.2, utilization: 0.85 }
+    }
+    if (evId.endsWith('006') || evName.includes('天江里') || evName.includes('董武俊')) {
+      return {
+        key: 'dongwujun',
+        design: buildDongwujunTunnelDesign(),
+        holeDepth: 2.2,
+        utilization: 0.9
+      }
+    }
+    if (evId.endsWith('007') || evName.includes('备战铁矿') || evName.includes('冯银')) {
+      return {
+        key: 'fengyin',
+        design: buildFengyinTunnelDesign(),
+        holeDepth: 3.0,
+        utilization: 0.9
+      }
+    }
+    return { key: null, design: null }
+  }
+
+  /**
+   * 将文献化隧道设计写回 dataset.design（CO 对应 002 南山 / 004 昆阳 及其余文献事件）。
+   * 数据库种子对楔形/掏槽事件可能回退到通用菱形掏槽 + 通用断面，与文献不符，
+   * 故在此统一覆盖，保证 3D 模型与 UI 全程读取同一套数据（断面/布孔/孔深/进尺一致）。
    */
   _stampLiteratureDesignIfNeeded() {
     const design = this.dataset?.design
     if (!design) return
-    const isWedge = String(design.cutPattern || '').toLowerCase() === 'wedge'
-    if (!isWedge) return
-    const ns = buildNanshanTunnelDesign()
-    const s = ns.section
-    design.tunnelWidth = s.width // 15.56
-    design.tunnelWallHeight = s.wallHeight // 2.45
-    design.tunnelArchRadius = s.archRadius // 7.78
-    design.tunnelTotalHeight = s.totalHeight // 10.23
-    design.tunnelShape = s.shape // horseshoe
-    design.holeDepth = 3.0 // 南山掏槽孔深
-    design.utilization = 0.85
-    design.advanceLength = 3.0 * 0.85 // 2.55m
+    const lit = this._resolveLiteratureDesign()
+    if (!lit.design) return
+    const { section: s, holes } = lit.design
+    const depth = lit.holeDepth ?? 3.0
+    const utilization = lit.utilization ?? 0.85
+    design.tunnelWidth = s.width
+    design.tunnelWallHeight = s.wallHeight
+    design.tunnelArchRadius = s.archRadius
+    design.tunnelTotalHeight = s.totalHeight
+    design.tunnelShape = s.shape
+    design.holeDepth = depth
+    design.utilization = utilization
+    design.advanceLength = depth * utilization
     design.holeDiameter = design.holeDiameter || 0.04
-    design.holes = design.holes && design.holes.length > 0 ? ns.holes : ns.holes
-    this._literatureStamped = true
+    design.holes = holes
+    this._literatureStamped = lit.key
   }
 
   /**
@@ -455,19 +600,15 @@ export class BlastingManager {
     // holes 来自 blasting_design_holes 表，供炮孔布局与 KCO 单孔药量推导使用
     const holes = Array.isArray(design?.holes) ? design.holes : []
 
-    // A6：楔形掏槽事件对齐南山隧道文献化设计（断面 + 布孔 + 微差时序）。
-    // DB 种子对 wedge 事件仍生成"4 孔菱形（cut_r=0.8，延时 50ms 整批）"包裹在
-    // 10×9m 断面内，与文献（南山隧道 15.56×10.23m 马蹄形，楔形孔 ±1.2/2.0/2.8、
-    // 掏槽微差 0ms、单眼 2.4kg）不符，导致多源应力波因源点聚拢而呈准同心圆。
-    // 此处统一以南山设计覆盖断面与布孔，使 3D 模型与文献一致，
-    // 并让 _computeBlastSources 的多装药源空间铺开、时序错开 → 非同心圆干涉波场。
-    const isWedge = String(design?.cutPattern || '').toLowerCase() === 'wedge'
+    // 按事件对齐对应的文献化设计（002 南山 / 006 昆阳），使 3D 模型、布孔、微差时序
+    // 与文献一致；否则回退到数据库 design。多源应力波（_computeBlastSources）据此在
+    // 空间铺开、时序错开的装药源 → 非同心圆干涉波场。
+    const lit = this._resolveLiteratureDesign()
     let effSection = null
     let effHoles = holes
-    if (isWedge) {
-      const ns = buildNanshanTunnelDesign()
-      effSection = ns.section
-      effHoles = ns.holes
+    if (lit.design) {
+      effSection = lit.design.section
+      effHoles = lit.design.holes
     } else {
       effSection = {
         width: Number(design?.tunnelWidth) || DEFAULT_TUNNEL_WIDTH,
@@ -642,6 +783,14 @@ export class BlastingManager {
   initVibrationField(cfg) {
     const renderer = this.threeBridge?.getThreeRenderer?.()
     renderer?.initVibrationField?.(cfg)
+    // 岩体几何实测的"波场可达半径"回传（本地模拟器/后端包络都取同一值，
+    // 保证波一路衰减到模型边界、不在岩体中部截断）
+    renderer.onInfluenceRadiusMeasured = r => this.setInfluenceRadiusAuto(r)
+    const rInf = renderer?.getInfluenceRadius?.()
+    if (Number(rInf) > 0) this.setInfluenceRadiusAuto(Number(rInf))
+    // 自动量程：场初始化后立即下发萨道夫斯基物理与代表性峰值，避免 setBenchFieldData
+    // 用固定上限(0.15 m/s)覆盖、导致解析场全场饱和成单一品红
+    this._pushFieldPhysics()
     // 同步本地模拟器网格：WS 的 gridShape 可能与本地默认值不同
     // （后端 build_ppv_grid 使用 resolution=1.5m，本地默认 nx=32,ny=32,nz=64）
     // 不一致时本地 stress/damage 数组长度不匹配渲染器纹理，导致更新被跳过
@@ -658,6 +807,7 @@ export class BlastingManager {
    */
   ensureVibrationField(cfg) {
     if (!cfg?.gridShape) return
+    this._vibGridShape = cfg.gridShape
     const info = this.getVibrationFieldInfo()
     const cur = info?.gridShape
     const [nx, ny, nz] = cfg.gridShape
@@ -697,6 +847,15 @@ export class BlastingManager {
     const sizeZ = (cfg.boundsMax?.[2] ?? 0) - (cfg.boundsMin?.[2] ?? 0)
     this._localVibrationSim = new LocalVibrationSimulator({
       chargeKg: params.chargeKg,
+      // 物理口径全量透传（与 _ensureLocalVibrationSim 初始创建一致）：重建路径漏传
+      // K/α/载波/包络/损伤上限会使模拟器回落默认 K=30/α=1.5、门控关闭 → 暂停或
+      // 推流结束后本地接管（拖动进度条）时场值比 WS 模式暗约 3 倍且中远场超程
+      // ——"Seek 后热力图骤暗/跳变"的根因（见 syncLocalSimParams.test.js）。
+      K: params.k,
+      alpha: params.alpha,
+      carrierHz: this._vibCarrierHz || 0,
+      influenceRadius: this._vibInfluenceRadius,
+      damageMaxRadius: this._vibDamageMaxRadius,
       tunnelWidth: Math.max(1, sizeX || params.tunnelWidth),
       tunnelHeight: Math.max(1, sizeY || params.tunnelHeight),
       lengthZ: Math.max(1, sizeZ || 40),
@@ -707,6 +866,12 @@ export class BlastingManager {
       origin: this._computeBlastOrigin(),
       // 多装药源：由实际炮孔布孔推算，驱动多应力波叠加（楔形掏槽微差起爆馆形干涉波场）
       sources: this._computeBlastSources(),
+      // 隧道马蹄形轮廓自由面（与 GPU/初始 sim 同口径）
+      tunnelFace: this._tunnelFaceConfig(
+        this.threeBridge?.getThreeRenderer?.(),
+        Math.max(1, sizeX || params.tunnelWidth),
+        cfg.boundsMin?.[1] ?? 0
+      ),
       // 显式边界：采样点与 WS 网格逐点对齐，避免应力/损伤云图错位
       boundsMin: cfg.boundsMin,
       boundsMax: cfg.boundsMax
@@ -727,6 +892,14 @@ export class BlastingManager {
     this._vibComputeClient.dispose()
     this._vibComputeReqInFlight = false
     this._vibComputePending = null
+    // 等值线峰值场随 sim 重建作废（源位置/参数已变，新 Worker 需重新收 contourConfig）
+    this._contourBuiltFp = null
+    this._contourConfiguredVersion = -1
+    this._contourInFlight = false
+    this._contourDirty = false
+    // 显示满量程展开因子回归基准：重建后的新事件由 _buildAndPushContours 依新峰值
+    // 场 P99.9 重新计算，不再沿用旧事件的实测 autoscale
+    this._fieldAutoScale = 1
   }
 
   /**
@@ -735,9 +908,118 @@ export class BlastingManager {
    * @param {number} t
    * @param {number} frame
    */
+
+  /**
+   * 【工业平滑】场数据的 3 点可分离高斯平滑（σ≈0.5 格，各向一次）。
+   *
+   * 离散色阶把"档间边界"变成硬边：粗网格（后端 1.5m）三线性插值的逐格抖动
+   * 会让边界呈锯齿/莫尔条纹，叠加 14 档量化后表现为大面积颗粒感/噪点
+   * （用户实测：瞬时振速图放射状细纹、应力图整图颗粒）。
+   * 渲染前一次轻量平滑可消除网格级噪声；波前与干涉主瓣（波长约 4m ≫ 1.5m
+   * 网格）不受影响。axis 顺序按 [nx,ny,nz] 逐维处理，对任意布局均为对称模糊。
+   * @param {Float32Array} arr - 场数据（原地不影响入参，返回新数组）
+   * @param {number[]} shape - [nx,ny,nz]
+   */
+  _smoothField3d(arr, shape, passes = 2) {
+    if (!(arr && arr.length) || !shape || shape.length < 3) return arr
+    const nx = shape[0] | 0
+    const ny = shape[1] | 0
+    const nz = shape[2] | 0
+    if (nx < 3 || ny < 3 || nz < 3 || nx * ny * nz !== arr.length) return arr
+    const w0 = 0.25
+    const w1 = 0.5
+    // 【非原地】入参可能是本地模拟器复用缓冲（_ppvBuf）或插值双缓冲，
+    // 原地写会逐帧累积模糊/污染插值 → 返回新数组。
+    let src = Float32Array.from(arr)
+    let dst = new Float32Array(arr.length)
+    const zn = nx * ny
+    const rounds = Math.max(1, passes | 0)
+    for (let p = 0; p < rounds; p++) {
+      // x 方向（步长 1）
+      for (let i = 0; i < src.length; i++) {
+        const x = i % nx
+        const base = i - x
+        dst[i] =
+          w0 * src[base + Math.max(0, x - 1)] +
+          w1 * src[i] +
+          w0 * src[base + Math.min(nx - 1, x + 1)]
+      }
+      // y 方向（步长 nx）
+      for (let i = 0; i < src.length; i++) {
+        const y = ((i / nx) | 0) % ny
+        const base = i - y * nx
+        src[i] =
+          w0 * dst[base + Math.max(0, y - 1) * nx] +
+          w1 * dst[i] +
+          w0 * dst[base + Math.min(ny - 1, y + 1) * nx]
+      }
+      // z 方向（步长 nx*ny）
+      for (let i = 0; i < src.length; i++) {
+        const z = (i / zn) | 0
+        const base = i - z * zn
+        dst[i] =
+          w0 * src[base + Math.max(0, z - 1) * zn] +
+          w1 * src[i] +
+          w0 * src[base + Math.min(nz - 1, z + 1) * zn]
+      }
+      if (p < rounds - 1) {
+        const t = src
+        src = dst
+        dst = t
+      }
+    }
+    return dst
+  }
+
+  /**
+   * 【本地兜底路径的空腔掩码】与后端 blast_physics.tunnel_void_mask 同口径：
+   * 已开挖空腔（掌子面后方、|x|≤W/2 且 |y|≤H/2）内无岩体 → 场值置 0。
+   * WS 主路径由后端掩码；本地模拟器缺这一步会导致波场"穿透"隧道轮廓。
+   * @param {Float32Array} arr - 本地模拟场（与 sim.gridXyz 同序）
+   * @param {Float32Array} gridXyz - 本地模拟网格坐标 (N×3)
+   */
+  _applyLocalVoidMask(arr, gridXyz) {
+    if (!(arr && arr.length) || !gridXyz || gridXyz.length !== arr.length * 3) return arr
+    const sim = this._localVibrationSim
+    const origin = sim?.params?.origin
+    const oz = origin ? Number(origin[2]) || 0 : 0
+    const hw = Math.max(0.5, (Number(sim?.tunnelWidth) || 18) / 2)
+    const hh = Math.max(0.5, (Number(sim?.tunnelHeight) || 15) / 2)
+    for (let i = 0; i < arr.length; i++) {
+      const x = gridXyz[i * 3]
+      const y = gridXyz[i * 3 + 1]
+      const z = gridXyz[i * 3 + 2]
+      if (Math.abs(x) <= hw && Math.abs(y) <= hh && z < oz) arr[i] = 0
+    }
+    return arr
+  }
+
   updateVibrationField(ppv, t, frame) {
+    // 【PPV 固定量程】用户取证:Python 显示 rRef=117cm/s 已能拉出黄绿梯度;
+    // 直接固定 uMaxPPV = 120cm/s,不再做任何自适应(旧 2×P50 EMA 把满刻度
+    // 拉得极低,100%近场顶死在最高档 → 全红;用户已明确要求废止)。
     const renderer = this.threeBridge?.getThreeRenderer?.()
-    renderer?.updateVibrationField?.(ppv, t, frame)
+    renderer?.updateVibrationField?.(this._smoothField3d(ppv, this._vibGridShape), t, frame)
+    this._liveRefs ??= {}
+    const target = 1.2 // 120 cm/s = 1.20 m/s
+    const prev = this._lastFieldRefs?.ppvRefMps ?? 0
+    if (Math.abs(prev - target) / (target + 1e-6) > 0.01) {
+      this._lastFieldRefs = { ...(this._lastFieldRefs || {}), ppvRefMps: target }
+      renderer.setFieldPhysics?.({ ppvRefMps: target })
+    }
+  }
+
+  /**
+   * 【Seek 清屏】清空三张场纹理 + 本地插值缓冲。
+   * 拖动进度条时调用：GPU 纹理里驻留的旧帧数据（峰值/损伤是"未来帧最大值"）
+   * 会在新帧落地前被着色器读到，表现为"拖动后糊成色块"。清零后等价于
+   * "Seek 期间阻塞着色器读取旧数据"，直到目标帧切片到达。
+   */
+  clearVibrationFieldTextures() {
+    this.threeBridge?.getThreeRenderer?.()?.clearFieldTextures?.()
+    this._fieldPrev = null
+    this._fieldCur = null
+    this._vibFieldLastUpdate = -1
   }
 
   /**
@@ -781,22 +1063,219 @@ export class BlastingManager {
     this.threeBridge?.getThreeRenderer?.()?.setBenchWhiteModel?.(!!enabled)
   }
 
+  /** 开关振动场等力线（等值线）叠加显示 */
+  setIsoLineEnabled(enabled) {
+    this.threeBridge?.getThreeRenderer?.()?.setIsoLine?.(!!enabled)
+  }
+
+  /** 设置等值线样式（线宽 px / 统一颜色；color 省略=保持，null=恢复级别取色） */
+  setIsoLineStyle({ width, color } = {}) {
+    this.threeBridge?.getThreeRenderer?.()?.setIsoLineStyle?.({ width, color })
+  }
+
+  /**
+   * 设置干涉载波频率（视觉 Hz）：瞬时质点速度 × cos(2πf·gap) 产生多孔延时
+   * 干涉波纹（相位差 = 延期差 + 路径差）。0=关闭退化为单调包络。
+   * @param {number} hz - 0~48
+   */
+  setVibrationCarrierHz(hz) {
+    const v = Math.max(0, Math.min(48, Number(hz) || 0))
+    this._vibCarrierHz = v
+    this.threeBridge?.getThreeRenderer?.()?.setCarrierHz?.(v)
+    // CPU 本地模拟器与 GPU 同口径（载波影响瞬时体积场/测点时程波形），存在时同步
+    if (this._localVibrationSim?.params) {
+      this._localVibrationSim.params.carrierHz = v
+      this._localVibrationSim._lastT = -1
+      this._localVibrationSim._cachedPpv = null
+      this._localVibrationSim._cachedSigmaVm = null
+    }
+    // 载波影响测点时程曲线波形（Vx/Vy/Vz 振荡形态），变更后重算已放置测点
+    this.rebuildMonitorHistories()
+  }
+
+  /** 开关振动场矢量箭头（P1-6：波传播方向可视化） */
+  setVibrationVectorField(on) {
+    this._vibVectorFieldOn = !!on
+    this._pushVectorFieldNow(false)
+  }
+
+  /** 设置半透明渲染（1=热力场上限 0.55 露出岩底，0=实色 0.85） */
+  setVibrationTranslucent(on) {
+    this._vibTranslucent = !!on
+    this.threeBridge?.getThreeRenderer?.()?.setFieldTranslucent?.(this._vibTranslucent)
+  }
+
+  /** 主动触发一次等值线构建（场景就绪/切换模式后调用，不依赖播放推进） */
+  refreshContours() {
+    const renderer = this.threeBridge?.getThreeRenderer?.()
+    if (renderer) this._ensureContourPipeline(renderer)
+  }
+
+  /**
+   * 计算单个局部点的三分量全时程（Vx/Vy/Vz/Vmag + PPV）。
+   * 供"场点拾取 → 弹出时程曲线"使用：点击任意点即可看到该点振动波形。
+   * @param {number[]} local - 岩体局部坐标 [x,y,z]
+   * @returns {Object|null} 同 computeMonitorTimeHistory 输出
+   */
+  samplePointHistory(local) {
+    const sources = this._computeBlastSources()
+    if (!sources || !sources.length) return null
+    const duration = this.getDurationS() || Number(this.dataset?.result?.simulationDurationS) || 10
+    const rockParams = this.dataset?.event?.rockParams || {}
+    const dt = 0.005
+    const n = Math.max(16, Math.floor(duration / dt))
+    const times = new Float32Array(n)
+    for (let i = 0; i < n; i++) times[i] = i * dt
+    return computeMonitorTimeHistory(
+      [Number(local?.[0]) || 0, Number(local?.[1]) || 0, Number(local?.[2]) || 0],
+      sources,
+      times,
+      this._monitorParams(rockParams)
+    )
+  }
+
+  /**
+   * 计算并下发矢量箭头场（P1-6）。采样平面 = 过爆心的水平切片(y=originY) +
+   * 竖直切片(x=originX)，仅取岩体侧 (z ≥ 掌子面)；每点按当前模拟时刻 t 计算
+   * 瞬时质点速度矢量（与热图同一物理模型：多源矢量叠加 + 自由面反射 + 载波）。
+   * 箭头随播放向前推进/摆动，直观展示波的传播方向。
+   * @param {boolean} [force=true] - true=即便未开启也强制按当前几何重算并下发
+   */
+  _pushVectorFieldNow(force = true) {
+    const renderer = this.threeBridge?.getThreeRenderer?.()
+    if (!renderer) return
+    if (!this._vibVectorFieldOn) {
+      renderer.clearVectorField?.()
+      return
+    }
+    const sim = this._localVibrationSim
+    if (!sim || !sim.gridXyz) return
+    const t = Math.max(0, Number(this._vibLastStepT) || 0)
+    const origin = sim.params.origin || [0, 0, 0]
+    const [bmin, bmax] = [sim.boundsMin, sim.boundsMax]
+    const W = Math.max(0.5, bmax[0] - bmin[0])
+    const H = Math.max(0.5, bmax[1] - bmin[1])
+    const D = Math.max(0.5, bmax[2] - bmin[2])
+    const faceZ = Math.max(bmin[2], origin[2])
+    // 采样密度（保持箭头不重叠、可读）
+    const NX = 10
+    const NY = 8
+    const NZ = 12
+    const pts = []
+    // 水平切片 y = originY（拱部/底板看岩体横截面）
+    for (let i = 0; i < NX; i++) {
+      const x = bmin[0] + ((i + 0.5) / NX) * W
+      for (let k = 0; k < NZ; k++) {
+        const z = Math.max(faceZ, bmin[2] + ((k + 0.5) / NZ) * D)
+        pts.push([x, origin[1], z])
+      }
+    }
+    // 竖直切片 x = originX
+    for (let j = 0; j < NY; j++) {
+      const y = bmin[1] + ((j + 0.5) / NY) * H
+      for (let k = 0; k < NZ; k++) {
+        const z = Math.max(faceZ, bmin[2] + ((k + 0.5) / NZ) * D)
+        pts.push([origin[0], y, z])
+      }
+    }
+    const sources = this._computeBlastSources()
+    if (!sources || !sources.length) {
+      renderer.clearVectorField?.()
+      return
+    }
+    const opt = {
+      K: this._sadoskyK ?? 90,
+      alpha: this._sadoskyAlpha ?? 1.58,
+      beta:
+        Number(this.dataset?.event?.rockParams?.attenuationP) || this.dataset?.event?.beta || 0.02,
+      visualBeta: 0.8,
+      visualCp: 35,
+      minStandoff: 0.5,
+      carrierHz: this._vibCarrierHz || 0,
+      reflections: this._vibReflectOn
+        ? [{ axis: 'z', value: faceZ, coeff: this._vibReflectCoeff }]
+        : null
+    }
+    const n = pts.length
+    const originArr = new Float32Array(n * 3)
+    const dirArr = new Float32Array(n * 3)
+    const scaleArr = new Float32Array(n)
+    let magMax = 0
+    const mags = new Float32Array(n)
+    for (let i = 0; i < n; i++) {
+      const p = pts[i]
+      const v = computePointVector(p, sources, t, opt)
+      originArr[i * 3] = p[0]
+      originArr[i * 3 + 1] = p[1]
+      originArr[i * 3 + 2] = p[2]
+      dirArr[i * 3] = v.vx
+      dirArr[i * 3 + 1] = v.vy
+      dirArr[i * 3 + 2] = v.vz
+      mags[i] = v.mag
+      if (v.mag > magMax) magMax = v.mag
+    }
+    // 模长归一化：当前帧最大模 → 满长（0 全场未到达时给一个小参考刻度避免除零）
+    const ref = Math.max(magMax, this._lastFieldRefs?.ppvRefMps ?? 0.15, 1e-4)
+    for (let i = 0; i < n; i++) scaleArr[i] = mags[i] / ref
+    renderer.setVectorField?.({ origin: originArr, dir: dirArr, scale: scaleArr })
+  }
+
+  /**
+   * 获取"仿真 PPV 衰减曲线 vs 萨道夫斯基公式"对比数据（P2-8 验证）。
+   * 沿隧道轴向（爆心→岩体内部 +z）与横向（±x）各取一组采样点：
+   * sim = 多源叠加全时程峰值，theory = K·(Q^(1/3)/R)^α。
+   * @returns {Object|null} computePpvDecayProfile 输出（r/sim/theory/labels/totalQ/K/alpha）
+   */
+  getPpvDecayData() {
+    const sources = this._computeBlastSources()
+    if (!sources || !sources.length) return null
+    const rockParams = this.dataset?.event?.rockParams || {}
+    const origin = this._computeBlastOrigin()
+    return computePpvDecayProfile(sources, {
+      K: this._sadoskyK ?? 90,
+      alpha: this._sadoskyAlpha ?? 1.58,
+      visualCp: 35,
+      visualBeta: 0.8,
+      minStandoff: 0.5,
+      reflections: this._vibReflectOn
+        ? [{ axis: 'z', value: Number(origin?.[2]) || 0, coeff: this._vibReflectCoeff }]
+        : null,
+      directions: [
+        { axis: 'z', count: 14, spacing: 2.0, base: origin },
+        { axis: 'x', count: 8, spacing: 2.0, base: origin }
+      ]
+    })
+  }
+
+  /**
+   * 设置热力图/等值线色彩映射标尺：0=线性，1=对数（适应幂律衰减）。
+   * 标尺变化会改变等值线级别 → _ensureContourPipeline 指纹失配自动重提取。
+   * @param {number} mode - 0|1
+   */
+  setVibrationNormMode(mode) {
+    this.threeBridge?.getThreeRenderer?.()?.setNormMode?.(mode)
+  }
+
+  /**
+   * 设置等值线密度（色带分档数，条数 = density-1），变更后立即重提取。
+   * @param {number} density - 4~24
+   */
+  setVibrationContourDensity(density) {
+    const v = Math.max(4, Math.min(24, Math.round(Number(density) || 12)))
+    if (v === this._contourDensity) return
+    this._contourDensity = v
+    this._contourBuiltFp = null // 强制重提取
+  }
+
+  /** 最近一次等值线提取诊断 stats（{segments, loops, openChains, loopsFiltered, chainsFiltered, totalPoints, extractMs}） */
+  getVibrationContourStats() {
+    return this._contourStats
+  }
+
   /** 当前是否已有可渲染的振动场 */
   hasVibrationField() {
     const renderer = this.threeBridge?.getThreeRenderer?.()
     return !!renderer?.hasVibrationField?.()
-  }
-
-  /**
-   * 开启"场点拾取"：用户点击振动场包围盒内任意点，
-   * 回调返回该点采样值（{inside, ppvCmps, stressMPa, zone, ...}，场外为 null）。
-   * 用于按实际 K/α 参数查询空间任意点 PPV，实现逐点取数。
-   * @param {(sample: object|null) => void} handler
-   * @param {{maxDragPx?: number}} [opts]
-   */
-  enablePpvPick(handler, opts) {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
-    return renderer?.enablePointPick?.(handler, opts) ?? null
   }
 
   /** 关闭"场点拾取" */
@@ -927,17 +1406,62 @@ export class BlastingManager {
       id: h?.id
     }))
 
-    // A5：多应力波叠加仅用掏槽孔组（cut/easing）作装药源 —— 对应 Da Balai 楔形掏槽
-    // 微差起爆的核心机理，N 小（≤12）使每帧矢量叠加开销可接受；
-    // 辅助/周边孔段延时（≥数十 ms）不参与早期波场干涉，也免其拉高源数卡顿。
-    // 若布孔无掏槽孔（异常），回退到全部非空孔，保证多源仍可用。
-    const cutHoles = normalized.filter(h => {
-      const t = String(h.holeType || h.type).toLowerCase()
-      return (t === 'cut' || t === 'easing') && !h.isEmptyHole && Number(h.chargeKg) > 0
-    })
-    const srcHoles = cutHoles.length > 0 ? cutHoles : normalized.filter(h => !h.isEmptyHole)
+    // A5：应力波源 = 全部装药孔（全孔矢量叠加）。
+    // 【全源修复】旧版只送掏槽组 + 掌子面四向极端代表孔（上限 16）：002 南山 69 个
+    // 装药孔仅 12 个进入叠加（有效药量 24.75kg / 全量 115kg），415/418ms 周边光爆段
+    // 整体缺席 → 场值整体偏低、低值等值线贴可见门控阈值被大面积切除（等值线断点
+    // 主因，isoline-lab/verify-nanshan.mjs 数值复现），波场观感呈"几个波的简单叠加"
+    // 而非全孔矢量干涉。旧 16 上限是 Worker 卸载前保护主线程的历史值；现 GPU 逐
+    // 片元叠加与 Worker 卸载的本地模拟均可承受全孔数（96 槽位已扩容）。
+    // 安全阀：极端设计超 96 孔时按装药量降序截断，与 sceneBuilder MAX_SOURCES=96
+    // 同口径，保证 GPU 解析场与 CPU 网格场两路看到的源集一致。
+    const MAX_SRCS = 96
+    let charged = normalized.filter(h => !h.isEmptyHole && Number(h.chargeKg) > 0)
+    // 【兜底】DB 只给了总装药量、未给单孔药量时，把总药量均摊到全部非空孔，
+    // 保证多源矢量叠加不静默退化成单源同心圆（干涉条纹丢失的根因之一）。
+    if (charged.length === 0) {
+      const nonEmpty = normalized.filter(h => !h.isEmptyHole)
+      const totalKg = Number(this.dataset?.event?.chargeKg) || 0
+      if (nonEmpty.length > 0 && totalKg > 0) {
+        const per = totalKg / nonEmpty.length
+        charged = nonEmpty.map(h => ({ ...h, chargeKg: per }))
+        console.warn('[BlastingManager] 炮孔缺单孔药量，已按总装药量均摊以保留多源干涉', {
+          孔数: nonEmpty.length,
+          总药量kg: totalKg,
+          单孔kg: Number(per.toFixed(3))
+        })
+      }
+    }
+    const srcHoles =
+      charged.length > MAX_SRCS
+        ? [...charged].sort((a, b) => Number(b.chargeKg) - Number(a.chargeKg)).slice(0, MAX_SRCS)
+        : charged
 
-    const sources = buildChargeSources(srcHoles, faceOffset, { x: cx, y: cy })
+    const sources = buildChargeSources(
+      srcHoles,
+      faceOffset,
+      { x: cx, y: cy },
+      {
+        // 雷管起爆误差（确定性抖动）：打破完美对称干涉；0=关闭（复现精确设计延期）
+        delayJitterMs: this._delayJitterMs,
+        rngSeed: this._rngSeed
+      }
+    )
+    // 【诊断】源数决定波场是否有多孔干涉：=1 时必然是完美同心圆（用户可见的
+    // "波纹是同心圆、干涉条纹丢失"）。这里打印一次便于在控制台直接定位。
+    if (sources.length !== this._lastLoggedSourceCount) {
+      this._lastLoggedSourceCount = sources.length
+      console.warn('[BlastingManager] 多装药源解析完成', {
+        布孔总数: holes.length,
+        装药源数: sources.length,
+        延时范围ms: sources.length
+          ? [
+              Math.min(...sources.map(s => Number(s.delayMs) || 0)),
+              Math.max(...sources.map(s => Number(s.delayMs) || 0))
+            ]
+          : null
+      })
+    }
     return sources.length > 0 ? sources : null
   }
 
@@ -957,10 +1481,15 @@ export class BlastingManager {
       blastCenter: this._computeBlastOrigin(),
       tunnelWidth: Number(effSec?.width) || Number(design.tunnelWidth) || DEFAULT_TUNNEL_WIDTH,
       tunnelHeight:
-        (Number(effSec?.wallHeight) || Number(design.tunnelWallHeight) || DEFAULT_TUNNEL_WALL_HEIGHT) +
-        (Number(effSec?.archRadius) || Number(design.tunnelArchRadius) || DEFAULT_TUNNEL_ARCH_RADIUS),
+        (Number(effSec?.wallHeight) ||
+          Number(design.tunnelWallHeight) ||
+          DEFAULT_TUNNEL_WALL_HEIGHT) +
+        (Number(effSec?.archRadius) ||
+          Number(design.tunnelArchRadius) ||
+          DEFAULT_TUNNEL_ARCH_RADIUS),
       k: this._sadoskyK ?? 90,
-      alpha: this._sadoskyAlpha ?? 1.58
+      alpha: this._sadoskyAlpha ?? 1.58,
+      carrierHz: this._vibCarrierHz || 0
     }
   }
 
@@ -986,6 +1515,62 @@ export class BlastingManager {
   }
 
   /**
+   * 设置损伤边界可调参数（P0-1）：损伤硬上限，超 damageMaxRadius 损伤归弹性区。
+   * 波场可达半径（influenceRadius）不再由此设置——改由 setInfluenceRadiusAuto
+   * 按岩体几何尺度一次性确定，避免在岩体中部形成能量断崖。
+   * @param {Object} p - { influenceRadius?: number(m), damageMaxRadius?: number(m) }
+   */
+  setDamageBoundary({ influenceRadius, damageMaxRadius } = {}) {
+    if (Number.isFinite(Number(influenceRadius)) && Number(influenceRadius) > 0)
+      this._vibInfluenceRadius = Number(influenceRadius)
+    if (Number.isFinite(Number(damageMaxRadius)) && Number(damageMaxRadius) > 0)
+      this._vibDamageMaxRadius = Number(damageMaxRadius)
+    // 同步本地模拟器（暂停/推流结束后接管热力图的数据源）：门控参数原地更新并
+    // 失效逐帧缓存。峰值/等值线缓存按门控指纹自动失效；Worker 按签名变化重配。
+    const sim = this._localVibrationSim
+    if (sim?.params) {
+      sim.params.influenceRadius = this._vibInfluenceRadius
+      sim.params.damageMaxRadius = this._vibDamageMaxRadius
+      sim._lastT = -1
+      sim._cachedPpv = null
+      sim._cachedSigmaVm = null
+      this._vibFieldLastUpdate = -1
+    }
+    // 立即同步到岩体面场着色（损伤硬上限），并写入 getPpvStreamParams 供 WS start 透传
+    this._pushFieldPhysics()
+  }
+
+  /**
+   * 按岩体几何自动确定"波场可达半径"（= 爆心到岩体几何最远顶点的距离）。
+   * 语义：波在岩体内按幂律连续衰减，走到该半径时已到模型几何边界 → 零值消失。
+   * 一阶解析模型不含反射/衍射，故不会产生回波（满足"到边界就消失、不反弹"）。
+   * @param {number} radius - 半径(m)，由渲染侧按岩体包围盒实测传入
+   */
+  setInfluenceRadiusAuto(radius) {
+    const r = Number(radius)
+    if (!(r > 0)) return
+    if (Math.abs(r - this._vibInfluenceRadius) < 0.5) return
+    this._vibInfluenceRadius = r
+    const sim = this._localVibrationSim
+    if (sim?.params) {
+      sim.params.influenceRadius = r
+      sim._lastT = -1
+      sim._cachedPpv = null
+      sim._cachedSigmaVm = null
+      this._vibFieldLastUpdate = -1
+    }
+    this._pushFieldPhysics()
+  }
+
+  /**
+   * 当前损伤边界可调参数（供 buildWsStartPayload 透传到后端 start 指令）
+   * @returns {{influenceRadius:number, damageMaxRadius:number}}
+   */
+  getDamageBoundary() {
+    return { influenceRadius: this._vibInfluenceRadius, damageMaxRadius: this._vibDamageMaxRadius }
+  }
+
+  /**
    * 将当前事件的爆源/场地物理参数下发到岩体面场着色材质，
    * 驱动"场盒外解析外推"（萨道夫斯基波前）用与场盒内纹理同一物理曲线渲染，
    * 使 PPV 传播过程在整个岩体外围连续可见、边界无缝衔接。
@@ -998,6 +1583,12 @@ export class BlastingManager {
     if (!params) return
     const design = this.dataset?.design || {}
     const rockParams = this.dataset?.event?.rockParams || {}
+    const sources = this._computeBlastSources()
+    const refs = this._computeAutoFieldRefs(params, sources, design, rockParams)
+    // 【绝对量程】不再叠加实测自愈值（EMA 已移除）：满刻度在仿真开始前由
+    // _computeAutoFieldRefs 一次性解析扫描并固定（PPV=近场峰值、应力=场最大值），
+    // 整场播放/拖动/回卷期间恒定 —— 图例区间与等值线级别因此全程有效。
+    // 旧 EMA 随帧改满刻度会导致图例/等值线级别同步漂移，与工程图惯例相悖。
     renderer.setFieldPhysics?.({
       chargeKg: params.chargeKg,
       k: this._sadoskyK ?? 90,
@@ -1007,22 +1598,211 @@ export class BlastingManager {
       rho: Number(design.rockDensity) || 2650,
       cp: Number(rockParams.pWaveSpeed) || 4500,
       nu: Number(design.poissonRatio) ?? Number(rockParams.poissonRatio) ?? 0.25,
+      // 自动量程：色标满刻度跟随岩体代表性峰值（避免全场饱和品红）
+      ppvRefMps: refs.ppvRefMps,
+      stressRefMPa: refs.stressRefMPa,
+      // 应力近场几何修正 F(r)=1+A·(r_nf/r)²：使应力场（峰值判据场）与振速场
+      // （瞬时波形）空间结构不同；r_nf 由装药量反算，与 CPU/后端同一口径。
+      // 工业风格：离散色阶档数（与等值线密度同源，12~16）+ 总开关
+      normBands: this._contourDensity ?? INDUSTRIAL_BANDS_DEFAULT,
+      industrialStyle: true,
+      stressNearFieldR: this._stressNearFieldR || 0,
+      stressNearFieldGain: this._stressNearFieldGain || 0,
       // 爆心（掏槽孔质心）：解析外推波前以该点为源，与场盒内纹理数据一致
       origin: this._computeBlastOrigin(),
+      // 掌子面自由面反射（镜象源法）：反射面 z=掌子面（grid 局部系），与
+      // CPU/Worker 多源模型（sim.params.reflections）同一物理口径。
+      faceZ: Number(renderer?.faceOffset) || 3,
+      reflectOn: this._vibReflectOn,
+      reflectCoeff: this._vibReflectCoeff,
+      // P0-1 损伤硬上限（与后端 damageMaxRadius 同口径）。波场可达半径已改由
+      // 渲染侧按岩体几何实测下发（sceneBuilder._syncInfluenceRadius），此处不覆盖。
+      damageMaxRadius: this._vibDamageMaxRadius,
+      // 半透明渲染（1=场色上限 0.55 露出岩底）
+      translucent: this._vibTranslucent ? 1 : 0,
+      // 隧道马蹄形轮廓自由面（SDF 放大）：与 GPU tunnelFaceSdf / CPU tunnelFaceBoostFactor 同口径。
+      // floorY=底板 grid 局部 y；archH=直墙高。coeff=0.6、λ=1.2（自由面近全反射的柔和近似）
+      faceBoostCoeff: this._vibFaceBoostCoeff ?? 0.85,
+      faceBoostLambda: this._vibFaceBoostLambda ?? 0.7,
+      tunnelFloorY: Number(renderer?.center?.y) || 0,
+      tunnelArchH: Math.max(1, Number(renderer?.tunnelWallHeight) || DEFAULT_TUNNEL_WALL_HEIGHT),
       // 多装药源（各炮孔装药段）：驱动岩面非同心圆干涉波场；null 时着色器退化为单源
-      sources: this._computeBlastSources()
+      sources,
+      // 显示侧动态满量程展开因子：固定满刻度锚在近场峰值（应力）时全场塌缩成
+      // 低端深蓝。这里先按解析代表分布给一个保守展开基线，等值线峰值场 P99.9
+      // 到达后由 _buildAndPushContours 以实测分布精细化（见 _fieldAutoScale）。
+      normAutoScale:
+        this._fieldAutoScale ?? this._analyticAutoscale(params, sources, design, rockParams)
+    })
+    // 矢量箭头场显隐状态在场景重建后同步（几何对象会重建）
+    this._pushVectorFieldNow(false)
+    // 场景重建/参数变更后重挂已放置测点的 3D 标记（新 benchMesh 上）
+    this._syncMonitorMarkers()
+  }
+
+  /**
+   * 自动量程：确定色标满刻度，使每个片元按其真实计算震速映射到有区分度的色域。
+   * 满刻度 = 解析场在"距源代表可视距离 rRef"处的真实计算震速。
+   *
+   * 说明：若用近场极值(0.5m处~3000cm/s)当满刻度，岩体上绝大多数点位震速远小于它，
+   * 归一化后场值全落在 shader 的可见下限(<0.02)内 → 整片塌成浅波前色带，"看不出
+   * 按数值对应色域"。取隧道内代表可视半径(rRef≈4m)处的真实值当满刻度，使岩体从
+   * 近场(顶色)沿距离真实衰变到冷色(远段)，每个点位颜色=该点真实计算震速在色标中
+   * 的对应色，梯度清晰、量程不再被极值压垮。
+   * @returns {{ ppvRefMps:number, stressRefMPa:number }}
+   */
+  _computeAutoFieldRefs(params, sources, design, rockParams) {
+    const K = this._sadoskyK ?? 90
+    const alpha = this._sadoskyAlpha ?? 1.58
+    // 有效总装药：优先各装药段之和，否则用事件总装药
+    let Q = 0
+    if (Array.isArray(sources) && sources.length) {
+      for (const s of sources) Q += Number(s?.chargeKg) || 0
+    }
+    if (!(Q > 0)) Q = Number(params?.chargeKg) || 100
+    // 距源代表可视半径(m)：取隧道内代表可视半径 rRef=4m（K·(Q^(1/3)/4)^α·0.01）。
+    // 注意：不得收紧到 2m——基线抬高 2^α≈3 倍会把满刻度整体抬高，对数标尺上
+    // 全场颜色下移约 1.6 个八度、可见下限(NORM_FLOOR·ref)同步抬高 3 倍，
+    // 热力图表现为"颜色变暗、渲染范围收窄"（用户实测反馈的强度回归根因）。
+    // 中心过曝由【绝对量程】锚定场最大值天然规避（中心即满刻度，饱和区只剩
+    // 爆源核心），不再需要任何随帧自愈。
+    const rRef = 4.0
+    const ppvRefMps = K * Math.pow(Math.pow(Q, 1 / 3) / rRef, alpha) * 0.01
+    const rho = Number(design?.rockDensity) || 2650
+    const cp = Number(rockParams?.pWaveSpeed) || 4500
+    // Number(undefined)=NaN 不是 nullish，?? 链不生效 → nu/stressFactor 变 NaN，
+    // stressRefMPa 随之 NaN 且 applyFieldPhysics 拒收 → 应力模式量程失效。显式判有限值。
+    const nuDesign = Number(design?.poissonRatio)
+    const nuRock = Number(rockParams?.poissonRatio)
+    const nu = Number.isFinite(nuDesign) ? nuDesign : Number.isFinite(nuRock) ? nuRock : 0.25
+    const stressFactor = rho * cp * (1 / (1 - Math.max(0, Math.min(0.49, nu))))
+    const nfR = nearFieldRadius(Number(params?.chargeKg) || Q)
+    this._stressNearFieldR = nfR
+    this._stressNearFieldGain = NEAR_FIELD_GAIN
+    // 应力满量程：锚定**场最大值**（近场 standoff 处），并把 F(standoff) 一并计入。
+    // 【收紧满量程】若锚在 rRef=4m 代表值，中心(standoff≈0.5m)会比满刻度高
+    // ~27×F → 近场深饱和、糊成大片黄云（用户实测"巨大黄色高斯云"的根因）；
+    // 锚在场最大值后中心恰好落在色阶顶部、饱和区只剩爆源核心，梯度全程可见。
+    const MIN_STANDOFF = 0.5
+    const vNear = K * Math.pow(Math.pow(Q, 1 / 3) / MIN_STANDOFF, alpha) * 0.01
+    const nfC = nearFieldGain(MIN_STANDOFF, nfR, NEAR_FIELD_GAIN)
+    const refs = {
+      ppvRefMps,
+      stressRefMPa: (stressFactor * vNear * nfC) / 1.0e6
+    }
+    this._lastFieldRefs = refs
+    // 解析基线快照（只由 rRef=4m 的解析值决定，不含自愈成分）：
+    // → cap=base×MULT 同步抬高 → 正反馈把满刻度重新推到近场极值。
+    this._analyticRefs = { ppvRefMps, stressRefMPa: refs.stressRefMPa }
+    this._stressFactorCache = stressFactor // 供 stress 场帧自愈换算
+    return refs
+  }
+
+  /** 自动量程的最近一次计算值（供 UI 图例实时显示当前满刻度） */
+  getFieldRange() {
+    return this._lastFieldRefs || null
+  }
+
+  /**
+   * 波场可达半径 = 爆心 → 岩体几何最远顶点的距离（由渲染侧实测后回传）。
+   * 波传播到模型几何边界即衰减殆尽、零值消失，不在岩体中部形成能量断崖。
+   * @returns {number} 半径(m)
+   */
+  getInfluenceRadius() {
+    return this._vibInfluenceRadius
+  }
+
+  // ─── 绝对量程·启动分位扫描（应力用，P99.7，锁定后恒定）────────
+  // 解析近场值受 standoff 钳制与**隧道空腔掩码**影响，可能是"渲染数据中永不
+  // 出现的奇点"——爆心位于已开挖洞身内，近源网格点被 void_mask 清零。用解析
+  // 极值当满刻度会把有效场值全压到最低档（用户实测：应力图几乎全蓝）。
+  // 做法：仿真开始后的前 ABS_SCAN_FRAMES 个**有效帧**（分位峰值>0）对渲染场做
+  // P99.7 分位扫描、取单调最大，之后锁定为绝对量程。锁定后图例区间与等值线
+  // 级别不再变化（满足"仿真前全局扫描并固定最大/最小值"的工程要求）。
+  static ABS_SCAN_FRAMES = 24
+
+  /** 分位值（下采样 + 降序取第 (1-q) 分位；arr 为 Float32Array，O(N)） */
+  _fieldQuantile(arr, q = 0.997) {
+    if (!(arr && arr.length)) return 0
+    const step = Math.max(1, Math.floor(arr.length / 2400))
+    const vals = []
+    for (let i = 0; i < arr.length; i += step) {
+      const v = Number(arr[i])
+      if (Number.isFinite(v) && v > 0) vals.push(v)
+    }
+    if (!vals.length) return 0
+    vals.sort((a, b) => b - a)
+    return vals[Math.min(vals.length - 1, Math.floor(vals.length * (1 - q)))] || 0
+  }
+
+  /**
+   * 启动分位扫描（每帧调用，锁定后零开销直接返回）。
+   * @param {'ppv'|'stress'} kind - ppv 数组单位 m/s；stress 数组单位 Pa
+   */
+  _fixFieldRefOnce(kind, arr) {
+    if (!(arr && arr.length)) return
+    if (!this._absScan) this._absScan = { ppv: { n: 0, v: 0 }, stress: { n: 0, v: 0 } }
+    const st = this._absScan[kind]
+    if (!st || st.n >= BlastingManager.ABS_SCAN_FRAMES) return // 已锁定
+    const q = this._fieldQuantile(arr)
+    if (!(q > 0)) return // 波前未到/全零帧：不计入
+    if (q > st.v) st.v = q
+    st.n++
+    if (st.n < BlastingManager.ABS_SCAN_FRAMES) return
+
+    // ── 锁定：以实测分位峰值作为满刻度，并一次性下发 ──
+    const isPpv = kind === 'ppv'
+    const value = isPpv ? st.v : st.v / 1.0e6 // Pa → MPa
+    this._lastFieldRefs = {
+      ...(this._lastFieldRefs || {}),
+      [isPpv ? 'ppvRefMps' : 'stressRefMPa']: value
+    }
+    this.threeBridge
+      ?.getThreeRenderer?.()
+      ?.setFieldPhysics?.(isPpv ? { ppvRefMps: value } : { stressRefMPa: value })
+    console.warn('[BlastingManager] 绝对量程已锁定（P99.7 分位扫描）', {
+      场: kind,
+      满刻度: Number(value.toPrecision(4)),
+      采样帧数: st.n
     })
   }
 
-  // ─── 本地振动场模拟（WS 不可用时自行模拟实时数据）───────────────
-  // 与 WebSocket 推送同构：本地模拟器用相同物理模型按播放时钟逐帧计算
-  // PPV/应力/损伤场与波前粒子，调用与 WS 帧处理器完全相同的渲染器接口，
-  // 保证动态热力图与粒子效果始终可用且与碎片动画同步。
-
   /**
-   * 启用/停用本地振动场模拟（由 useBlasting 依据 WS 连接状态切换）
-   * @param {boolean} enabled - true=WS 不可用，本地模拟；false=使用 WS 推送
+   * 解析展开基线（autoscale 回退）：应力满刻度锚在近场(0.5m)极值，而岩体绝大多数
+   * 点位应力远小于它 → 全片塌成低端深蓝。这里以 PPV 惯例的代表可视半径 rRef=4m
+   * 处的解析应力为"期望铺满色域"的满刻度，反解展开因子 S = stressRef/stressAt4。
+   * PPV 满刻度本就锚在 4m 代表值 → S≈1 保持原样。待值线峰值场 P99.9 实测到达后
+   * 由 _buildAndPushContours 动态精细化（真实分布更贴近现场形态）。
+   * @returns {number} 1~80 的展开因子（1=不缩放）
    */
+  _analyticAutoscale(params, sources, design, rockParams) {
+    const K = this._sadoskyK ?? 90
+    const alpha = this._sadoskyAlpha ?? 1.58
+    let Q = 0
+    if (Array.isArray(sources) && sources.length) {
+      for (const s of sources) Q += Number(s?.chargeKg) || 0
+    }
+    if (!(Q > 0)) Q = Number(params?.chargeKg) || 100
+    const rho = Number(design?.rockDensity) || 2650
+    const cp = Number(rockParams?.pWaveSpeed) || 4500
+    const nuDesign = Number(design?.poissonRatio)
+    const nuRock = Number(rockParams?.poissonRatio)
+    const nu = Number.isFinite(nuDesign) ? nuDesign : Number.isFinite(nuRock) ? nuRock : 0.25
+    const stressFactor = rho * cp * (1 / (1 - Math.max(0.01, Math.min(0.49, nu))))
+    const vAt4 = K * Math.pow(Math.pow(Q, 1 / 3) / 4.0, alpha) * 0.01
+    const stressAt4 = (stressFactor * vAt4) / 1.0e6
+    const stressRef = Number(this._lastFieldRefs?.stressRefMPa) || 0
+    if (!(stressRef > 0) || !(stressAt4 > 0)) return 1
+    return Math.min(80, Math.max(1, stressRef / (stressAt4 * 1.06)))
+  }
+
+  enablePpvPick(handler, opts) {
+    const renderer = this.threeBridge?.getThreeRenderer?.()
+    return renderer?.enablePointPick?.(handler, opts) ?? null
+  }
+
+  /** 关闭"场点拾取" */
+
   setLocalVibrationEnabled(enabled) {
     this._localVibrationEnabled = !!enabled
     if (this._localVibrationEnabled) {
@@ -1039,6 +1819,7 @@ export class BlastingManager {
   /**
    * 懒创建本地振动场模拟器与粒子系统（基于当前 dataset 参数）
    */
+
   _ensureLocalVibrationSim() {
     if (this._localVibrationSim) return this._localVibrationSim
     const params = this.getPpvStreamParams()
@@ -1061,12 +1842,13 @@ export class BlastingManager {
       tunnelWidth: W,
       tunnelHeight: totalH,
       lengthZ: depthZ,
-      // 网格 48×64×96≈30 万点（旧 96×128×192≈236 万点，主线程全量重算+纹理上传
-      // ~28MB/次过于沉重）：降网格使"模拟时间节流×高倍速"下重算仍即时完成，
-      // 三线性插值+逐片元采样下视觉差异可忽略，三体稳定性明显改善
-      nx: 48,
-      ny: 64,
-      nz: 96,
+      // 网格 64×80×128≈65 万点：波场细节（多源干涉瓣/波前环）需要足够的采样密度，
+      // x 向步长 = W/64 ≈ 0.28m、y 向 ≈ 0.19m、z 向 0.31m——原先 48×64×96
+      // （x 步长 0.375m）下细密的干涉结构会被粗网格抹平。计算走 Worker，
+      // 三线性插值+逐片元采样下视觉更连续。
+      nx: 64,
+      ny: 80,
+      nz: 128,
       // 爆心 = 掏槽孔质心（掌子面上），应力波/损伤从实际爆破位置扩散
       origin: this._computeBlastOrigin(),
       // 多装药源：由实际炮孔布孔推算，驱动多应力波叠加（楔形掏槽微差起爆的干涉波场）
@@ -1093,6 +1875,7 @@ export class BlastingManager {
    * @param {number} time - 模拟时间（秒）
    * @param {number} frame - 帧序号
    */
+
   stepLocalVibration(time, frame) {
     const renderer = this.threeBridge?.getThreeRenderer?.()
     if (!renderer) return
@@ -1119,6 +1902,12 @@ export class BlastingManager {
       renderer.clearVibrationParticles?.()
       this._particleEmitState = { emittedUntil: -1, lastT: -1 }
       sim.resetPeak?.()
+      // 【Seek 清屏】清空三张场纹理：回卷/前跳时 GPU 里驻留的旧帧（尤其是
+      // 峰值/损伤的"未来帧最大值"）会在新帧落地前被读到 → 糊成色块。
+      renderer.clearFieldTextures?.()
+      // 清空插值缓冲：seek 后旧场已不适用，等待下一次全量重算重建双缓冲
+      this._fieldPrev = null
+      this._fieldCur = null
       this._vibFieldLastUpdate = -1 // 强制下一段立即按目标时刻重算
     }
     this._vibLastStepT = t
@@ -1194,6 +1983,7 @@ export class BlastingManager {
    * @param {number} frame - 帧序号（透传给渲染器）
    * @param {object} renderer - three.js 渲染器实例
    */
+
   _dispatchVibrationCompute(t, frame, renderer) {
     const sim = this._localVibrationSim
     if (!sim || !renderer) return
@@ -1235,23 +2025,335 @@ export class BlastingManager {
    * @param {number} frame - 帧序号
    * @param {object} renderer - three.js 渲染器
    */
+
+  /**
+   * 隧道马蹄形轮廓自由面放大配置（本地模拟器 tunnelFace 选项）。
+   * 与 GPU 侧 uFaceBoostCoeff/uFaceBoostLambda/uTunnelFloorY/uTunnelArchH 同口径
+   * （见 _pushFieldPhysics 与 localVibrationSimulator.tunnelFaceBoostFactor）：
+   * coeff=0.85、λ=0.7（自由面近全反射的贴壁增强带），archH=直墙高。
+   * @returns {{coeff:number, lambda:number, halfW:number, floorY:number, archH:number}|null}
+   */
+  _tunnelFaceConfig(renderer, width, floorY) {
+    const coeff = Number(this._vibFaceBoostCoeff ?? 0.85)
+    if (!(coeff > 0.001)) return null
+    return {
+      coeff,
+      lambda: this._vibFaceBoostLambda ?? 0.7,
+      halfW: Math.max(0.5, (Number(width) || 18) / 2),
+      floorY: Number(floorY) || 0,
+      archH: Math.max(1, Number(renderer?.tunnelWallHeight) || DEFAULT_TUNNEL_WALL_HEIGHT)
+    }
+  }
+
+  /**
+   * 测点时程曲线计算参数（computeMonitorTimeHistory 的 options）。
+   * 与体积场/热力图同一物理模型口径（K/α/载波/视觉衰减/波速）。
+   */
+  _monitorParams(rockParams = {}) {
+    return {
+      K: this._sadoskyK ?? 90,
+      alpha: this._sadoskyAlpha ?? 1.58,
+      beta: Number(rockParams.attenuationP) || this.dataset?.event?.beta || 0.02,
+      visualBeta: this._localVibrationSim?.params?.visualBeta ?? 0.8,
+      cp: Number(rockParams.pWaveSpeed) || 4500,
+      visualCp: 35,
+      minStandoff: 0.5,
+      carrierHz: this._vibCarrierHz || 0
+    }
+  }
+
+  /**
+   * 重算已放置测点的时程曲线（载波/K/α 等参数变更后调用）。
+   * 当前版本未内置测点子系统 → 保留为扩展钩子（no-op）。
+   */
+  rebuildMonitorHistories() {
+    /* 扩展钩子：接入测点子系统后在此重算各测点 Vx/Vy/Vz/|V| 时程 */
+  }
+
+  /**
+   * 场景重建/参数变更后重挂已放置测点的 3D 标记（新 benchMesh 上）。
+   * 当前版本未内置测点子系统 → 保留为扩展钩子（no-op）。
+   */
+  _syncMonitorMarkers() {
+    /* 扩展钩子：接入测点子系统后在此重建标记 Object3D */
+  }
+
   _applyVibrationFields(ppv, sigmaVm, zones, t, frame, renderer) {
     if (!renderer) return
+    // 双缓冲记录：为逐帧时间插值保留最近两帧精确场（t 递增时 prev→cur→新cur）
+    if (ppv) {
+      this._fieldPrev = this._fieldCur
+      this._fieldCur = { t, ppv, sigmaVm }
+    }
     // PPV 场：仅在本地模拟模式（WS 不可用）下更新。
     // WS 模式下 PPV 由后端实时帧推送，避免本地与 WS 数据交替写入造成闪烁。
     if (this._localVibrationEnabled) {
-      renderer.updateVibrationField?.(ppv, t, frame)
+      renderer.updateVibrationField?.(this._smoothField3d(ppv, this._vibGridShape), t, frame)
+      // 【PPV 不做分位扫描】PPV 能量不像应力那样极度集中于近场，解析 rRef=4m
+      // 代表值已给出正确梯度；P99.7 是近源峰值(≈5m/s)，当满刻度会让中远场饱和成红
+      // （用户实测"外围纯红"）。应力保留 P99.7 扫描（其能量高度集中于近场）。
     }
+    // 应力场：本地兜底更新同样参与绝对量程启动扫描（P99.7 分位，锁定后恒定）
+    this._fixFieldRefOnce('stress', sigmaVm)
     // 应力场与损伤场：本地兜底更新，但 WS 帧新鲜（2s 内）时让位。
     // 本地模拟用 visualCp≈35m/s（可视波前），WS 用 cp=4500m/s（物理波前），
     // 两数据源交替写同一纹理会导致云图闪烁/回跳，故以 WS 优先、本地兜底。
     const nowMs = performance.now()
     const WS_STALE_MS = 2000
     if (nowMs - (this._lastWsStressMs || 0) > WS_STALE_MS) {
-      renderer.updateStressField?.(sigmaVm, t, frame)
+      renderer.updateStressField?.(this._smoothField3d(sigmaVm, this._vibGridShape), t, frame)
     }
     if (nowMs - (this._lastWsDamageMs || 0) > WS_STALE_MS) {
       renderer.updateDamageField?.(zones, t, frame)
+    }
+  }
+
+  // ─── 等值线提取管线（峰值场 MS 提取 + Line2 渲染下发） ──
+
+  /**
+   * 确保等值线折线与当前场景/样式一致（每播放 tick 调用，内部指纹比对）。
+   *
+   * 峰值场与时间无关 → 每个事件/参数组合只算一次：
+   *   ① 从 renderer 导出岩面顶点集（getContourSurface，版本缓存零重算）；
+   *   ② Worker 计算顶点峰值场 + 到达时刻（contourConfig/computeContour 协议，
+   *      Worker 内结果缓存，样式变化时秒回）；Worker 不可用回退主线程同步计算；
+   *   ③ computeContourLevels 按当前显示模式/标尺反解级别 → extractContours
+   *      （Marching Squares + 拓扑后处理）→ setContourPolylines 构建 Line2 渲染组。
+   *
+   * 重提取触发（指纹失配）：岩体几何版本（build/爆后切换/剖切）、显示模式、
+   * 色彩标尺、等值线密度、sim 事件参数（K/α/装药/源数）。
+   * 单在途 coalesce：在途期间指纹再变记 dirty，完成后补算最新（不堆积请求）。
+   * @param {object} renderer - three.js 渲染器
+   */
+  _ensureContourPipeline(renderer) {
+    const sim = this._localVibrationSim
+    if (!sim || !renderer?.getContourSurface) return
+    const surface = renderer.getContourSurface()
+    if (!surface || !surface.positions?.length || surface.positions.length < 9) return
+    const rp = renderer.getFieldRenderParams?.() || {}
+    const p = sim.params || {}
+    // 指纹：几何版本 | 显示模式 | 标尺 | 满刻度 | 密度 | sim 事件参数（K/α/cp/装药/源数）
+    const fp = [
+      surface.version,
+      Number(rp.displayMode) || 0,
+      Number(rp.normMode) > 0 ? 1 : 0,
+      (Number(rp.ppvRefMps) || 0).toFixed(4),
+      (Number(rp.stressRefMPa) || 0).toFixed(3),
+      (Number(rp.stressFactor) || 0).toExponential(4),
+      this._contourDensity,
+      Number(p.K) || 0,
+      Number(p.alpha) || 0,
+      Number(p.visualCp) || 0,
+      // 包络半径纳入指纹：滑块拖动 → 峰值场 env 变化 → 等值线必须重提取
+      Number(p.influenceRadius) || 0,
+      sim.chargeKg || 0,
+      Array.isArray(p.sources) ? p.sources.length : 0,
+      this._delayJitterMs // 雷管误差变更 → 源延期抖动变化 → 峰值场干涉形态变化，强制重提
+    ].join('|')
+    if (fp === this._contourBuiltFp) return
+    if (this._contourInFlight) {
+      this._contourDirty = true
+      return
+    }
+    this._contourInFlight = true
+    const reqId = ++this._contourReqId
+    const finish = (peak, arrival) => {
+      this._contourInFlight = false
+      this._contourBuiltFp = fp
+      try {
+        // 等值线峰值场与 GPU 岩面热力图同口径：统一在 JS 侧附加隧道轮廓自由面
+        // 放大（Worker 与主线程回退都未带此修正，避免双乘；不改变 arrival 门控）
+        const tunnelFace = sim.params?.tunnelFace
+        if (tunnelFace && Number(tunnelFace.coeff) > 0.001) {
+          const pos = surface.positions
+          for (let i = 0; i < peak.length; i++) {
+            peak[i] *= tunnelFaceBoostFactor(
+              [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]],
+              tunnelFace
+            )
+          }
+        }
+        this._buildAndPushContours(peak, arrival, surface, rp, renderer)
+      } catch (err) {
+        console.warn('[BlastingManager] 等值线构建失败', err)
+      }
+      if (this._contourDirty) {
+        this._contourDirty = false
+        this._ensureContourPipeline(renderer)
+      }
+    }
+    if (this._vibComputeClient.ensure(sim)) {
+      // Worker 路径：顶点集只在版本变化时重发（样式变化命中 Worker 缓存，避免
+      // 每次数百 KB 结构化克隆）；computeContour 带 requestId 丢弃过期结果。
+      if (surface.version !== this._contourConfiguredVersion) {
+        this._vibComputeClient.contourConfig(surface.positions, surface.shaping)
+        this._contourConfiguredVersion = surface.version
+      }
+      this._vibComputeClient.computeContour(reqId).then(res => {
+        if (res && res.requestId === reqId && res.peak?.length === surface.positions.length / 3) {
+          finish(res.peak, res.arrival)
+        } else {
+          // 过期/异常：复位在途标记，下一 tick 指纹仍失配会自动重试
+          this._contourInFlight = false
+          this._contourBuiltFp = null
+        }
+      })
+      return
+    }
+    // Worker 不可用 → 主线程同步回退（computeSurfacePeakField 与 Worker 同口径）
+    try {
+      const sp = sim.params || {}
+      const shaping = surface.shaping || {}
+      const r = computeSurfacePeakField(surface.positions, {
+        K: sp.K,
+        alpha: sp.alpha,
+        minStandoff: sp.minStandoff,
+        visualCp: sp.visualCp,
+        chargeKg: sim.chargeKg,
+        sources: Array.isArray(sp.sources) ? sp.sources : null,
+        origin: Array.isArray(sp.origin) ? sp.origin : (shaping.origin ?? [0, 0, 0]),
+        holeRadius: shaping.holeRadius,
+        holeLen: shaping.holeLen,
+        lateralAttn: shaping.lateralAttn
+      })
+      if (r) finish(r.peak, r.arrival)
+      else this._contourInFlight = false
+    } catch (err) {
+      console.warn('[BlastingManager] 等值线主线程回退计算失败', err)
+      this._contourInFlight = false
+    }
+  }
+
+  /**
+   * 由顶点峰值场构建等值线折线并下发渲染器。
+   * @param {Float32Array} peak - 每顶点峰值 PPV（m/s，含 occ×agn 整形）
+   * @param {Float32Array} arrival - 每顶点最早波前到达时刻(s)
+   * @param {object} surface - getContourSurface 导出（positions/normals/index）
+   * @param {object} rp - getFieldRenderParams（displayMode/normMode/满刻度）
+   * @param {object} renderer - three.js 渲染器
+   */
+  _buildAndPushContours(peak, arrival, surface, rp, renderer) {
+    const mode = Number(rp.displayMode) || 0
+    const stressFactor = Number(rp.stressFactor)
+    // 等值线级别与 shader 归一化必须同单位：应力模式下把顶点峰值 PPV(m/s) 换算成
+    // σ_vm(MPa)（σ=ρcp/(1-ν)·v，surface 远场近似；近场几何增益分量在 surface
+    // 提取中未含，故此处用同一解析换算，保持"级别/像素值"线性一致）。
+    const inStressUnits = mode === 1 && Number.isFinite(stressFactor) && stressFactor > 0
+    const values = inStressUnits ? new Float32Array(peak.length) : peak
+    if (inStressUnits) {
+      const cSt = stressFactor / 1.0e6
+      for (let i = 0; i < peak.length; i++) values[i] = peak[i] * cSt
+    }
+    // 动态满量程（P99.9）：以当前显示模式下实测峰值场 P99.9 反解展开因子 S，
+    // 使岩体实际分布铺满色域（修"应力全场深蓝"）；S 在数值单位上与 levels 同源，
+    // 随事件固定（不随帧漂移），与 shader lin*=uNormAutoScale 严格互逆 → 等值线
+    // 始终落在色阶边界上。
+    const refDisp = mode === 1 ? Number(rp.stressRefMPa) || 0 : Number(rp.ppvRefMps) || 0
+    let autoscale = 1
+    if (refDisp > 0) autoscale = this._p99Autoscale(values, refDisp)
+    this._fieldAutoScale = autoscale
+    renderer.setFieldPhysics?.({ normAutoScale: autoscale })
+    const levels = computeContourLevels({
+      displayMode: rp.displayMode,
+      normMode: rp.normMode,
+      ppvRefMps: rp.ppvRefMps,
+      stressRefMPa: rp.stressRefMPa,
+      stressFactor: rp.stressFactor,
+      density: this._contourDensity
+    }).map(l => l / autoscale)
+    if (!levels.length) {
+      this._contourStats = null
+      renderer.setContourPolylines?.({ polylines: [] })
+      return
+    }
+    const { polylines, stats } = extractContours(
+      {
+        positions: surface.positions,
+        normals: surface.normals,
+        index: surface.index,
+        values,
+        arrival
+      },
+      { minLoopPerimeter: 0.9, minOpenLength: 0.6, chaikinIterations: 2 }
+    )
+    this._contourStats = stats
+    renderer.setContourPolylines?.({
+      polylines,
+      displayMode: Number(rp.displayMode) || 0,
+      normMode: Number(rp.normMode) > 0 ? 1 : 0,
+      ppvRefMps: rp.ppvRefMps,
+      stressRefMPa: rp.stressRefMPa,
+      stressFactor: rp.stressFactor
+    })
+  }
+
+  /**
+   * 峰值场 P99.9 分位数 → 显示展开因子 S∈[1,80]。
+   * S = ref / (P99.9 × 1.12)：让 P99.9 映射到约 89% 满刻度（header room 防顶冲），
+   * 使低值区（外围）从深蓝展开为青绿、高值区（中心）保持黄红。
+   * @param {Float32Array|number[]} values 当前模式单位下的逐顶点峰值
+   * @param {number} ref 同一单位的满刻度参考
+   * @returns {number}
+   */
+  _p99Autoscale(values, ref) {
+    const vals = []
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i]
+      if (v > 1e-9) vals.push(v)
+    }
+    if (!vals.length) return 1
+    vals.sort((a, b) => a - b)
+    const idx = Math.min(vals.length - 1, Math.floor(vals.length * 0.999))
+    const p99 = vals[idx]
+    if (!(p99 > 0)) return 1
+    return Math.min(80, Math.max(1, ref / (p99 * 1.12)))
+  }
+
+  /**
+   * 逐帧时间插值写热力图纹理（消除 throttle 跳变导致的闪烁）。
+   *
+   * 全量重算被 throttle 到 0.2s（+墙钟 120ms），若不在间隔内侧显示会"旧场停留→猛跳"。
+   * 这里用最近两帧精确场（_fieldPrev / _fieldCur）在当前模拟时间 t 上做线性混合后
+   * 写 PPV/应力纹理，使显示平滑跟随 t；损伤为离散档位不插值，由最新精确帧直接写入。
+   * 仅本地模式生效（WS 帧本就逐帧推送）；t 落在窗口外时直接用最新场，不再重复上传。
+   * @param {number} t - 当前模拟时间(s)
+   * @param {number} frame - 帧序号
+   * @param {object} renderer - three.js 渲染器
+   */
+  _applyVibrationInterpolation(t, frame, renderer) {
+    if (!this._localVibrationEnabled || !renderer) return
+    const prev = this._fieldPrev
+    const cur = this._fieldCur
+    if (!prev || !cur || prev.t >= cur.t) return
+    if (t < prev.t || t > cur.t) return // 窗口外：显示最新场即可（已写入），无需重复上传
+
+    const count = cur.ppv.length
+    if (prev.ppv.length !== count || !prev.sigmaVm || !cur.sigmaVm) return
+    if (prev.sigmaVm.length !== cur.sigmaVm.length) return
+
+    if (!this._vibLerpBuf) this._vibLerpBuf = { ppv: null, sigma: null }
+    if (!this._vibLerpBuf.ppv || this._vibLerpBuf.ppv.length !== count)
+      this._vibLerpBuf.ppv = new Float32Array(count)
+    if (!this._vibLerpBuf.sigma || this._vibLerpBuf.sigma.length !== cur.sigmaVm.length)
+      this._vibLerpBuf.sigma = new Float32Array(cur.sigmaVm.length)
+
+    const frac = (t - prev.t) / (cur.t - prev.t)
+    const p0 = prev.ppv
+    const p1 = cur.ppv
+    const s0 = prev.sigmaVm
+    const s1 = cur.sigmaVm
+    const ppvBuf = this._vibLerpBuf.ppv
+    const sigBuf = this._vibLerpBuf.sigma
+    for (let i = 0; i < count; i++) {
+      ppvBuf[i] = p0[i] + (p1[i] - p0[i]) * frac
+      sigBuf[i] = s0[i] + (s1[i] - s0[i]) * frac
+    }
+
+    renderer.updateVibrationField?.(ppvBuf, t, frame)
+    const nowMs = performance.now()
+    const WS_STALE_MS = 2000
+    if (nowMs - (this._lastWsStressMs || 0) > WS_STALE_MS) {
+      renderer.updateStressField?.(sigBuf, t, frame)
     }
   }
 

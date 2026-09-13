@@ -207,13 +207,42 @@
           :vibration-mode="vibrationDisplayMode"
           :vibration-field-info="vibrationFieldInfo"
           :sadosky-params="sadoskyParams"
+          :field-range="fieldRange"
           :ppv-pick-enabled="ppvPickEnabled"
           :picked-ppv="pickedPpv"
           :white-model-enabled="whiteModelEnabled"
+          :iso-line-enabled="isoLineEnabled"
+          :translucent-enabled="translucentEnabled"
+          :carrier-hz="carrierHz"
+          :norm-mode="normMode"
+          :contour-density="contourDensity"
+          :contour-stats="contourStats"
+          :current-frame="currentFrame"
+          :max-frame="maxFrame"
+          :vector-field-on="vectorFieldOn"
+          :damage-max-radius="damageMaxRadius"
+          :point-history="pointHistory"
+          :ppv-decay-data="ppvDecayData"
           @set-vibration-mode="setVibrationDisplayMode"
           @update-sadosky-params="setSadoskyParams"
           @toggle-ppv-pick="togglePpvPick"
           @toggle-white-model="setWhiteModelEnabled"
+          @toggle-iso-line="setIsoLineEnabled"
+          @toggle-translucent="setTranslucentEnabled"
+          @set-carrier-hz="setVibrationCarrierHz"
+          @set-norm-mode="setVibrationNormMode"
+          @set-contour-density="setVibrationContourDensity"
+          @toggle-vector-field="setVectorFieldOn"
+          @set-damage-max-radius="setDamageMaxRadius"
+        />
+        <!-- 监测点（3D 布点 + 三分量时程曲线）+ 雷管延期误差控制 -->
+        <MonitorPointsPanel
+          :monitor-points="monitorPoints"
+          :monitor-pick-active="monitorPickActive"
+          :delay-jitter="delayJitter"
+          @toggle-pick="toggleMonitorPick"
+          @set-delay-jitter="setDelayJitter"
+          @remove="removeMonitorPoint"
         />
         <!-- 视觉图层开关（含烟雾/粉尘等特效），方便在振动场视图下隐藏特效以查看岩体轮廓 -->
         <PlaybackControl
@@ -249,6 +278,7 @@ import PlaybackControl from './PlaybackControl.vue'
 import BlastDesign from './BlastDesign.vue'
 import HistoryCompare from './HistoryCompare.vue'
 import VibrationFieldPanel from './VibrationFieldPanel.vue'
+import MonitorPointsPanel from './MonitorPointsPanel.vue'
 
 defineOptions({ name: '爆破模拟面板' })
 
@@ -273,11 +303,31 @@ const {
   setVibrationDisplayMode,
   sadoskyParams,
   setSadoskyParams,
+  fieldRange,
   whiteModelEnabled,
   setWhiteModelEnabled,
+  translucentEnabled,
+  setTranslucentEnabled,
+  isoLineEnabled,
+  setIsoLineEnabled,
   ppvPickEnabled,
   pickedPpv,
   togglePpvPick,
+  // 干涉载波 / 色彩标尺 / 等值线密度 / 提取诊断（VibrationFieldPanel 控件所需的
+  // props 与事件处理，之前漏解构导致模板读取到 undefined → 控件形同虚设）
+  carrierHz,
+  setVibrationCarrierHz,
+  normMode,
+  setVibrationNormMode,
+  contourDensity,
+  setVibrationContourDensity,
+  contourStats,
+  vectorFieldOn,
+  setVectorFieldOn,
+  damageMaxRadius,
+  setDamageMaxRadius,
+  ppvDecayData,
+  pointHistory,
   blastDesign,
   dbEvents,
   dbLoading,
@@ -301,7 +351,14 @@ const {
   muckPileMeasure,
   toggleMuckPileOutline,
   replayReady,
-  replayPrecompute
+  replayPrecompute,
+  currentFrame,
+  monitorPoints,
+  monitorPickActive,
+  delayJitter,
+  toggleMonitorPick,
+  removeMonitorPoint,
+  setDelayJitter
 } = useBlastingPanelController()
 
 const tabs = [

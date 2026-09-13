@@ -41,7 +41,9 @@ import {
   DEFAULT_TUNNEL_WIDTH,
   DEFAULT_TUNNEL_WALL_HEIGHT,
   DEFAULT_TUNNEL_ARCH_RADIUS,
-  calcHorseshoeArea
+  calcHorseshoeArea,
+  SETTLE_REST_MASS_RATIO,
+  HOLD_AFTER_SETTLED
 } from '../blastDefaults.js'
 
 // ─── 粒子类型常量 ──────────────────────────────────────
@@ -57,6 +59,11 @@ export const THREE_PARTICLE_TYPES = {
 // 掌子面(岩体边缘)到隧道中心的轴向距离(m)：与 initBlast 中 faceCenter = center + forward*3 保持一致
 const FACEOFFSET_FROM_TUNNEL_CENTER = 3.0
 
+// 静止比连续达标帧数：静止比存在 ~1e-4 抖动（碎片被安息角判定解除支撑后重新
+// 滚动），单帧穿越阈值可能是尖峰 → 要求连续若干帧达标才锁定抛掷结束时刻。
+// 值与 Worker 侧 SETTLE_CONFIRM_STEPS 一致（3 步 × 0.05s = 0.15s）。
+const SETTLE_CONFIRM_FRAMES = 3
+
 // ─── 主渲染器 ─────────────────────────────────────────
 // 注：旧 BlastParticle 类（含已知 bug 的 1-k·v²·dt 阻力公式）已删除，
 // 碎片物理模拟改由独立的 BlastPhysicsEngine（core/computation/blastPhysicsEngine.js）处理
@@ -71,6 +78,9 @@ export class ThreeBlastingRenderer {
       premultipliedAlpha: false
     })
     this.renderer.setClearColor(0x000000, 1)
+    // 开启本地裁剪：让隧道壳/开挖管等 MeshStandard 材质随世界平面一同被切割
+    // （与岩体几何剖切同一世界平面，实现"全部模型一同切割"而非只切岩体）。
+    this.renderer.localClippingEnabled = true
     this.scene.background = new THREE.Color(0x000000)
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
     // bloom 是最大 GPU 负担（5-8 个全分辨率 pass），默认关闭以避免连续旋转时卡死。
@@ -132,6 +142,10 @@ export class ThreeBlastingRenderer {
     this.active = false
     // 粒子模拟时间（秒），由时间轴驱动
     this.simTime = 0
+    // seek 期间的时间锁：跳变快进中播放时钟与 WS 时间轴脱节，锁住 _advanceFieldSimTime
+    // 对 WS 场帧时间的"只进不退"信任（旧时间轴尾帧 t 仍超前新 simTime，会把
+    // uSimTime 顶在未来并永久卡住——回跳 seek 后解析外推波前/波环与热力图脱节的根因）
+    this._fieldTimeLocked = false
     // 爆破触发标志（掌子面损伤演化：爆破前掌子面完整，触发后碎石化飞出）
     this.blastTriggered = false
     this.blastTriggerTime = 0.1 // 起爆时刻（秒）
@@ -166,7 +180,8 @@ export class ThreeBlastingRenderer {
       face: true,
       // 爆破钻孔图层默认可见：仅显示孔位圆柱（每孔文字标签已移除），便于核对布孔
       blastHoles: true,
-      annotations: true,
+      // 专业标注（掘进深度/断面尺寸/孔型分区标签等）默认关闭，用户需要时在 UI 打开
+      annotations: false,
       // 泛光光斑总开关：一键隐藏所有辉光类粒子（火花/火球/冲击波/落地火星）
       glow: true,
       // PPV 振动场体积（实时推送的动态热力图）
@@ -221,6 +236,13 @@ export class ThreeBlastingRenderer {
       benchLength: this.benchLength,
       tunnelSection: this.tunnelSection
     })
+    // 等值线 LineMaterial 需要视口分辨率换算像素线宽（材质在折线下发时才创建，
+    // 故以回调形式提供最新尺寸，避免创建时刻与 resize 时刻错开）
+    this._sceneBuilder.rendererSizeProvider = () => {
+      const s = new THREE.Vector2()
+      this.renderer.getSize(s)
+      return { w: s.x, h: s.y }
+    }
 
     this._physicsEngine = new BlastPhysicsEngineWorker()
     // 将 15 种碎片几何体的顶点数据注入物理引擎（供 Rapier 凸包碰撞体使用）
@@ -253,10 +275,13 @@ export class ThreeBlastingRenderer {
     this._replayLandCursor = 0
     // 回放模式激活标志：直播→回放首次切换时对齐落地游标，避免撞击扬尘一次性爆喷
     this._replayModeActive = false
-    // 实测时长（全部碎片落地 + 保持 3s）：直播期间渐进记录，回放就绪后由烘焙时长覆盖
+    // 实测时长（抛掷结束 + HOLD_AFTER_SETTLED）：直播期间渐进记录，
+    // 回放就绪后由烘焙时长覆盖
     this._observedDurationS = null
-    // 全部落地时刻（用于计算 +3s 保持）
+    // 抛掷结束时刻（用于计算 +HOLD_AFTER_SETTLED 保持）
     this._landAllAt = null
+    // 静止比连续达标帧数（抗 ~1e-4 抖动尖峰，与 Worker 侧 SETTLE_CONFIRM_STEPS 同口径）
+    this._settleConfirmFrames = 0
 
     // 爆堆轮廓渲染器（三维轮廓包络 + 安息角标注）
     // 通过 getBodyStates 读取存活碎片世界坐标，默认关闭，由 UI 按钮手动开启
@@ -599,6 +624,7 @@ export class ThreeBlastingRenderer {
     // 重置实测时长状态（新一次爆破重新观测）
     this._observedDurationS = null
     this._landAllAt = null
+    this._settleConfirmFrames = 0
     this._replayLandCursor = 0
     this._replayModeActive = false
     this._fragmentRenderer.updateFragmentMesh()
@@ -611,11 +637,15 @@ export class ThreeBlastingRenderer {
   update(dt) {
     if (!this.active) return
     if (dt <= 0) return
+    // 正常播放帧解除 seek 时间锁：恢复对 WS 场帧时间的单调信任（被动大屏模式依赖）
+    this._fieldTimeLocked = false
     this.simTime += dt
     // 每帧同步模拟时间到岩体场着色材质：驱动场盒外萨道夫斯基外推的波环随
     // 播放时钟平滑扩散（不受场纹理节流 0.2s 的影响），与外推传播动画连贯。
     if (!this.vibrationFieldDisabled) {
       this._sceneBuilder?.setFieldSimTime?.(this.simTime)
+      // 等值线波前门控同一时钟驱动：t≥arrival 的段随播放逐段浮现（Line2 arrival 属性）
+      this._sceneBuilder?.setContourTime?.(this.simTime)
     }
 
     // 爆破触发
@@ -714,10 +744,17 @@ export class ThreeBlastingRenderer {
     if (!this.blastTriggered) return
     const total = this._fragmentSpecs ? this._fragmentSpecs.length : 0
     if (!total) return
-    const landed = this._physicsEngine?.landedFragmentCount ?? 0
-    if (landed >= total * 0.99 && this._landAllAt == null) {
+    // 抛掷结束判据：质量加权静止比 ≥ SETTLE_REST_MASS_RATIO（爆堆成形）。
+    // 与 Worker 烘焙侧（blastPhysicsWorker.recordStepIfNeeded）同源同值：
+    // 旧口径"99% 碎片计数 FLAG_LANDED"存在平台期（约 0.7% 的边角石永不置位），
+    // 判据可能永不达成 → 时间条被硬上限拖长、远超真实抛掷过程。
+    // 静止比存在 ~1e-4 抖动（安息角判定会解除/恢复支撑）→ 需连续若干帧达标。
+    const restRatio = this._physicsEngine?.restMassRatio ?? 0
+    if (restRatio >= SETTLE_REST_MASS_RATIO) this._settleConfirmFrames++
+    else this._settleConfirmFrames = 0
+    if (this._settleConfirmFrames >= SETTLE_CONFIRM_FRAMES && this._landAllAt == null) {
       this._landAllAt = this.simTime
-      this._observedDurationS = this.simTime + 3
+      this._observedDurationS = this.simTime + HOLD_AFTER_SETTLED
     }
   }
 
@@ -815,6 +852,8 @@ export class ThreeBlastingRenderer {
       // 同步 pixelRatio，防止 EffectComposer 渲染目标分辨率与 renderer 不一致导致模糊
       this.bloomComposer.setPixelRatio(this.renderer.getPixelRatio())
     }
+    // 等值线 LineMaterial 像素线宽依赖视口分辨率，随 resize 同步
+    this._sceneBuilder?.setContourResolution?.(width, height)
   }
 
   /**
@@ -870,6 +909,9 @@ export class ThreeBlastingRenderer {
       return
     }
     this.simTime = 0
+    this._fieldTimeLocked = true
+    this._sceneBuilder?.setContourTime?.(0) // 等值线门控时间同步归零（防重播瞬间残留整幅旧线）
+    this._sceneBuilder?.setFieldSimTime?.(0) // uSimTime 同步归零（解析外推波前门控重放）
     // 特效重置到 t=0
     if (this._lastEffectParams) {
       this._effectManager.clear()
@@ -890,6 +932,7 @@ export class ThreeBlastingRenderer {
       this._replayModeActive = true
       this._fragmentRenderer.updateFragmentMesh()
       this.renderFrame()
+      this._fieldTimeLocked = false
       console.log('[BlastSim] 循环重播已重置（回放模式）', {
         replayDuration: this._physicsEngine.getReplayDurationS?.()
       })
@@ -933,6 +976,13 @@ export class ThreeBlastingRenderer {
     // 不调用 initBlast（避免 clear 清除碎片 InstancedMesh 导致快进期间碎片消失）。
     // 只重置特效到 t=0 并快进，碎片保持当前位置，Worker 快进完成后更新到目标位置。
     this.simTime = 0
+    // uSimTime 与播放时钟同步归零（此前只重置等值线时钟）：回跳 seek 后解析外推
+    // 波前门控 gap = uSimTime - arrival 若仍用 seek 前的旧时间，波环位置/时变衰减
+    // 与目标时刻的场纹理脱节。锁住 WS 尾帧的时间信任，uSimTime 由下方快进 tick
+    // 逐帧推进到目标时刻。
+    this._fieldTimeLocked = true
+    this._sceneBuilder?.setContourTime?.(0) // 等值线门控时间同步归零
+    this._sceneBuilder?.setFieldSimTime?.(0)
     if (this._lastEffectParams) {
       this._effectManager.clear()
       this._effectManager.init(this._lastEffectParams)
@@ -967,6 +1017,11 @@ export class ThreeBlastingRenderer {
       if (this._physicsEngine?.isReplayReady?.()) {
         this._clearSeekWatchdog()
         this.simTime = targetTime
+        this._sceneBuilder?.setContourTime?.(targetTime) // 等值线门控时间随 seek 跳变
+        // uSimTime 随 seek 跳变对齐（回放分支无快进 tick，需显式同步），
+        // 同步后解锁恢复 WS 场帧时间的单调信任
+        this._sceneBuilder?.setFieldSimTime?.(targetTime)
+        this._fieldTimeLocked = false
         this._physicsEngine.applyReplayAtTime(targetTime)
         this._replayLandCursor = targetTime
         this._fragmentRenderer.updateFragmentMesh()
@@ -981,6 +1036,9 @@ export class ThreeBlastingRenderer {
       this._physicsEngine.seekToAsync(targetTime, specs, positions, velocities, bounds, () => {
         // Worker 完成：清除 watchdog 并渲染一帧
         this._clearSeekWatchdog()
+        // uSimTime 对齐目标时刻后解锁（快进 tick 已把播放时钟推进到 targetTime）
+        this._sceneBuilder?.setFieldSimTime?.(this.simTime)
+        this._fieldTimeLocked = false
         this._fragmentRenderer.updateFragmentMesh()
         this.renderFrame()
       })
@@ -1004,6 +1062,9 @@ export class ThreeBlastingRenderer {
         stepCount++
         frameSteps++
       }
+      // uSimTime 跟随快进播放时钟（每 tick 一次即可）：解析外推波环/波前门控
+      // 与场纹理同步重放，而非停留在 seek 前的旧时刻
+      this._sceneBuilder?.setFieldSimTime?.(this.simTime)
 
       if (remaining > 0 && stepCount < maxSteps) {
         // 还有剩余步骤，下一帧继续
@@ -1032,6 +1093,8 @@ export class ThreeBlastingRenderer {
         this._seekRafId = null
       }
       this._seekBlocked = false
+      // 解除 seek 时间锁（uSimTime 停在归零值，锁死会让解析场波前永久全关）
+      this._fieldTimeLocked = false
       if (this._physicsEngine && this._physicsEngine.seekInProgress) {
         console.warn(`[ThreeBlastingRenderer] seekTo(${kind}) 超时，强制清除阻塞标志`)
         this._physicsEngine.seekInProgress = false
@@ -1054,6 +1117,7 @@ export class ThreeBlastingRenderer {
       this._seekRafId = null
     }
     this._seekBlocked = false
+    this._fieldTimeLocked = false
     if (this._physicsEngine) this._physicsEngine.seekInProgress = false
   }
 
@@ -1636,6 +1700,12 @@ export class ThreeBlastingRenderer {
     })
     // 将振动场数据纹理/坐标基注入岩体表面着色材质（应力/损伤/PPV 直接渲染在岩体上）
     this._applyVibrationFieldToBench()
+    // 波场可达半径（= 爆心 → 岩体几何最远顶点）回传给 manager：
+    // 本地模拟器/后端包络必须取同一半径，否则本地兜底接管时会在岩体中部截断
+    const rInfluence = this._sceneBuilder?.influenceRadius ?? 0
+    if (Number(rInfluence) > 0) this.onInfluenceRadiusMeasured?.(Number(rInfluence))
+    // 点选查询的遮挡/轴向延展修正与 shader 同口径：getter 保证岩体重建后取最新洞身参数
+    this._vibrationFieldRenderer?.setHoleGeomProvider?.(() => this._sceneBuilder?._holeGeom || null)
     // 同步场盒外解析外推（萨道夫斯基）的物理参数与初始时间
     this._applyFieldPhysics()
     // 解析外推的波源随爆心注入（掏槽孔质心），保证盒外波前与盒内纹理同源
@@ -1698,6 +1768,26 @@ export class ThreeBlastingRenderer {
   }
 
   /**
+   * 岩体热力图解析外推的时间源统一推进（防回退防闪烁）。
+   *
+   * 热力图（岩面片元着色器的解析外推）的时间由本地播放时钟平滑驱动：
+   * renderer.update() 每帧写 uSimTime = this.simTime，单调推进且支持循环归零重放。
+   * WS 场帧按 ~0.1s 推送、到达常滞后于本地播放时钟（倍速时更甚）；若其 t 直接覆盖，
+   * uSimTime 会回退 → 波前 gap<0、front 过渡项归零 → 整片明灭 / 亮环跳闪
+   * （多源延时场景对时间更敏感，表现最明显）。
+   *
+   * 处理：仅当帧时间超前本地时钟时才前推 uSimTime。这样
+   *  - 正常播放：本地时钟领先 → WS 迟到帧被忽略，时间单调；
+   *  - 被动大屏/本地时钟未推进：WS t 始终超前 simTime → 热力图仍由 WS 帧驱动；
+   *  - 循环/回跳归零：本地时钟归零后自己重写，热力图正常重播。
+   * @param {number} t - 场帧的模拟时间(s)
+   */
+  _advanceFieldSimTime(t) {
+    if (this._fieldTimeLocked) return
+    if (t > this.simTime) this._sceneBuilder?.setFieldSimTime?.(t)
+  }
+
+  /**
    * 更新 PPV 场数据（每个二进制帧调用）
    * @param {Float32Array} ppv
    * @param {number} t
@@ -1705,19 +1795,31 @@ export class ThreeBlastingRenderer {
    */
   updateVibrationField(ppv, t, frame) {
     this._vibrationFieldRenderer?.updateField(ppv, t, frame)
-    this._sceneBuilder?.setFieldSimTime?.(t)
+    this._advanceFieldSimTime(t)
   }
 
   /** 更新 σ_vm 应力场（每个 STRESS 二进制帧调用） */
   updateStressField(sigmaVm, t, frame) {
     this._vibrationFieldRenderer?.updateStressField(sigmaVm, t, frame)
-    this._sceneBuilder?.setFieldSimTime?.(t)
+    this._advanceFieldSimTime(t)
   }
 
   /** 更新损伤分区场（每个 DAMAGE 二进制帧调用） */
   updateDamageField(zones, t, frame) {
     this._vibrationFieldRenderer?.updateDamageField(zones, t, frame)
-    this._sceneBuilder?.setFieldSimTime?.(t)
+    this._advanceFieldSimTime(t)
+  }
+
+  /**
+   * 【Seek 清屏】把 PPV/应力/损伤三张 3D 场纹理全部清零并强制重传。
+   *
+   * 拖动进度条后"糊成色块"的直接来源：GPU 里仍驻留着 seek 前的场数据
+   * （尤其是峰值/损伤这类"未来帧最大值"，以及应力纹理的旧时刻切片），
+   * 新帧到达前着色器读到的是新旧混合内容。清零后在新帧落地前不再显示
+   * 任何残留，等价于"Seek 期间阻塞着色器读取旧数据"。
+   */
+  clearFieldTextures() {
+    this._vibrationFieldRenderer?.clearFieldTextures?.()
   }
 
   /**
@@ -1748,6 +1850,67 @@ export class ThreeBlastingRenderer {
     this._sceneBuilder?.setFieldWhiteModel?.(!!enabled)
   }
 
+  /** 开关振动场等力线（等值线）叠加显示 */
+  setIsoLine(enabled) {
+    this._sceneBuilder?.setIsoLine?.(!enabled ? { on: false } : { on: true })
+  }
+
+  /** 设置等值线样式（线宽 px / 统一颜色；color=null 恢复按级别取色） */
+  setIsoLineStyle({ width, color } = {}) {
+    this._sceneBuilder?.setIsoLine?.({ width, color })
+  }
+
+  /**
+   * 设置干涉载波频率（视觉 Hz）：瞬时质点速度 × cos(2πf·gap) 形成多孔延时
+   * 干涉波纹。0=关闭（单调包络叠加）。范围 0~48 Hz。
+   */
+  setCarrierHz(hz) {
+    this._sceneBuilder?.setCarrierHz?.(hz)
+  }
+
+  /** 设置色彩映射标尺：0=线性，1=对数（默认；适应 PPV/应力幂律衰减） */
+  setNormMode(mode) {
+    this._sceneBuilder?.setNormMode?.(mode)
+  }
+
+  /** 设置半透明渲染（1=场色上限 0.55 露出岩底，0=实色 0.85） */
+  setFieldTranslucent(on) {
+    this._sceneBuilder?.setFieldTranslucent?.(!!on)
+  }
+
+  /** 下发矢量箭头场（P1-6：波传播方向可视化；数据来自 blastingManager 逐帧计算） */
+  setVectorField(data) {
+    this._sceneBuilder?.setVectorField?.(data || null)
+  }
+
+  /** 清空/隐藏矢量箭头场 */
+  clearVectorField() {
+    this._sceneBuilder?.clearVectorField?.()
+  }
+
+  /**
+   * 导出岩面顶点集（grid 局部系）+ 洞身整形参数，供等值线峰值场计算。
+   * 含版本号（几何 build/爆后切换/剖切时自增），调用方据此判断是否重提取。
+   */
+  getContourSurface() {
+    return this._sceneBuilder?.getContourSurface?.() ?? null
+  }
+
+  /** 波场可达半径（= 爆心 → 岩体几何最远顶点，m；0=岩体尚未构建） */
+  getInfluenceRadius() {
+    return this._sceneBuilder?.influenceRadius ?? 0
+  }
+
+  /** 下发等值线折线组（contourExtractor 输出）构建 Line2 渲染组 */
+  setContourPolylines(data) {
+    this._sceneBuilder?.setContourPolylines?.(data)
+  }
+
+  /** 当前热力图渲染参数（displayMode/normMode/满刻度，等值线级别计算同口径） */
+  getFieldRenderParams() {
+    return this._sceneBuilder?.getFieldRenderParams?.() ?? null
+  }
+
   /** 当前是否已有可渲染的振动场（三场中任意一场有数据即视为已初始化） */
   hasVibrationField() {
     return !!this._vibrationFieldRenderer?.hasAnyField
@@ -1756,11 +1919,6 @@ export class ThreeBlastingRenderer {
   /** 振动场元信息（供 UI 显示当前场时间/帧/网格） */
   getVibrationFieldInfo() {
     return this._vibrationFieldRenderer?.getFieldInfo?.() ?? null
-  }
-
-  /** 设置振动场整体不透明度（0..1） */
-  setVibrationFieldOpacity(o) {
-    this._vibrationFieldRenderer?.setOpacity(o)
   }
 
   /** 设置爆破场景对象透明度（供爆破模式下外部工具/面板控制） */
@@ -1795,6 +1953,11 @@ export class ThreeBlastingRenderer {
   /** 显示/隐藏拾取点标记（选轴前给出视觉反馈） */
   setScenePickPointMarker(point) {
     this._sceneBuilder?.setPickPointMarker?.(point)
+  }
+
+  /** 绘制监测点（测点）持久标记：维护岩体上已放置测点的粉球+光晕 */
+  setMonitorPointMarkers(points) {
+    this._sceneBuilder?.setMonitorPointMarkers?.(points)
   }
 
   /** 清除拾取式剖切（还原完整岩体并移除轮廓标记） */

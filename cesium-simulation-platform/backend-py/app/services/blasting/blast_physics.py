@@ -13,6 +13,16 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional
 
+import math
+
+try:
+    from numba import njit, prange
+    _HAS_NUMBA = True
+except ImportError:  # 无 numba 时静默回退纯 NumPy 路径
+    _HAS_NUMBA = False
+
+_NJT_WARMED = False  # numba 内核是否已预热编译（进程内单例）
+
 
 @dataclass
 class BlastSource:
@@ -201,10 +211,20 @@ def build_ppv_grid(tunnel_width: float = 18, tunnel_height: float = 15,
     return grid_xyz, (nx, ny, nz), bounds_min, bounds_max
 
 
+# 干涉子波载波品质因数（与前端 localVibrationSimulator.js 的 WAVELET_Q=4 同口径）：
+# 载波 cos(2πf·gap)·exp(-πf·gap/Q) 为有限时长瞬态脉冲（每周期 e^(-π/Q)≈0.46，
+# 4 周期后 <5%）。短的子波脉冲使各炮孔源的波前环彼此分明，多源相长/相消干涉
+# 在色带上更容易读出（Q=10 的长波列会把干涉糊成同心圆）。
+WAVELET_Q = 4.0
+
+
 def ppv_field_3d(grid_xyz: np.ndarray, blast_center: np.ndarray,
                  charge_kg: float, K: float = 30, alpha: float = 1.5,
                  beta: float = 0.02, c_p: float = 4500, t: float = 0.0,
-                 visual_c_p: float = 35.0, visual_beta: float = 0.8) -> np.ndarray:
+                 visual_c_p: float = 35.0, visual_beta: float = 0.8,
+                 carrier_hz: float = 0.0,
+                 influence_radius: Optional[float] = None,
+                 influence_tau: float = 3.0) -> np.ndarray:
     """3D 球面波 PPV 振动场计算
 
     萨道夫斯基经验公式 + 球面波前传播 + 指数阻尼：
@@ -252,11 +272,19 @@ def ppv_field_3d(grid_xyz: np.ndarray, blast_center: np.ndarray,
     r = np.maximum(r, 0.5)  # 避免爆心奇点，下限 0.5m
 
     arrival = r / visual_c_p  # 波前到达时间（可视化波速）
-    # 萨道夫斯基几何衰减
-    ppv = K * (charge_kg ** (1.0 / 3.0) / r) ** alpha
     # 实时质点速度：波前未到达置 0，到达后按物理 β + 可视化 β_v 指数回落
     mask = t >= arrival
-    ppv = ppv * np.exp(-(beta + visual_beta) * (t - arrival)) * mask
+    gap = np.maximum(t - arrival, 0.0)
+    decay = np.exp(-(beta + visual_beta) * gap)
+    # 干涉子波载波（与前端 waveletOsc 同口径）：从到达处起振为 0、有限时长脉冲；
+    # carrier_hz=0 时退化为单调衰减包络
+    if carrier_hz > 0:
+        decay = decay * np.sin(2.0 * np.pi * carrier_hz * gap) * np.exp(
+            (-np.pi * carrier_hz * gap) / WAVELET_Q)
+    ppv = K * (charge_kg ** (1.0 / 3.0) / r) ** alpha * decay * mask
+    # 爆源影响半径能量包络：把解析场收束为有界爆源体积（P0-2 近场物理近似）
+    if influence_radius is not None and influence_radius > 0:
+        ppv = ppv * _radial_energy_envelope(r, influence_radius, influence_tau)
     return (ppv * 0.01).astype(np.float32)  # cm/s → m/s
 
 
@@ -264,7 +292,10 @@ def ppv_field_3d_multi(grid_xyz: np.ndarray, sources: List[dict],
                        t: float, K: float = 30, alpha: float = 1.5,
                        beta: float = 0.02, c_p: float = 4500,
                        visual_c_p: float = 35.0, visual_beta: float = 0.8,
-                       min_standoff: float = 0.5) -> np.ndarray:
+                       min_standoff: float = 0.5,
+                       carrier_hz: float = 0.0,
+                       influence_radius: Optional[float] = None,
+                       influence_tau: float = 3.0) -> np.ndarray:
     """3D 多装药源 PPV 场 —— 多应力波矢量叠加（波场干涉，非单一同心圆）
 
     爆破应力场由 N 个炮孔装药段各自起爆、按微差延时依次传播的应力波叠加而成
@@ -301,14 +332,78 @@ def ppv_field_3d_multi(grid_xyz: np.ndarray, sources: List[dict],
         if not mask.any():
             continue
         amp = K * (q ** (1.0 / 3.0) / r_safe) ** alpha            # (N,1) cm/s
-        amp *= np.exp(-(beta + visual_beta) * (t - np.maximum(arrival, 0.0)))  # 实时回落
+        gap = np.maximum(t - arrival, 0.0).reshape(-1, 1)  # (N,1) 对齐 amp
+        amp *= np.exp(-(beta + visual_beta) * gap)  # 实时回落
+        # 多孔延差+路径差 → 相位差 → 干涉条纹（同前端 waveletOsc，Q=WAVELET_Q）
+        if carrier_hz > 0:
+            amp *= np.sin(2.0 * np.pi * carrier_hz * gap) * np.exp(
+                (-np.pi * carrier_hz * gap) / WAVELET_Q)
         # 单位径向矢量：u = d / r（标准化）
         unit = d / r_safe
         contrib = (amp * unit) * (mask[:, None].astype(np.float64))  # (N,3) cm/s 矢量
         v += contrib
 
     ppv = np.sqrt((v ** 2).sum(axis=1))
+    # 爆源影响半径能量包络：取到最近爆源的距离作径向坐标，收束为有界爆源体积
+    if influence_radius is not None and influence_radius > 0:
+        dmin = np.full(grid.shape[0], np.inf, dtype=np.float64)
+        for s in sources:
+            pos = np.asarray(s.get('pos', [0.0, 0.0, 0.0]), dtype=np.float64).reshape(1, 3)
+            dmin = np.minimum(dmin, np.linalg.norm(grid - pos, axis=1))
+        ppv = ppv * _radial_energy_envelope(dmin, influence_radius, influence_tau)
     return (ppv * 0.01).astype(np.float32)  # cm/s → m/s
+
+
+def peak_ppv_envelope_multi(grid_xyz: np.ndarray, sources: List[dict],
+                            K: float = 30.0, alpha: float = 1.5,
+                            min_standoff: float = 0.5, visual_c_p: float = 35.0,
+                            influence_radius: Optional[float] = None,
+                            influence_tau: float = 3.0) -> tuple:
+    """确定性峰值包络 + 波前到达时刻（损伤判据专用，seek 即时无重算）
+
+    与前端 localVibrationSimulator.computeMultiSourcePeakDamageZones 同口径：
+
+        peak(p)   = |Σ_s A_s(r_s)·û_s|，A_s(r)=K·(q_s^(1/3)/r)^α·0.01（m/s）
+        arrival(p)= min_s(delay_s + r_s/c_view)
+        peak(p,t) = peak(p) · 1[t ≥ arrival(p)]
+
+    损伤是"经历过的最大 PPV"的不可逆判据：对时变衰减场 v(t)=A·e^(−D·gap)（单调
+    递减），波前扫过该点时即取得全程峰值，故峰值=几何峰值、与载波相位/采样时刻
+    无关。与"逐帧采样 np.maximum 累积"（受载波过零与时变衰减影响而欠估计，且
+    seek 需 O(target) 次全场正演重算、阻塞事件循环）相比，本式一次预计算
+    (peak_full, arrival)，任意 t（含 seek 回拉）只做 O(N) 门控——同一 (t, 源
+    几何) 正放/回拉/拖动进度条结果完全一致。
+
+    :param sources: 装药源列表，每项 {pos:[x,y,z], charge_kg:float, delay_s:float}
+    :return: (peak_full(N,) float32 全程几何峰值 m/s, arrival(N,) float64 最早到达 s)
+    """
+    n = grid_xyz.shape[0]
+    grid = np.asarray(grid_xyz, dtype=np.float64)
+    v = np.zeros((n, 3), dtype=np.float64)
+    arrival = np.full(n, np.inf, dtype=np.float64)
+    dmin = np.full(n, np.inf, dtype=np.float64)
+    if not sources:
+        return np.zeros(n, dtype=np.float32), arrival
+    for s in sources:
+        pos = np.asarray(s.get('pos', [0.0, 0.0, 0.0]), dtype=np.float64).reshape(1, 3)
+        q = float(s.get('charge_kg', 0.0))
+        delay = float(s.get('delay_s', 0.0))
+        if q <= 0:
+            continue
+        d = grid - pos
+        r = np.linalg.norm(d, axis=1, keepdims=True)          # (N,1)
+        r_safe = np.maximum(r, min_standoff)
+        np.minimum(arrival, delay + r_safe[:, 0] / visual_c_p, out=arrival)
+        np.minimum(dmin, r_safe[:, 0], out=dmin)
+        amp = K * (q ** (1.0 / 3.0) / r_safe) ** alpha * 0.01  # (N,1) m/s
+        unit = d / r_safe                                       # 单位径向矢量
+        v += amp * unit
+    peak = np.sqrt((v ** 2).sum(axis=1))
+    if influence_radius is not None and influence_radius > 0:
+        # 与瞬时场同口径的空间包络：峰值收束在同一有界爆源体积内
+        peak = peak * _radial_energy_envelope(dmin, influence_radius, influence_tau)
+    peak = np.where(np.isfinite(dmin), peak, 0.0)
+    return peak.astype(np.float32), arrival
 
 
 def pack_ppv_binary(frame: int, t: float, grid_shape: tuple,
@@ -350,22 +445,95 @@ def pack_ppv_binary(frame: int, t: float, grid_shape: tuple,
     return header + ppv_bytes
 
 
-# ─── 损伤分区阈值（Persson 模型，近场 PPV 临界值，cm/s）──────────────
-# 与 GB6722 远场安全阈值（用于 PPV 色阶）语义不同：
-#   - GB6722 阈值（0.5~15 cm/s）：保护建（构）筑物的远场安全允许标准
-#   - Persson 阈值（5~50 cm/s）：岩体近场爆破损伤临界值，划分岩体自身破坏程度
+# ─── 损伤分区阈值（对齐 Persson–Holmberg 近场 PPV 临界值，cm/s）───────
+# 量级依据 Persson/Holmberg 近场岩体损伤判据：峰值振速达 700–1000 mm/s
+# （70–100 cm/s）时岩体产生/扩展裂纹、进入破碎损伤带。
+#
+# 【P0-1 修正】原始低档阈值 (10,30,70,100) cm/s 在本平台解析场（K=30、α=1.5、
+# Q≈100kg）下把损伤半径推到十几米，远大于隧道断面尺度 → 出现"无视隧道轮廓的
+# 无边大红圆/热处理球"。现依据岩体近场损伤判据整体提高阈值：
+#   elastic     <  20 cm/s（σ_vm ≈ 3.2 MPa，低于中硬岩抗压/抗拉强度 → 无损伤）
+#   micro_crack  20–50 cm/s（初始微裂纹萌生）
+#   crack_growth 50–100 cm/s（裂纹扩展贯通，接近 Persson 700 mm/s 判据）
+#   fracture     100–200 cm/s（岩体破碎，对应 Persson–Holmberg 700–1000 mm/s 临界带）
+#   throw        ≥ 200 cm/s（岩体抛掷，爆腔形成）
+# 意义：使损伤区收束到爆源邻近数米——按 Q=100kg、R 处 PPV=K·(Q^(1/3)/R)^α：
+#   micro_crack 起于≈5.5m；crack_growth 起于≈3.1m；fracture 起于≈2.0m；throw 起于≈1.3m。
+# 说明：强岩体实际损伤要求更高 PPV（>50–100 cm/s），此处高档已按用户要求大幅上提；
+# 与 GB6722（保护建(构)筑物，0.5~15 cm/s）远场安全标准语义不同，二者不混用。
 # 依据：
-#   Persson P.A. et al. "The Rock Blasting Handbook", 1997
+#   Holmberg R, Persson P A. Charge Calculations for Tunneling. 1979（700–1000 mm/s 临界判据）
+#   Persson P A, Holmberg R, Lee J. Rock Blasting and Explosives Engineering. 1994
 #   胡英国等. 爆炸与冲击, 2015, 35(4):547-554（岩体爆破损伤 PPV 临界值实验研究）
 #   周传波等. JRMGE, 2025（考虑介质阻尼的振动场正演与损伤评价）
-DAMAGE_THRESHOLDS_CMPS = (5.0, 15.0, 30.0, 50.0)
+DAMAGE_THRESHOLDS_CMPS = (20.0, 50.0, 100.0, 200.0)
 DAMAGE_ZONE_LABELS = ('elastic', 'micro_crack', 'crack_growth', 'fracture', 'throw')
+
+# 【P0-2】损伤区空间约束（把"各向同性无穷大红圆"收束到隧道临空面附近数米）：
+# 解析场（萨道夫斯基）近场本身不适用，故以"距最近爆源的最大损伤半径 + 平滑衰减"
+# 作为深度衰减上限，使损伤沿隧道轮廓（掌子面/临空面）向外只发展 5~10 米。
+DAMAGE_MAX_RADIUS = 7.0   # 米：损伤区最大计算半径（解析近场近似上限）
+DAMAGE_ATTEN_TAU = 1.5    # 米：max_radius 前开始平滑过渡到 0 的宽度（防硬切突变）
+
+# 解析波场/应力场的"爆源影响半径"（米）：超过后能量包络衰减到 0。
+# 使 PPV/应力/损伤三场表现为"有界爆源体积"，而非无视隧道、铺满整个岩体 slab 的球。
+# 默认 30m（原 14m）：14+tau=17m 把中远场梯度拦腰截断，热力图渲染范围/强度
+# 明显弱于引入包络之前；30+tau=33m 覆盖整个计算域（1.5m 分辨率网格对角 ≈40m），
+# 恢复全盒渐变的同时场仍收敛于有界体积（远小于岩体 slab 尺度）。
+BLAST_INFLUENCE_RADIUS = 30.0
+BLAST_INFLUENCE_TAU = 3.0
+
+
+def _radial_energy_envelope(distance: np.ndarray, radius: float, tau: float) -> np.ndarray:
+    """平滑径向能量包络：r ≤ radius 内为 1，radius→radius+tau 线性过渡到 0。
+    用于把解析场收束为有界爆源体积（r > radius+tau 后强度为 0），
+    体现"爆破能量/应力/损伤只影响隧道临空面附近有限范围"的近场物理。
+    """
+    r = np.asarray(distance, dtype=np.float64)
+    tau = max(tau, 1e-6)
+    return np.clip((radius + tau - r) / tau, 0.0, 1.0).astype(np.float64)
+
+
+# ─── 应力近场几何修正（区分"应力场"与"振速场"的空间结构）─────────────
+# 与前端 localVibrationSimulator.js 的 NEAR_FIELD_MULT / NEAR_FIELD_GAIN 跨语言镜像。
+# 弹性球面波在近场尚未充分发散：空腔膨胀的准静态应力场（σ ∝ r^-3）与几何修正
+# （波幅 ∝ r^-2）只在中远场过渡为纯辐射项 σ = ρ·c_p·v。若应力直接取该辐射项，
+# 它与瞬时振速场只差一个常数——归一化后逐点相等、色阶也只差一张 Viridis 表，
+# 表现为"震速的图和应力的图一模一样"（用户实测反馈）。
+# 此处给辐射项叠加一阶等效的近场几何放大 F(r) = 1 + GAIN·(r_nf/r)²，
+# 交叉半径 r_nf = MULT × 装药空腔半径（由装药体积反算）。
+# 【幅值必须温和】r_nf 取 2×r_b ≈ 0.5 m，近场项只在 1~2 m 内起作用；
+# 若 r_nf 取到 1.5 m、GAIN=2，F(0.5m)=19，中心被抬 19 倍 → 相对满量程深饱和，
+# 整图糊成"巨大黄色高斯云"（用户实测反馈）。
+# 说明：弹性解在近场塑性区失效，本项按一阶几何等效给定，仅表达空间结构。
+NEAR_FIELD_MULT = 2.0
+NEAR_FIELD_GAIN = 2.0
+EXPLOSIVE_DENSITY_DEFAULT = 1250.0  # kg/m³（乳化炸药量级）
+
+
+def compute_near_field_radius(charge_kg: float,
+                              rho_explosive: float = EXPLOSIVE_DENSITY_DEFAULT) -> float:
+    """应力近场几何修正的交叉半径 r_nf(m)
+
+    r_nf = NEAR_FIELD_MULT × 装药空腔半径 r_b，r_b = (3V/4π)^(1/3)，V = m/ρ_e；
+    钳制到 [0.5, 4] m（工程尺度）。
+    """
+    m = max(0.0, float(charge_kg or 0.0))
+    rho_e = float(rho_explosive) if rho_explosive else EXPLOSIVE_DENSITY_DEFAULT
+    if m <= 0.0 or rho_e <= 0.0:
+        return 0.0
+    v = m / rho_e
+    rb = (3.0 * v / (4.0 * math.pi)) ** (1.0 / 3.0)
+    return float(min(4.0, max(0.5, NEAR_FIELD_MULT * rb)))
 
 
 def stress_field_from_ppv(ppv: np.ndarray,
                           rho: float = 2650.0,
                           c_p: float = 4500.0,
-                          nu: float = 0.25) -> dict:
+                          nu: float = 0.25,
+                          r: Optional[np.ndarray] = None,
+                          near_field_radius: float = 0.0,
+                          near_field_gain: float = NEAR_FIELD_GAIN) -> dict:
     """由 PPV 振动场反演岩体应力场（弹性球面波本构，一阶近似）
 
     爆破应力波在岩体中产生两种破坏性应力（这是岩体爆破破坏/生成裂隙的机制）：
@@ -377,11 +545,16 @@ def stress_field_from_ppv(ppv: np.ndarray,
                σ_2 = σ_3 = −σ_θθ（切向，两正交方向相等，为拉应力）。
     von Mises 等效应力：
 
-        σ_vm = |σ_rr − σ_θθ| = σ_rr · (1 + ν/(1−ν)) = σ_rr / (1−ν)
+        σ_vm = |σ_rr − σ_θθ| = σ_rr · (1 + ν/(1−ν)) = σ_rr / (1−ν)   （再乘近场项 F(r)）
+
+    近场几何修正（与前端 localVibrationSimulator.NEAR_FIELD_* 同口径）：
+        F(r) = 1 + NEAR_FIELD_GAIN · (r_nf / r)²
+    没有它时 σ 只是 v 的常数倍——前端归一化后与振速场逐点相等，两模式同一张图。
 
     适用范围与局限：
         - 弹性一阶近似，适用于中远场（r > 5R_charge，R_charge 为药包半径）；
         - 近场（爆腔附近）存在塑性变形，弹性预测偏低，需配合损伤分区修正；
+          近场修正项按一阶几何等效给定，仅表达空间结构，不作工程定量结论；
         - σ_θθ 为切向拉应力幅值（成缝判据 σ_θθ ≥ σ_t 岩体抗拉强度）。
 
     理论依据：
@@ -391,20 +564,33 @@ def stress_field_from_ppv(ppv: np.ndarray,
         - 梁瑞等, 高压物理学报 2022, 36(6):064202（裂隙区径向压力+切向拉力，Mises 判据）
         - 陶颂霖《爆破力学》，中南大学出版社（弹性波应力反演）
 
-    :param ppv: (N,) PPV 数组(m/s)，来自 ppv_field_3d（已含 ×0.01 cm/s→m/s）
+    :param ppv: (N,) PPV 数组(m/s)，来自 ppv_field_3d（已含 ×0.01 cm/s→m/s）。
+        注意：应传**峰值包络**（peak_ppv_envelope_multi），不是瞬时振速 v(t)——
+        否则应力场与振速场只差常数（两图相同）。
     :param rho: 岩体密度(kg/m³)，默认 2650（中硬岩）
     :param c_p: 纵波速度(m/s)，默认 4500
     :param nu: 泊松比，默认 0.25
+    :param r: (N,) 各点到爆心距离(m)，近场几何修正用；None 或 near_field_radius<=0 时不施加
+    :param near_field_radius: 近场交叉半径 r_nf(m)，由 compute_near_field_radius() 给出
+    :param near_field_gain: 近场增益 A
     :return: dict，各字段均为 (N,) float32 数组，单位 Pa：
         sigma_rr   - 径向应力幅值（最大主应力 σ_1，压应力）
         sigma_theta- 切向拉应力幅值（σ_θθ = ν/(1−ν)·σ_rr，最小主应力 σ_3）
-        sigma_vm   - von Mises 等效应力 = σ_rr/(1−ν)
+        sigma_vm   - von Mises 等效应力 = σ_rr/(1−ν)·F(r)
         sigma_1    - 最大主应力（= sigma_rr）
         sigma_3    - 最小主应力（= −sigma_theta，切向拉应力）
     """
     ppv = np.asarray(ppv, dtype=np.float32)
-    # 径向应力 σ_rr = ρ·c_p·v_r（Pa）；PPV 为标量峰值，方向沿径向
+    # 近场几何放大 F(r) = 1 + gain·(r_nf/r)²（缺 r 或 r_nf<=0 → 不施加，退化为旧行为）
+    nf = None
+    if r is not None and float(near_field_radius) > 0.0:
+        rr = np.maximum(np.asarray(r, dtype=np.float32), np.float32(0.5))
+        gain = float(near_field_gain) if float(near_field_gain) > 0.0 else NEAR_FIELD_GAIN
+        nf = (1.0 + gain * (float(near_field_radius) / rr) ** 2).astype(np.float32)
+    # 径向应力 σ_rr = ρ·c_p·v_r · F(r)（Pa）；PPV 为标量峰值，方向沿径向
     sigma_rr = (rho * c_p * ppv).astype(np.float32)
+    if nf is not None:
+        sigma_rr = (sigma_rr * nf).astype(np.float32)
     # 切向拉应力幅值 σ_θθ = (ν/(1−ν))·σ_rr；ν=0.25 → 系数 0.333
     theta_factor = nu / (1.0 - nu)
     sigma_theta = (sigma_rr * theta_factor).astype(np.float32)
@@ -423,24 +609,12 @@ def damage_zone_classify(ppv: np.ndarray,
                          thresholds: tuple = DAMAGE_THRESHOLDS_CMPS) -> np.ndarray:
     """基于 PPV 阈值划分岩体爆破损伤分区（Persson 模型）
 
-    分区定义（近场 PPV 临界值，cm/s）：
-        0 elastic       弹性区      PPV < 5      无损伤，应力波衰减后岩体完整
-        1 micro_crack   微裂纹区    5 ≤ PPV < 15 初始微裂纹萌生，σ_vm 接近抗拉强度
-        2 crack_growth  裂纹扩展区  15 ≤ PPV < 30 裂纹扩展贯通，损伤累积
-        3 fracture      破碎区      30 ≤ PPV < 50 岩体破碎，强度丧失
-        4 throw         抛掷区      PPV ≥ 50     介质抛掷，爆腔形成
+    分区定义见模块级 DAMAGE_THRESHOLDS_CMPS（五档：elastic/micro_crack/
+    crack_growth/fracture/throw）。阈值已按 P0-1 提高至 (20,50,100,200) cm/s，
+    使损伤区收束到爆源邻近数米，避免解析场下出现"无视隧道轮廓的无穷大红圆"。
 
-    阈值依据中硬岩（σ_c≈80~120 MPa, σ_t≈6~10 MPa）实验统计，
-    弹性反演 σ_vm = ρ·c_p·v·(1/(1−ν))（ν=0.25 时 σ_vm≈15.9·v_mps MPa）：
-        PPV=5 cm/s  → σ_vm≈0.79 MPa，微裂纹萌生（实验统计起裂阈值）
-        PPV=15 cm/s → σ_vm≈2.38 MPa，裂纹扩展贯通
-        PPV=30 cm/s → σ_vm≈4.77 MPa，接近中硬岩抗拉强度下限
-        PPV=50 cm/s → σ_vm≈7.95 MPa，超过软弱岩体抗拉强度，破碎
-    注：Persson 阈值为实验统计的近场损伤临界值；近场塑性应力集中与卸载拉应力
-    高于弹性预测，故 σ_vm 弹性反演值低于岩体抗拉强度时仍可发生损伤。
-
-    :param ppv: (N,) PPV 数组(m/s)，来自 ppv_field_3d
-    :param thresholds: (4,) 分区上界阈值(cm/s)，默认 (5,15,30,50)
+    :param ppv: (N,) PPV 数组(m/s)
+    :param thresholds: (4,) 分区上界阈值(cm/s)，默认 DAMAGE_THRESHOLDS_CMPS
     :return: (N,) int8 数组，取值 0~4，对应 DAMAGE_ZONE_LABELS
     """
     ppv = np.asarray(ppv, dtype=np.float32)
@@ -449,6 +623,99 @@ def damage_zone_classify(ppv: np.ndarray,
     # np.digitize: 返回 0(<bins[0]), 1([bins0,bins1)), ..., len(bins)(>=bins[-1])
     zones = np.digitize(ppv_cmps, bins).astype(np.int8)
     return zones
+
+
+def tunnel_void_mask(grid_xyz: np.ndarray,
+                     tunnel_width: float = 18.0,
+                     tunnel_height: float = 15.0,
+                     face_axis: str = 'z',
+                     face_pos: float = 0.0) -> np.ndarray:
+    """生成隧道已开挖空腔掩码（自由面/临空面所在空洞）
+
+    爆破发生在掌子面（新临空面），已开挖隧道空腔沿轴向向"已采侧"延伸。为体现
+    "隧道不是透明贴图、波场/应力/损伤不进入已开挖空腔"，把位于空腔范围内的网格点
+    标记为 1（该处无岩体、无损伤、场值置 0）。
+
+    网格局部坐标约定与 build_ppv_grid 一致：X=宽度，Y=高度，Z=轴向（前方为正）。
+    坐标 face_axis=沿着轴向的轴，face_pos=掌子面位置；空腔位于 face_pos 之后
+    （朝已开挖侧）。隧道断面简化为矩形 w×h（拱形隧道用宽度等效）。
+
+    :param grid_xyz: (N,3) 网格点坐标
+    :param tunnel_width: 隧道宽度(m)
+    :param tunnel_height: 隧道高度(m)
+    :param face_axis: 轴向轴名 'x'|'y'|'z'
+    :param face_pos: 掌子面在该轴上的坐标（空腔位于该轴减小方向）
+    :return: (N,) bool 掩码，True=位于空腔内
+    """
+    g = np.asarray(grid_xyz, dtype=np.float64)
+    x, y, z = g[:, 0], g[:, 1], g[:, 2]
+    hw, hh = tunnel_width * 0.5, tunnel_height * 0.5
+    # 断面内：|横坐标| ≤ 半宽、竖直坐标居中 ± 半高（隧道竖直范围近似对称于 Y=0）
+    in_face = (
+        (np.abs(x) <= hw) &
+        (np.abs(y) <= hh)
+    )
+    if face_axis == 'x':
+        toward_void = z < face_pos
+    elif face_axis == 'y':
+        toward_void = x < face_pos
+    else:
+        toward_void = z < face_pos
+    return in_face & toward_void
+
+
+def damage_zone_field(grid_xyz: np.ndarray,
+                      peak_ppv_mps: np.ndarray,
+                      sources: Optional[List[dict]] = None,
+                      blast_center: Optional[tuple] = None,
+                      thresholds: tuple = DAMAGE_THRESHOLDS_CMPS,
+                      max_radius: float = DAMAGE_MAX_RADIUS,
+                      atten_tau: float = DAMAGE_ATTEN_TAU,
+                      void_mask: Optional[np.ndarray] = None) -> np.ndarray:
+    """带空间约束的损伤分区（P0-2：把损伤收束到隧道临空面附近）。
+
+    解析近场用萨道夫斯基经验公式本身不适用（R→0 发散、无爆腔膨胀项），故在此对
+    所需最大损伤半径做硬约束 + 平滑深度衰减，使损伤只沿隧道轮廓向外发展 5~10m，
+    而非等向铺满整个计算域的红圆：
+
+      1. 距最近爆源距离 r → 深度衰减系数 g(r)：r ≤ (max_radius−atten_tau) 内为 1，
+     (max_radius−atten_tau)→max_radius 线性过渡到 0，r ≥ max_radius 后为 0
+     ——max_radius 为**硬上限**（恰在 max_radius 处归零），超程一律 elastic。
+       等效于把"参与损伤分区的有效 PPV"乘 g：越往外档位越低，超程归 elastic。
+      2. 叠加隧道空腔掩码：空腔（已开挖洞身）内无岩体 → 一律归 0（elastic）。
+      3. 复用升级后的 Persson 阈值分区（damage_zone_classify）。
+
+    :param grid_xyz: (N,3) 网格点坐标
+    :param peak_ppv_mps: (N,) 各点经历的最大 PPV(m/s)（或瞬时场，平坦化自理）
+    :param sources: 爆源列表 [{pos, charge_kg, ...}]，缺省用 blast_center
+    :param blast_center: 单爆心 (x,y,z)，sources 缺省时的爆源
+    :param thresholds: (4,) PPV 阈值(cm/s)
+    :param max_radius: 损伤区最大计算半径(m)（硬上限，恰在此处衰减到 0）
+    :param atten_tau: 超过 (max_radius−atten_tau) 后平滑衰减到 0 的过渡宽度(m)
+    :param void_mask: (N,) bool 隧道空腔掩码（可选）
+    :return: (N,) int8 分区数组（同 damage_zone_classify）
+    """
+    g = np.asarray(grid_xyz, dtype=np.float64)
+    ppv = np.asarray(peak_ppv_mps, dtype=np.float32).reshape(-1)
+    n = g.shape[0]
+    # 最近爆源距离 → 深度衰减系数（缺省无爆源约束时衰减系数恒为 1）
+    if max_radius is not None and max_radius > 0:
+        dmin = np.full(n, np.inf, dtype=np.float64)
+        src_list = sources if sources else ([{'pos': list(blast_center)}] if blast_center is not None else [])
+        for s in src_list:
+            pos = np.asarray(s.get('pos', [0.0, 0.0, 0.0]), dtype=np.float64).reshape(1, 3)
+            dmin = np.minimum(dmin, np.linalg.norm(g - pos, axis=1))
+        g_r = np.where(np.isfinite(dmin), dmin, 0.0)
+        tau = max(float(atten_tau), 1e-6)
+        # 硬上限衰减：r ≤ (radius−tau) 为 1；→ radius 线性归 0；r ≥ radius 为 0
+        atten = np.clip((max_radius - g_r) / tau, 0.0, 1.0).astype(np.float64)
+    else:
+        atten = np.ones(n, dtype=np.float64)
+    ppv_eff = ppv * atten
+    if void_mask is not None:
+        ppv_eff = np.where(np.asarray(void_mask, dtype=bool), 0.0, ppv_eff)
+    # 空腔/无效点（peak=0 或衰减=0）经 digitize 后自动落入 elastic 档
+    return damage_zone_classify(ppv_eff, thresholds)
 
 
 def _webgl_flatten_3d(field: np.ndarray, grid_shape: tuple) -> np.ndarray:
@@ -579,6 +846,162 @@ class JWLBlastSource:
         return self.peak_pressure * np.exp(-t / max(tau, 1e-9))
 
 
+if _HAS_NUMBA:
+    @njit(nogil=True, cache=True, fastmath=True, parallel=True)
+    def _fdtd_step_numba(vx, vy, vz,
+                         sxx, syy, szz, sxy, sxz, syz,
+                         damp,
+                         ax, ay, az,               # 复用 scratch（加速度）
+                         inj, delay, p0, tau,      # inj:(nsrc,nx,ny,nz) f32
+                         lam, mu, rho, dt, h, qv,
+                         n_sub, t_start):
+        """推进 n_sub 个子步（原地修改状态场），返回最终 sim_time。
+
+        数值逻辑与 ElasticWaveFDTD3D 原 Python/NumPy 实现逐项等价：
+        中心差分仅内部点非 0（边界视为 0），速度读旧场做人工粘性后再更新，
+        应力读阻尼后速度，源注入先于应力海绵阻尼。标量源系数用 float64 算 exp。
+        """
+        nx, ny, nz = vx.shape
+        nsrc = inj.shape[0]
+        inv2h = 1.0 / (2.0 * h)
+        inv_rho = 1.0 / rho
+        qvh2 = qv / (h * h)
+        t = t_start
+        coef = np.empty(nsrc, np.float64)
+        for _sub in range(n_sub):
+            # 多源注入系数（随当前 t 指数衰减；delay 未到置 0）
+            for s in range(nsrc):
+                lt = t - delay[s]
+                if lt < 0.0:
+                    coef[s] = 0.0
+                else:
+                    coef[s] = dt * p0[s] * math.exp(-lt / tau[s])
+            # pass A1：三向加速度 = div(σ)/ρ + qv·∇²v/ρ 等价式（读旧 v/σ）
+            for i in prange(nx):
+                for j in range(ny):
+                    for k in range(nz):
+                        # x 分量
+                        dv = 0.0
+                        if i > 0 and i < nx - 1:
+                            dv += sxx[i + 1, j, k] - sxx[i - 1, j, k]
+                        if j > 0 and j < ny - 1:
+                            dv += sxy[i, j + 1, k] - sxy[i, j - 1, k]
+                        if k > 0 and k < nz - 1:
+                            dv += sxz[i, j, k + 1] - sxz[i, j, k - 1]
+                        lap = 0.0
+                        if i > 0 and i < nx - 1:
+                            lap += vx[i + 1, j, k] - 2.0 * vx[i, j, k] + vx[i - 1, j, k]
+                        if j > 0 and j < ny - 1:
+                            lap += vx[i, j + 1, k] - 2.0 * vx[i, j, k] + vx[i, j - 1, k]
+                        if k > 0 and k < nz - 1:
+                            lap += vx[i, j, k + 1] - 2.0 * vx[i, j, k] + vx[i, j, k - 1]
+                        ax[i, j, k] = dv * inv2h * inv_rho + lap * qvh2
+                        # y 分量
+                        dv = 0.0
+                        if i > 0 and i < nx - 1:
+                            dv += sxy[i + 1, j, k] - sxy[i - 1, j, k]
+                        if j > 0 and j < ny - 1:
+                            dv += syy[i, j + 1, k] - syy[i, j - 1, k]
+                        if k > 0 and k < nz - 1:
+                            dv += syz[i, j, k + 1] - syz[i, j, k - 1]
+                        lap = 0.0
+                        if i > 0 and i < nx - 1:
+                            lap += vy[i + 1, j, k] - 2.0 * vy[i, j, k] + vy[i - 1, j, k]
+                        if j > 0 and j < ny - 1:
+                            lap += vy[i, j + 1, k] - 2.0 * vy[i, j, k] + vy[i, j - 1, k]
+                        if k > 0 and k < nz - 1:
+                            lap += vy[i, j, k + 1] - 2.0 * vy[i, j, k] + vy[i, j, k - 1]
+                        ay[i, j, k] = dv * inv2h * inv_rho + lap * qvh2
+                        # z 分量
+                        dv = 0.0
+                        if i > 0 and i < nx - 1:
+                            dv += sxz[i + 1, j, k] - sxz[i - 1, j, k]
+                        if j > 0 and j < ny - 1:
+                            dv += syz[i, j + 1, k] - syz[i, j - 1, k]
+                        if k > 0 and k < nz - 1:
+                            dv += szz[i, j, k + 1] - szz[i, j, k - 1]
+                        lap = 0.0
+                        if i > 0 and i < nx - 1:
+                            lap += vz[i + 1, j, k] - 2.0 * vz[i, j, k] + vz[i - 1, j, k]
+                        if j > 0 and j < ny - 1:
+                            lap += vz[i, j + 1, k] - 2.0 * vz[i, j, k] + vz[i, j - 1, k]
+                        if k > 0 and k < nz - 1:
+                            lap += vz[i, j, k + 1] - 2.0 * vz[i, j, k] + vz[i, j, k - 1]
+                        az[i, j, k] = dv * inv2h * inv_rho + lap * qvh2
+            # pass A2：应用速度更新 + 海绵吸收层阻尼
+            for i in prange(nx):
+                for j in range(ny):
+                    for k in range(nz):
+                        d = damp[i, j, k]
+                        vx[i, j, k] = (vx[i, j, k] + dt * ax[i, j, k]) * d
+                        vy[i, j, k] = (vy[i, j, k] + dt * ay[i, j, k]) * d
+                        vz[i, j, k] = (vz[i, j, k] + dt * az[i, j, k]) * d
+            # pass B：应变率→应力 + 源注入 + 海绵阻尼（读阻尼后速度）
+            for i in prange(nx):
+                for j in range(ny):
+                    for k in range(nz):
+                        exx = 0.0
+                        if i > 0 and i < nx - 1:
+                            exx += (vx[i + 1, j, k] - vx[i - 1, j, k]) * inv2h
+                        eyy = 0.0
+                        if j > 0 and j < ny - 1:
+                            eyy += (vy[i, j + 1, k] - vy[i, j - 1, k]) * inv2h
+                        ezz = 0.0
+                        if k > 0 and k < nz - 1:
+                            ezz += (vz[i, j, k + 1] - vz[i, j, k - 1]) * inv2h
+                        tr = exx + eyy + ezz
+                        # 该胞元受所有已起爆源的压应力叠加
+                        src = 0.0
+                        for s in range(nsrc):
+                            src += coef[s] * inj[s, i, j, k]
+                        d = damp[i, j, k]
+                        sxx[i, j, k] = (sxx[i, j, k] + dt * (lam * tr + 2.0 * mu * exx) - src) * d
+                        syy[i, j, k] = (syy[i, j, k] + dt * (lam * tr + 2.0 * mu * eyy) - src) * d
+                        szz[i, j, k] = (szz[i, j, k] + dt * (lam * tr + 2.0 * mu * ezz) - src) * d
+                        # 剪应力：sxy=μ(dvy/dx+dvx/dy) 等
+                        exy = 0.0
+                        if i > 0 and i < nx - 1:
+                            exy += (vy[i + 1, j, k] - vy[i - 1, j, k]) * inv2h
+                        if j > 0 and j < ny - 1:
+                            exy += (vx[i, j + 1, k] - vx[i, j - 1, k]) * inv2h
+                        sxy[i, j, k] = (sxy[i, j, k] + dt * mu * exy) * d
+                        exz = 0.0
+                        if i > 0 and i < nx - 1:
+                            exz += (vz[i + 1, j, k] - vz[i - 1, j, k]) * inv2h
+                        if k > 0 and k < nz - 1:
+                            exz += (vx[i, j, k + 1] - vx[i, j, k - 1]) * inv2h
+                        sxz[i, j, k] = (sxz[i, j, k] + dt * mu * exz) * d
+                        eyz = 0.0
+                        if j > 0 and j < ny - 1:
+                            eyz += (vz[i, j + 1, k] - vz[i, j - 1, k]) * inv2h
+                        if k > 0 and k < nz - 1:
+                            eyz += (vy[i, j, k + 1] - vy[i, j, k - 1]) * inv2h
+                        syz[i, j, k] = (syz[i, j, k] + dt * mu * eyz) * d
+            t += dt
+        return t
+
+
+def _ensure_numba_warm():
+    """进程内首次以微型形状触发内核编译（cache=True，避免流式首帧卡编译）"""
+    global _NJT_WARMED
+    if not _HAS_NUMBA or _NJT_WARMED:
+        return
+    _NJT_WARMED = True
+    try:
+        n = 4
+        z = np.zeros((n, n, n), np.float32)
+        o = np.ones((n, n, n), np.float32)
+        inj = np.zeros((1, n, n, n), np.float32)
+        z1 = np.zeros((1,), np.float64)
+        o1 = np.ones((1,), np.float64)
+        _fdtd_step_numba(z, z, z, z, z, z, z, z, z,
+                         o, z, z, z, inj, z1, o1, o1,
+                         1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                         0, 0.0)
+    except Exception:  # 预热失败不影响后续（走 numpy 回退或下次再编译）
+        pass
+
+
 class ElasticWaveFDTD3D:
     """3D 弹性波同位网格简化求解器（co-located grid FDTD）
 
@@ -706,6 +1129,38 @@ class ElasticWaveFDTD3D:
         self.cavity_mask = self._multi_sources[0]['mask']
         self._src_scale = self._multi_sources[0]['src_scale']
 
+        # 数值内核加速（numba）预合成源注入：逐源 mask·src_scale 堆叠 + 各源
+        # delay/峰值压力/特征时间并行数组；内核按当前 t 指数衰减逐源注入。
+        # （纯 NumPy 回退仍遍历 self._multi_sources 原样计算，二者数值等价）
+        if _HAS_NUMBA:
+            nsrc = len(self._multi_sources)
+            inj = np.zeros((nsrc, self.nx, self.ny, self.nz), dtype=np.float32)
+            delay = np.zeros((nsrc,), dtype=np.float64)
+            p0 = np.zeros((nsrc,), dtype=np.float64)
+            tau = np.zeros((nsrc,), dtype=np.float64)
+            for s_i, m in enumerate(self._multi_sources):
+                inj[s_i] = m['mask'] * m['src_scale']
+                delay[s_i] = m['delay']
+                p0[s_i] = m['source'].peak_pressure
+                tau[s_i] = m['source'].characteristic_time(self.cp)
+            self._src_inj = np.ascontiguousarray(inj)
+            self._src_delay = np.ascontiguousarray(delay)
+            self._src_p0 = np.ascontiguousarray(p0)
+            self._src_tau = np.ascontiguousarray(tau)
+            # numba 内核复用 scratch（三向加速度），避免每子步分配
+            self._k_ax = np.empty((self.nx, self.ny, self.nz), dtype=np.float32)
+            self._k_ay = np.empty((self.nx, self.ny, self.nz), dtype=np.float32)
+            self._k_az = np.empty((self.nx, self.ny, self.nz), dtype=np.float32)
+        else:
+            self._src_inj = None
+            self._src_delay = None
+            self._src_p0 = None
+            self._src_tau = None
+            self._k_ax = None
+            self._k_ay = None
+            self._k_az = None
+        self._np_buf = None
+
         # 阻尼吸收层（简化海绵层）
         self.damp = self._build_damping_field(n_pml)
 
@@ -744,36 +1199,114 @@ class ElasticWaveFDTD3D:
             damp[:, :, -(i + 1)] = np.minimum(damp[:, :, -(i + 1)], factor)
         return damp
 
-    def _dx(self, f: np.ndarray) -> np.ndarray:
-        """∂f/∂x，2 阶中心差分，边界 0 填充"""
-        out = np.zeros_like(f)
-        out[1:-1, :, :] = (f[2:, :, :] - f[:-2, :, :]) / (2.0 * self.h)
-        return out
+    def _step_numpy(self, n_substeps: int = 1):
+        """纯 NumPy 推进（无 numba 环境回退），数值与 _fdtd_step_numba 等价。
 
-    def _dy(self, f: np.ndarray) -> np.ndarray:
-        out = np.zeros_like(f)
-        out[:, 1:-1, :] = (f[:, 2:, :] - f[:, :-2, :]) / (2.0 * self.h)
-        return out
-
-    def _dz(self, f: np.ndarray) -> np.ndarray:
-        out = np.zeros_like(f)
-        out[:, :, 1:-1] = (f[:, :, 2:] - f[:, :, :-2]) / (2.0 * self.h)
-        return out
-
-    def _artificial_viscosity(self, f: np.ndarray, axis: int) -> np.ndarray:
-        """二阶扩散平滑（Laplacian smoothing）：用于抑制同位网格的奇偶解耦合倾向
-
-        对速度场施加二阶扩散项 κ·∇²v（拉普拉斯平滑，作为人工粘性的简化近似）。
+        相比逐子步 zeros_like 的早期实现，预分配缓冲并按子步原位复用，
+        消除每子步约 30 次整数组分配。该路径仅在 numba 不可用时启用。
         """
-        # 简化：对场施加拉普拉斯平滑（等价于人工粘性扩散）
-        lap = np.zeros_like(f)
-        if axis == 0:
-            lap[1:-1, :, :] = (f[2:, :, :] - 2 * f[1:-1, :, :] + f[:-2, :, :])
-        elif axis == 1:
-            lap[:, 1:-1, :] = (f[:, 2:, :] - 2 * f[:, 1:-1, :] + f[:, :-2, :])
-        else:
-            lap[:, :, 1:-1] = (f[:, :, 2:] - 2 * f[:, :, 1:-1] + f[:, :, :-2])
-        return lap
+        q_visc = 0.02
+        if self._np_buf is None:
+            shp = self.vx.shape
+            mk = lambda: np.zeros(shp, dtype=np.float32)
+            self._np_buf = {
+                'ax': mk(), 'ay': mk(), 'az': mk(), 'lap': mk(),
+                'exx': mk(), 'eyy': mk(), 'ezz': mk(), 'tr': mk(), 'sh': mk(),
+            }
+        b = self._np_buf
+        ax, ay, az, lap = b['ax'], b['ay'], b['az'], b['lap']
+        exx, eyy, ezz, tr, sh = b['exx'], b['eyy'], b['ezz'], b['tr'], b['sh']
+        dt, rho = self.dt, self.rho
+        lam, mu, h = self.lam, self.mu, self.h
+        inv2h = 1.0 / (2.0 * h)
+        inv_rho = 1.0 / rho
+        qvh2 = q_visc / (h * h)
+        damp = self.damp
+        vx, vy, vz = self.vx, self.vy, self.vz
+        sxx, syy, szz = self.sxx, self.syy, self.szz
+        sxy, sxz, syz = self.sxy, self.sxz, self.syz
+        sources = self._multi_sources
+        cp = self.cp
+
+        for _ in range(n_substeps):
+            t = self.sim_time
+            # 1) 速度加速度（σ 散度 + 旧 v 人工粘性 Laplacian），写入 scratch
+            ax[:] = 0.0
+            ax[1:-1, :, :] = sxx[2:, :, :] - sxx[:-2, :, :]
+            ax[:, 1:-1, :] += sxy[:, 2:, :] - sxy[:, :-2, :]
+            ax[:, :, 1:-1] += sxz[:, :, 2:] - sxz[:, :, :-2]
+            lap[:] = 0.0
+            lap[1:-1, :, :] = vx[2:, :, :] - 2.0 * vx[1:-1, :, :] + vx[:-2, :, :]
+            lap[:, 1:-1, :] += vx[:, 2:, :] - 2.0 * vx[:, 1:-1, :] + vx[:, :-2, :]
+            lap[:, :, 1:-1] += vx[:, :, 2:] - 2.0 * vx[:, :, 1:-1] + vx[:, :, :-2]
+            ax *= inv2h * inv_rho
+            ax += lap * qvh2
+            vx += dt * ax
+            vx *= damp
+            ay[:] = 0.0
+            ay[1:-1, :, :] = sxy[2:, :, :] - sxy[:-2, :, :]
+            ay[:, 1:-1, :] += syy[:, 2:, :] - syy[:, :-2, :]
+            ay[:, :, 1:-1] += syz[:, :, 2:] - syz[:, :, :-2]
+            lap[:] = 0.0
+            lap[1:-1, :, :] = vy[2:, :, :] - 2.0 * vy[1:-1, :, :] + vy[:-2, :, :]
+            lap[:, 1:-1, :] += vy[:, 2:, :] - 2.0 * vy[:, 1:-1, :] + vy[:, :-2, :]
+            lap[:, :, 1:-1] += vy[:, :, 2:] - 2.0 * vy[:, :, 1:-1] + vy[:, :, :-2]
+            ay *= inv2h * inv_rho
+            ay += lap * qvh2
+            vy += dt * ay
+            vy *= damp
+            az[:] = 0.0
+            az[1:-1, :, :] = sxz[2:, :, :] - sxz[:-2, :, :]
+            az[:, 1:-1, :] += syz[:, 2:, :] - syz[:, :-2, :]
+            az[:, :, 1:-1] += szz[:, :, 2:] - szz[:, :, :-2]
+            lap[:] = 0.0
+            lap[1:-1, :, :] = vz[2:, :, :] - 2.0 * vz[1:-1, :, :] + vz[:-2, :, :]
+            lap[:, 1:-1, :] += vz[:, 2:, :] - 2.0 * vz[:, 1:-1, :] + vz[:, :-2, :]
+            lap[:, :, 1:-1] += vz[:, :, 2:] - 2.0 * vz[:, :, 1:-1] + vz[:, :, :-2]
+            az *= inv2h * inv_rho
+            az += lap * qvh2
+            vz += dt * az
+            vz *= damp
+
+            # 2) 应变率→应力 + 爆腔源 + 海绵阻尼（读阻尼后速度）
+            exx[:] = 0.0
+            exx[1:-1, :, :] = (vx[2:, :, :] - vx[:-2, :, :]) * inv2h
+            eyy[:] = 0.0
+            eyy[:, 1:-1, :] = (vy[:, 2:, :] - vy[:, :-2, :]) * inv2h
+            ezz[:] = 0.0
+            ezz[:, :, 1:-1] = (vz[:, :, 2:] - vz[:, :, :-2]) * inv2h
+            tr[:] = exx + eyy + ezz
+            sxx += dt * (lam * tr + 2.0 * mu * exx)
+            syy += dt * (lam * tr + 2.0 * mu * eyy)
+            szz += dt * (lam * tr + 2.0 * mu * ezz)
+            for s_src in sources:
+                local_t = t - s_src['delay']
+                if local_t < 0.0:
+                    continue
+                p_src = s_src['source'].pressure_at(local_t, cp)
+                src_term = dt * p_src * s_src['mask'] * s_src['src_scale']
+                sxx -= src_term
+                syy -= src_term
+                szz -= src_term
+            sh[:] = 0.0
+            sh[1:-1, :, :] = (vy[2:, :, :] - vy[:-2, :, :]) * inv2h       # dvy/dx
+            sh[:, 1:-1, :] += (vx[:, 2:, :] - vx[:, :-2, :]) * inv2h      # dvx/dy
+            sxy += dt * mu * sh
+            sh[:] = 0.0
+            sh[1:-1, :, :] = (vz[2:, :, :] - vz[:-2, :, :]) * inv2h       # dvz/dx
+            sh[:, :, 1:-1] += (vx[:, :, 2:] - vx[:, :, :-2]) * inv2h      # dvx/dz
+            sxz += dt * mu * sh
+            sh[:] = 0.0
+            sh[:, 1:-1, :] = (vz[:, 2:, :] - vz[:, :-2, :]) * inv2h       # dvz/dy
+            sh[:, :, 1:-1] += (vy[:, :, 2:] - vy[:, :, :-2]) * inv2h      # dvy/dz
+            syz += dt * mu * sh
+            sxx *= damp
+            syy *= damp
+            szz *= damp
+            sxy *= damp
+            sxz *= damp
+            syz *= damp
+            self.sim_time += dt
 
     def step(self, n_substeps: int = 1):
         """推进 n_substeps 个 FDTD 子步
@@ -783,79 +1316,22 @@ class ElasticWaveFDTD3D:
           2. 应力更新：σ += dt · (λ·tr(ε̇)·I + 2μ·ε̇)
           3. 爆腔源：σxx/σyy/σzz -= dt · P(t) · cavity_mask（压应力）
           4. 人工粘性 + 海绵吸收层阻尼
+
+        numba 可用时走 _fdtd_step_numba 编译内核（等价逻辑、C 级单循环），
+        否则回退 _step_numpy（复用缓冲的纯 NumPy 路径）。
         """
-        dt = self.dt
-        rho = self.rho
-        lam, mu = self.lam, self.mu
-        h = self.h
-        # 二阶扩散平滑（等同于拉普拉斯算子，作为人工粘性的简化近似）
-        q_visc = 0.02
-
-        for _ in range(n_substeps):
-            t = self.sim_time
-            # 1. 速度更新：ρ·∂vi/∂t = ∂σij/∂xj
-            dvx = (self._dx(self.sxx) + self._dy(self.sxy) + self._dz(self.sxz)) / rho
-            dvy = (self._dx(self.sxy) + self._dy(self.syy) + self._dz(self.syz)) / rho
-            dvz = (self._dx(self.sxz) + self._dy(self.syz) + self._dz(self.szz)) / rho
-            # 人工粘性（扩散项）
-            dvx += q_visc * (self._artificial_viscosity(self.vx, 0) +
-                             self._artificial_viscosity(self.vx, 1) +
-                             self._artificial_viscosity(self.vx, 2)) / (h * h)
-            dvy += q_visc * (self._artificial_viscosity(self.vy, 0) +
-                             self._artificial_viscosity(self.vy, 1) +
-                             self._artificial_viscosity(self.vy, 2)) / (h * h)
-            dvz += q_visc * (self._artificial_viscosity(self.vz, 0) +
-                             self._artificial_viscosity(self.vz, 1) +
-                             self._artificial_viscosity(self.vz, 2)) / (h * h)
-
-            self.vx += dt * dvx
-            self.vy += dt * dvy
-            self.vz += dt * dvz
-
-            # 海绵吸收层阻尼（施加在速度上）
-            self.vx *= self.damp
-            self.vy *= self.damp
-            self.vz *= self.damp
-
-            # 2. 应变率 → 应力更新
-            #   ε̇xx = ∂vx/∂x, ε̇yy = ∂vy/∂y, ε̇zz = ∂vz/∂z
-            #   tr(ε̇) = ε̇xx + ε̇yy + ε̇zz
-            #   σ̇ij = λ·δij·tr(ε̇) + 2μ·ε̇ij
-            exx = self._dx(self.vx)
-            eyy = self._dy(self.vy)
-            ezz = self._dz(self.vz)
-            tr = exx + eyy + ezz
-            # 剪应变率：ε̇xy = (∂vx/∂y + ∂vy/∂x)/2，应力 σ̇xy = 2μ·ε̇xy = μ·(∂vx/∂y+∂vy/∂x)
-            self.sxx += dt * (lam * tr + 2.0 * mu * exx)
-            self.syy += dt * (lam * tr + 2.0 * mu * eyy)
-            self.szz += dt * (lam * tr + 2.0 * mu * ezz)
-            self.sxy += dt * mu * (self._dy(self.vx) + self._dx(self.vy))
-            self.sxz += dt * mu * (self._dz(self.vx) + self._dx(self.vz))
-            self.syz += dt * mu * (self._dz(self.vy) + self._dy(self.vz))
-
-            # 3. 爆腔源：在各源腔体区域施加各向同性压应力 P(t - delay)（多源延迟起爆）
-            #    σij -= dt · Σ_s P_s(t-delay_s) · δij · mask_s · src_scale_s
-            #    每源按各自 delay 独立起爆：未到延时者跳过（H(t-delay) 门控），
-            #    已起爆源在腔体其余位置持续注入，多源球面波在岩体内叠加干涉。
-            for s_src in self._multi_sources:
-                local_t = t - s_src['delay']
-                if local_t < 0.0:
-                    continue
-                p_src = s_src['source'].pressure_at(local_t, self.cp)
-                src_term = dt * p_src * s_src['mask'] * s_src['src_scale']
-                self.sxx -= src_term
-                self.syy -= src_term
-                self.szz -= src_term
-
-            # 海绵吸收层阻尼（施加在应力上）
-            self.sxx *= self.damp
-            self.syy *= self.damp
-            self.szz *= self.damp
-            self.sxy *= self.damp
-            self.sxz *= self.damp
-            self.syz *= self.damp
-
-            self.sim_time += dt
+        if _HAS_NUMBA and self._src_inj is not None:
+            self.sim_time = _fdtd_step_numba(
+                self.vx, self.vy, self.vz,
+                self.sxx, self.syy, self.szz, self.sxy, self.sxz, self.syz,
+                self.damp,
+                self._k_ax, self._k_ay, self._k_az,
+                self._src_inj, self._src_delay, self._src_p0, self._src_tau,
+                self.lam, self.mu, self.rho, self.dt, self.h, 0.02,
+                n_substeps, self.sim_time,
+            )
+        else:
+            self._step_numpy(n_substeps)
 
     def get_ppv(self) -> np.ndarray:
         """当前时刻 PPV = √(vx²+vy²+vz²)，单位 m/s"""
@@ -963,10 +1439,14 @@ def make_fdtd_engine(grid_xyz: np.ndarray, grid_shape: tuple,
                 'delay': float(s.get('delay_ms') or s.get('delayMs') or 0) / 1000.0,
             })
         if jwl_sources:
-            return ElasticWaveFDTD3D(grid_xyz, bounds_min, bounds_max, grid_shape,
-                                     jwl_sources[0]['source'], rock,
-                                     blast_center=blast_center, sources=jwl_sources)
+            engine = ElasticWaveFDTD3D(grid_xyz, bounds_min, bounds_max, grid_shape,
+                                       jwl_sources[0]['source'], rock,
+                                       blast_center=blast_center, sources=jwl_sources)
+            _ensure_numba_warm()
+            return engine
     source = JWLBlastSource(charge_kg, explosive_type)
-    return ElasticWaveFDTD3D(grid_xyz, bounds_min, bounds_max, grid_shape, source, rock,
-                             blast_center=blast_center)
+    engine = ElasticWaveFDTD3D(grid_xyz, bounds_min, bounds_max, grid_shape, source, rock,
+                               blast_center=blast_center)
+    _ensure_numba_warm()
+    return engine
 

@@ -13,7 +13,7 @@
  */
 
 import RAPIER from '@dimforge/rapier3d-compat'
-import { DEFAULT_RESTITUTION, DEFAULT_FRICTION } from '../blastDefaults.js'
+import { DEFAULT_RESTITUTION, DEFAULT_FRICTION, REST_SPEED } from '../blastDefaults.js'
 
 // ─── 物理常量（与 blastPhysicsEngine.js 一致）──────────
 const GRAVITY = 9.8
@@ -555,6 +555,33 @@ export class RapierPhysicsEngine {
       if (b.flags & FLAG_LANDED) c++
     }
     return c
+  }
+
+  /**
+   * 静止质量比（动画"抛掷结束"判据，质量加权，0~1）。
+   *
+   * 与 getEnergyStats().settledMassRatio 的区别：后者只认 FLAG_LANDED，而
+   * "落地/冻结"要求低速持续若干帧且有支撑——少数贴合不良或反复受扰被唤醒的
+   * 边角石可能长期不置位，使比值卡在平台期，"99% 碎片落地"这类计数判据
+   * 永不达成 → 回放时长回退到硬上限（时间条虚长数倍）。本口径以速度为准，
+   * 天然收敛到 1。与 BlastPhysicsEngine.restMassRatio 同口径。
+   * @returns {number} 静止质量占比 0~1
+   */
+  get restMassRatio() {
+    let restMass = 0
+    let totalMass = 0
+    for (const b of this._fragmentBodies) {
+      if (!(b.flags & FLAG_ALIVE)) continue
+      totalMass += b.mass
+      if (b.flags & FLAG_LANDED) {
+        restMass += b.mass
+        continue
+      }
+      const vel = b.rigidBody.linvel()
+      const v2 = vel.x * vel.x + vel.y * vel.y + vel.z * vel.z
+      if (v2 <= REST_SPEED * REST_SPEED) restMass += b.mass
+    }
+    return totalMass > 0 ? restMass / totalMass : 0
   }
 
   /**

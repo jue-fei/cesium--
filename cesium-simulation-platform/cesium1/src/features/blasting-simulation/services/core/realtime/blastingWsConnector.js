@@ -51,7 +51,8 @@ const PPV_HEADER_BYTES = 45
 export const CommandType = {
   START: 'start',
   STOP: 'stop',
-  PING: 'ping'
+  PING: 'ping',
+  SEEK: 'seek'
 }
 
 export class BlastingWsConnector {
@@ -361,6 +362,7 @@ export class BlastingWsConnector {
    * @param {Object} [opts.rockParams] - 岩体参数 {density,pWaveSpeed,sWaveSpeed,...}（可选）
    * @param {number} [opts.k] - 萨道夫斯基场地常数（可选，默认 30）
    * @param {number} [opts.alpha] - 萨道夫斯基衰减指数（可选，默认 1.5）
+   * @param {number} [opts.carrierHz] - 干涉子波载波频率 Hz（可选，0=关，默认 8Hz 开启）
    */
   startStream(duration, timestep, holes, opts = {}) {
     const payload = { type: CommandType.START, duration, timestep, holes }
@@ -378,14 +380,41 @@ export class BlastingWsConnector {
     // 萨道夫斯基 K/α 参数（未提供时后端默认 K=30、α=1.5）
     if (opts.k !== undefined) payload.k = Number(opts.k)
     if (opts.alpha !== undefined) payload.alpha = Number(opts.alpha)
+    // 干涉子波载波频率（后端据此对萨道夫斯基场叠加振荡相位，多孔干涉显形）
+    if (opts.carrierHz !== undefined) payload.carrierHz = Number(opts.carrierHz)
     // 多装药源（各炮孔装药段位置/药量/延时）：后端据此做多应力波矢量叠加（非单一同心圆）
     if (Array.isArray(opts.sources)) payload.sources = opts.sources
+    // 损伤边界可调参数（P0-1/P0-2）：传播包络半径 + 损伤硬上限（m），后端据此收束场
+    if (opts.influenceRadius !== undefined) payload.influenceRadius = Number(opts.influenceRadius)
+    if (opts.damageMaxRadius !== undefined) payload.damageMaxRadius = Number(opts.damageMaxRadius)
+    this.send(payload)
+  }
+
+  /**
+   * 【实时生效】推流进行中热更新场参数（损伤/包络半径），无需重启后端。
+   * 后端收到后重算确定性峰值包络（influence_radius 参与）并推送当前时刻校正帧。
+   * @param {Object} opts - { influenceRadius, damageMaxRadius }
+   */
+  updateFieldParams(opts = {}) {
+    const payload = { type: 'setFieldParams' }
+    if (opts.influenceRadius !== undefined) payload.influenceRadius = Number(opts.influenceRadius)
+    if (opts.damageMaxRadius !== undefined) payload.damageMaxRadius = Number(opts.damageMaxRadius)
+    if (opts.carrierHz !== undefined) payload.carrierHz = Number(opts.carrierHz)
     this.send(payload)
   }
 
   /** 停止模拟推送 */
   stopStream() {
     this.send({ type: CommandType.STOP })
+  }
+
+  /**
+   * 请求后端复位模拟游标到指定帧（拖进度条/jump 跳变用）。
+   * 后端据此重置 peak_ppv 并从 0..target 重算累积峰值，避免未来帧峰值提前暴露。
+   * @param {number} frame - 目标帧号
+   */
+  sendSeek(frame) {
+    this.send({ type: CommandType.SEEK, frame: Math.max(0, Math.round(frame)) })
   }
 
   _startHeartbeat() {

@@ -14,6 +14,7 @@ import { DEFAULT_KCO_PARAMS } from './core/computation/kcoModelCore.js'
 import { DEFAULT_FRAGMENT_RENDER_LIMIT } from './core/blastDefaults.js'
 import { BlastingWsConnector, FrameType } from './core/realtime/blastingWsConnector.js'
 import useMessage from '@/composables/useMessage.js'
+import { blastingSceneTools } from '@/services/fusion/blastingSceneTools.js'
 
 // 本地定义默认播放速度（原 blastingDataCore 已移除）
 const DEFAULT_PLAYBACK_SPEED_MS = 50
@@ -33,6 +34,31 @@ let blastingManager = null
 let playbackTimer = null
 let blastingWs = null
 let pendingWsDataset = null
+let lastWsSeekFrame = -1
+// ─── Seek Lock（拖动进度条期间的帧守卫）────────────────
+// "拖动后糊成色块"的来源之一：seek 请求发出后，后端在**旧游标**位置继续推送的
+// 若干帧会先于目标帧到达，与目标帧/残留纹理混写。这里维护一把锁：seek 生效
+// 期间丢弃非目标帧，直到目标帧的三场切片到达（或超时兜底）再解锁渲染。
+let seekLockFrame = null
+let seekLockDropped = 0
+// 超时兜底：后端对 seek 目标帧号有 clamp（total_frames），前端 maxFrame 与之
+// 可能差 1 帧；若严格等待会永久锁死 → 丢弃超过 40 帧（约 2s 推流）自动解锁。
+const SEEK_LOCK_MAX_DROPS = 40
+const isStaleSeekFrame = frame => {
+  if (seekLockFrame == null) return false
+  if (Number(frame) === seekLockFrame) {
+    seekLockFrame = null
+    seekLockDropped = 0
+    return false
+  }
+  seekLockDropped++
+  if (seekLockDropped > SEEK_LOCK_MAX_DROPS) {
+    seekLockFrame = null
+    seekLockDropped = 0
+    return false
+  }
+  return true
+}
 let lastStatsUpdateMs = 0
 // 预计算完成后待自动播放（用户在预计算期间点了播放）
 let pendingAutoStart = false
@@ -77,7 +103,7 @@ const currentEventId = ref(null)
 const kcoParams = ref({
   ...DEFAULT_KCO_PARAMS,
   sourceMode: 'design',
-  velocityScale: 1, // 抛掷速度收缩系数（UI 可调；1 = 纯物理量级，不做视觉降速）
+  velocityScale: 0.42, // 抛掷速度收缩系数（UI 可调）。隧道受限空腔：压缩初速使爆堆紧贴掌子面成形（历史 0.42 量级），勿改回 1.0 否则碎片抛满整条隧道、散开不成堆
   fragmentCountRenderLimit: DEFAULT_FRAGMENT_RENDER_LIMIT
 })
 
@@ -154,11 +180,31 @@ export default function useBlasting() {
     () => '当前板块用于辅助观察参数与效果变化趋势，算法结果为可视化估算，不作为工程定量结论。'
   )
 
-  const setFrame = frame => {
+  const setFrame = (frame, isSeek = false) => {
     if (!dataset.value) return
     const clamped = Math.max(0, Math.min(maxFrame.value, Number(frame) || 0))
     currentFrame.value = clamped
     blastingManager?.setFrame(clamped)
+    // 进度条拖拽/jump（isSeek=true）：后端 WS 推流中时通知其复位游标并重置峰值累积，
+    // 否则拖动回看仍顶着"未来帧的峰值"，损伤区自愈失效（seek 污染根因之一）。
+    // 播放逐帧递增不设 isSeek，避免每 50ms 向后端刷 seek 造成重算风暴。
+    if (isSeek && wsConnected.value && wsVibrationStarted && blastingWs) {
+      if (lastWsSeekFrame !== clamped) {
+        lastWsSeekFrame = clamped
+        // 【Seek Lock】加锁 + 清空场纹理：锁住期间丢弃旧游标位置的帧，
+        // 纹理清零保证目标帧落地前不显示任何残留（不糊成色块）。
+        seekLockFrame = clamped
+        seekLockDropped = 0
+        blastingManager?.clearVibrationFieldTextures?.()
+        blastingWs.sendSeek(clamped)
+      } else {
+        // 同一帧重复拖拽：仍需清屏（纹理可能已被旧游标帧污染）
+        blastingManager?.clearVibrationFieldTextures?.()
+      }
+    } else if (isSeek) {
+      // 本地模式：同样清屏，由本地模拟器下一 tick 重算填充
+      blastingManager?.clearVibrationFieldTextures?.()
+    }
     // 同步渲染器时长信号（回放就绪/实测达成时进度条随之延长，
     // 与每个事件的实际动画时长绑定：全落地 + 保持 3s）
     const d = blastingManager?.getDurationS?.()
@@ -168,6 +214,8 @@ export default function useBlasting() {
     // 始终刷新振动场元信息：无论 WS 是否连接，本地模拟与 WS 数据均通过同一渲染器接口
     // 更新场纹理，UI 需即时反映当前帧的 PPV/应力/损伤就绪状态
     vibrationFieldInfo.value = blastingManager?.getVibrationFieldInfo?.() || null
+    // 等值线提取诊断随元信息一并回读（提取为指纹缓存，常规帧为上次结果）
+    contourStats.value = blastingManager?.getVibrationContourStats?.() ?? null
     // 递增脏标记，使 threeStats 重新求值
     // 节流到 200ms（5Hz），避免高倍速播放时 Vue 响应式风暴阻塞主线程
     const now = performance.now()
@@ -380,6 +428,13 @@ export default function useBlasting() {
     // 全部不可见。降级萨道夫斯基近似（与本地模拟器同物理模型，量级正常），
     // 待后端 FDTD 支持亚格子源或自适应加密后再启用。
     ppvParams.useJwl = false
+    // 损伤边界可调参数（P0-1）：透传到后端 start 指令，工程现场按装药量手动
+    // 收束损伤边界（influenceRadius=波场可达半径，已按岩体几何自动取；
+    // damageMaxRadius=损伤硬上限）
+    const bd = blastingManager?.getDamageBoundary?.() || {}
+    ppvParams.influenceRadius =
+      Number(bd.influenceRadius) > 0 ? bd.influenceRadius : blastingManager?.getInfluenceRadius?.() || 60
+    ppvParams.damageMaxRadius = Number(bd.damageMaxRadius) > 0 ? bd.damageMaxRadius : 7
     if (ds?.event?.rockParams) {
       ppvParams.rockParams = ds.event.rockParams
     }
@@ -390,6 +445,10 @@ export default function useBlasting() {
     if (!blastingWs) return
     const payload = buildWsStartPayload(ds)
     if (!payload) return
+    // 新一轮推流复位 seek 去重标记，保证首帧拖拽必然下发 seek
+    lastWsSeekFrame = -1
+    seekLockFrame = null
+    seekLockDropped = 0
     pendingWsDataset = null
     wsBackendCompleted.value = false
     wsVibrationStarted = false
@@ -435,6 +494,7 @@ export default function useBlasting() {
     // PPV 振动场二进制帧：首帧初始化体积，后续帧更新 Data3DTexture
     blastingWs.on(FrameType.PPV_FIELD, payload => {
       if (!blastingManager) return
+      if (isStaleSeekFrame(payload.frame)) return
       const { frame, t, gridShape, boundsMin, boundsMax, ppv } = payload
       // 网格不一致时重建体积（本地模拟可能已用默认 32×32×64 网格初始化，
       // 不重建则 WS 帧因长度不匹配被丢弃，画面冻结）
@@ -451,6 +511,7 @@ export default function useBlasting() {
     // σ_vm 应力场二进制帧：与 PPV 同时刻推送，更新应力纹理
     blastingWs.on(FrameType.STRESS_FIELD, payload => {
       if (!blastingManager) return
+      if (isStaleSeekFrame(payload.frame)) return
       const { frame, t, gridShape, boundsMin, boundsMax, sigmaVm } = payload
       blastingManager.ensureVibrationField({ gridShape, boundsMin, boundsMax })
       blastingManager.updateStressField(sigmaVm, t, frame)
@@ -460,6 +521,7 @@ export default function useBlasting() {
     // 损伤分区二进制帧：与 PPV 同时刻推送，更新损伤纹理
     blastingWs.on(FrameType.DAMAGE_FIELD, payload => {
       if (!blastingManager) return
+      if (isStaleSeekFrame(payload.frame)) return
       const { frame, t, gridShape, boundsMin, boundsMax, zones } = payload
       blastingManager.ensureVibrationField({ gridShape, boundsMin, boundsMax })
       blastingManager.updateDamageField(zones, t, frame)
@@ -471,6 +533,9 @@ export default function useBlasting() {
       // 设置标志，等本地播放到达最后一帧时才弹窗（双条件同步）。
       // 若本地播放已停止（本地快于后端），直接弹窗。
       wsBackendCompleted.value = true
+      // 推流结束不再有 WS 帧到达：恢复本地模拟写入（首个 WS PPV 帧曾禁用它），
+      // 否则完成后拖动进度条时 PPV 热力图冻结在最后一帧、不跟随时间轴回退。
+      blastingManager?.setLocalVibrationEnabled(true)
       if (!isPlaying.value) {
         showMessage('预览播放完成', 'success')
       }
@@ -669,17 +734,26 @@ export default function useBlasting() {
           fragmentCountRenderLimit: DEFAULT_FRAGMENT_RENDER_LIMIT
         }
       }
-      // 南山隧道上台阶楔形掏槽案例（002，cutPattern==='wedge'）：
-      // 萨道夫斯基回归公式 V = K·(Q^(1/3)/R)^α，文献标定 K=113.64、α=1.341。
-      // 判定放宽为"事件ID以 002 结尾 / wedge 配方 / 名称含南山"，保证任何加载路径
-      // 都能命中；并显式同步 ref 与渲染层，避免面板仍显示默认 K=30/α=1.5。
+      // 文献化萨道夫斯基参数注入：按事件下发场地常数，避免同一套参数通用或上一事件残留。
+      //   001 达巴莱：K=150、α=1.7（估算 —— 文献未回归，取中等风化石灰岩典型量级）
+      //   002 南山隧道：K=113.64、α=1.341（汪亚飞博士论文 图5-1/5-2，R²=0.6125）
+      //   003 三棱山隧道：K=19.3、α=1.082（徐言 近场分段拟合精度95%；远场 K≈1.23、α=0.372）
+      //   004 昆阳磷矿：K=90.63、α=1.58（王万禄等，据 M1~M3 三方向合成速度拟合；M4 异常剔除）
+      //   其余事件（005~007 无振动场地回归）→ 重置默认 K=90、α=1.58，避免残留上一事件参数。
+      // 判定按"事件ID 结尾匹配 / 名称含关键词"，保证任何加载路径都能命中，
+      // 并显式同步 ref 与渲染层，避免面板仍显示默认 K=90/α=1.58。
       const _evId = String(eventId || '')
-      const _cutStr = String(nextDataset.design?.cutPattern || '').toLowerCase()
       const _evName = String(nextDataset.event?.name || '')
-      const _isNanshan =
-        _evId.endsWith('002') || _cutStr.includes('wedge') || _evName.includes('南山')
-      if (_isNanshan) {
+      if (_evId.endsWith('001') || _evName.includes('达巴莱')) {
+        setSadoskyParams({ k: 150, alpha: 1.7 })
+      } else if (_evId.endsWith('002') || _evName.includes('南山')) {
         setSadoskyParams({ k: 113.64, alpha: 1.341 })
+      } else if (_evId.endsWith('003') || _evName.includes('三棱山')) {
+        setSadoskyParams({ k: 19.3, alpha: 1.082 })
+      } else if (_evId.endsWith('004') || _evName.includes('昆阳')) {
+        setSadoskyParams({ k: 90.63, alpha: 1.58 })
+      } else {
+        setSadoskyParams({ k: 90, alpha: 1.58 })
       }
       applyDataset(nextDataset, { autoPlay })
       currentEventId.value = eventId
@@ -953,7 +1027,7 @@ export default function useBlasting() {
 
   // 重置 KCO 参数为默认值
   const resetKcoParams = () => {
-    kcoParams.value = { ...DEFAULT_KCO_PARAMS, sourceMode: 'design', velocityScale: 1 }
+    kcoParams.value = { ...DEFAULT_KCO_PARAMS, sourceMode: 'design', velocityScale: 0.42 }
     showMessage('KCO 参数已重置为默认值', 'info')
   }
 
@@ -978,8 +1052,8 @@ export default function useBlasting() {
   // 各图层开关状态（与渲染器 layerVisibility 同步）
   const layerVisibility = ref(
     LAYER_DEFS.reduce((acc, def) => {
-      // 默认模式只显示原始爆破动画：振动场热力图默认关闭，用户需要时开启
-      acc[def.key] = def.key !== 'vibrationField'
+      // 默认模式只显示原始爆破动画：振动场热力图与专业标注默认关闭，用户需要时开启
+      acc[def.key] = def.key !== 'vibrationField' && def.key !== 'annotations'
       return acc
     }, {})
   )
@@ -987,7 +1061,9 @@ export default function useBlasting() {
   // ─── 振动场显示模式（PPV/应力/损伤 三模式切换）──────────────────
   // 与 blastVibrationFieldRenderer.DISPLAY_MODE 对应（字符串形式便于 UI）
   const VIBRATION_MODES = [
-    { key: 'ppv', label: 'PPV 振动', unit: 'cm/s' },
+    // 注意：该模式渲染的是 t 时刻的瞬时质点振速 v(t)（波前到达→峰值→衰减回落），
+    // 并非全程最大 PPV，故对外命名"瞬时振速"。内部字段/后端帧名沿用 ppv（其幅值即峰值）。
+    { key: 'ppv', label: '瞬时振速', unit: 'cm/s' },
     { key: 'stress', label: 'σ_vm 应力', unit: 'MPa' },
     { key: 'damage', label: '损伤分区', unit: '' }
   ]
@@ -999,11 +1075,165 @@ export default function useBlasting() {
   const sadoskyParams = ref({ k: 30, alpha: 1.5 })
 
   // 振动场底材"白模"开关（true=场图层开启时岩体切白模底；false=保留岩石纹理底，
-  // 热力色直接叠在岩色上，便于观察岩体纹理细节）
-  const whiteModelEnabled = ref(false)
+  // 热力色直接叠在岩色上，便于观察岩体纹理细节）。
+  // 【默认 true】白模底用平滑法线 lambert 明暗 → 消除 flatShading 三角面高频明暗
+  // 造成的"放射状细条纹/网格各向异性"伪影，热力色分级更干净。
+  const whiteModelEnabled = ref(true)
   const setWhiteModelEnabled = enabled => {
     whiteModelEnabled.value = enabled === undefined ? !whiteModelEnabled.value : !!enabled
     blastingManager?.setWhiteModelEnabled?.(whiteModelEnabled.value)
+  }
+
+  // 半透明渲染（D：1=热力场上限 0.55 露出岩底轮廓，0=实色 0.85）
+  const translucentEnabled = ref(false)
+  const setTranslucentEnabled = enabled => {
+    translucentEnabled.value = enabled === undefined ? !translucentEnabled.value : !!enabled
+    blastingManager?.setVibrationTranslucent?.(translucentEnabled.value)
+  }
+
+  // 自动量程（色标满刻度跟随岩体代表性峰值）：供振动场图例实时显示当前 PPV/应力上限。
+  // 依赖 sadoskyParams 与 dataset 建立响应式依赖，两者任一变（K/α 或事件切换）即重取。
+  const fieldRange = computed(() => {
+    sadoskyParams.value
+    dataset.value
+    return blastingManager?.getFieldRange?.() ?? null
+  })
+
+  // 等力线（等值线）叠加显示开关（shader 默认开启，场景重建后保持用户设置）
+  const isoLineEnabled = ref(true)
+  const setIsoLineEnabled = enabled => {
+    isoLineEnabled.value = enabled === undefined ? !isoLineEnabled.value : !!enabled
+    blastingManager?.setIsoLineEnabled?.(isoLineEnabled.value)
+  }
+
+  // 干涉载波频率（视觉 Hz，0=关）：GPU 场着色器对瞬时质点速度施加 v(t)=A·e^-βt·sin(2πf·t)
+  // 衰减载波振荡（真实爆破振动波形），多孔延期差 + 路径差 → 相位差 → 相长/相消干涉纹。
+  // 仅影响渲染观感，CPU 侧峰值场/点选采样不受载波影响（工程 PPV 语义恒为峰值）。
+  // 默认 8Hz：43 孔微差起爆的多孔干涉叠加可见。前后端必须同频——后端纹理(载波)与前端
+  // 解析(无载波)不同频会在网格盒边界接缝显形为"中心矩形切块"；0=关退回单调包络。
+  const carrierHz = ref(8)
+  const setVibrationCarrierHz = hz => {
+    const v = Math.max(0, Math.min(48, Number(hz) || 0))
+    carrierHz.value = v
+    blastingManager?.setVibrationCarrierHz?.(v)
+    // 推流中热更新后端载波，保证前后端同频（拖载波滑块时后端纹理同步振荡相位）
+    pushLiveFieldParams()
+  }
+
+  // ─── 损伤边界可调参数（P0-1，start 指令下发后端）────────────
+  // influenceRadius：波场可达半径(m)——语义为"波传播到该半径外即衰减消失"。
+  //   由岩体几何实测决定（manager.getInfluenceRadius()，见
+  //   sceneBuilder._syncInfluenceRadius），不再是 UI 可调项：旧滑块 3~30m 会在
+  //   岩体中部形成能量断崖（用户实测"热力扩散被限制在某范围内不传播"）。
+  //   这里只在发包时向 manager 取当前实测值，保证后端包络与渲染同口径。
+  // damageMaxRadius：损伤区硬上限半径(m)，超程一律归为弹性区 → 工程人员按现场
+  //   实际炸药量与装药量手动收束损伤边界（在 UI 直接调滑块，不用改代码/重启后端）
+  // 【实时生效】WS 推流中热更新后端场参数：后端重算包络/空腔掩码并推送校正帧，
+  // 无需重启后端或重开推流
+  const pushLiveFieldParams = () => {
+    if (!(wsConnected.value && wsVibrationStarted && blastingWs)) return
+    blastingWs.updateFieldParams?.({
+      influenceRadius: blastingManager?.getInfluenceRadius?.() ?? 60,
+      damageMaxRadius: damageMaxRadius.value,
+      carrierHz: carrierHz.value
+    })
+  }
+  const damageMaxRadius = ref(7)
+  const setDamageMaxRadius = v => {
+    const n = Math.max(1, Math.min(25, Number(v) || 7))
+    damageMaxRadius.value = n
+    blastingManager?.setDamageBoundary?.({ damageMaxRadius: n })
+    pushLiveFieldParams()
+  }
+
+  // ─── 矢量箭头场（P1-6） ─────
+  // 矢量箭头场：瞬时质点速度方向可视化（与热图同一物理模型逐帧计算），默认关
+  const vectorFieldOn = ref(false)
+  const setVectorFieldOn = on => {
+    vectorFieldOn.value = on === undefined ? !vectorFieldOn.value : !!on
+    blastingManager?.setVibrationVectorField?.(vectorFieldOn.value)
+  }
+
+  // 仿真 PPV 衰减 vs 萨道夫斯基公式对比（P2-8 验证，经由 blastingManager API）
+  const ppvDecayData = computed(() => {
+    if (!dataset.value) return null
+    return blastingManager?.getPpvDecayData?.() ?? null
+  })
+
+  // 雷管起爆延期误差（蒙特卡洛） ─────────────────────────────
+  // 使各段雷管起爆真实存在 ±σ ms 误差，干涉图案不再完美对称。
+  const delayJitter = ref(
+    Number(blastingManager?.getDelayJitter?.()) > 0 ? blastingManager.getDelayJitter() : 5
+  )
+  const setDelayJitter = ms => {
+    const v = Math.max(0, Number(ms) || 0)
+    delayJitter.value = v
+    blastingManager?.setDelayJitter?.(v)
+    refreshMonitorPoints()
+  }
+
+  // ─── 监测点（测点波形：Vx/Vy/Vz/Vmag 时程 + PPV） ─────────────
+  const monitorPoints = ref([])
+  const refreshMonitorPoints = () => {
+    monitorPoints.value = blastingManager?.getMonitorPoints?.()?.slice() || []
+  }
+  const addMonitorPoint = (local, label) => {
+    const mon = blastingManager?.addMonitorPoint?.(local, label)
+    refreshMonitorPoints()
+    return mon || null
+  }
+  const removeMonitorPoint = id => {
+    blastingManager?.removeMonitorPoint?.(id)
+    refreshMonitorPoints()
+  }
+
+  // 交互：'添加监测点' 后进入 3D 拾取模式，点击岩体连续布点；再次点击按钮/关闭停止
+  const monitorPickActive = ref(false)
+  let _monitorPickDetach = null
+  const toggleMonitorPick = () => {
+    if (monitorPickActive.value) {
+      _monitorPickDetach?.()
+      _monitorPickDetach = null
+      monitorPickActive.value = false
+      return
+    }
+    const detach = blastingSceneTools.pickRockPoint(local => {
+      if (local && Number.isFinite(local.x)) {
+        addMonitorPoint([local.x, local.y, local.z])
+      }
+    })
+    _monitorPickDetach = detach
+    monitorPickActive.value = true
+  }
+
+  // 热力图/等值线色彩标尺：0=线性，1=对数（默认。展开 PPV/应力幂律衰减的
+  // 动态范围：线性标尺下近源挤成饱和红、远场糊成深蓝，对数把两端展开成连续梯度）
+  const normMode = ref(1)
+  const setVibrationNormMode = mode => {
+    const v = Number(mode) > 0 ? 1 : 0
+    normMode.value = v
+    blastingManager?.setVibrationNormMode?.(v)
+    refreshContourStatsSoon()
+  }
+
+  // 等值线密度（色带分档数，等值线条数 = density−1），变更后触发重提取
+  const contourDensity = ref(12)
+  const setVibrationContourDensity = d => {
+    const v = Math.max(4, Math.min(24, Math.round(Number(d) || 12)))
+    if (v === contourDensity.value) return
+    contourDensity.value = v
+    blastingManager?.setVibrationContourDensity?.(v)
+    refreshContourStatsSoon()
+  }
+
+  // 最近一次等值线提取诊断（segments/loops/碎环过滤等，随振动场元信息一并刷新）
+  const contourStats = ref(null)
+  const refreshContourStats = () => {
+    contourStats.value = blastingManager?.getVibrationContourStats?.() ?? null
+  }
+  // 密度/标尺变更触发异步重提取（Worker 计算峰值场），延迟回读一次诊断结果
+  const refreshContourStatsSoon = () => {
+    setTimeout(refreshContourStats, 800)
   }
 
   const setSadoskyParams = ({ k, alpha } = {}) => {
@@ -1025,6 +1255,21 @@ export default function useBlasting() {
   // 场点拾取：用户在场景中点击振动场内任意点，查询该点 PPV/应力/损伤
   const ppvPickEnabled = ref(false)
   const pickedPpv = ref(null)
+
+  // 场点拾取全时程曲线（P1-6：点击岩体任一点 → Vx/Vy/Vz/Vmag 时程）。
+  // 置于 pickedPpv 声明之后（避免 TDZ），命中场内点即异步计算全时程
+  const pointHistory = ref(null)
+  watch(
+    pickedPpv,
+    sample => {
+      if (!sample || !sample.inside || !Array.isArray(sample.local)) {
+        pointHistory.value = null
+        return
+      }
+      pointHistory.value = blastingManager?.samplePointHistory?.(sample.local) ?? null
+    },
+    { immediate: true }
+  )
 
   const togglePpvPick = enabled => {
     const next = enabled === undefined ? !ppvPickEnabled.value : !!enabled
@@ -1074,10 +1319,22 @@ export default function useBlasting() {
     }
     // 白模开关同样在场景重建后保持用户设置
     blastingManager?.setWhiteModelEnabled?.(whiteModelEnabled.value)
+    // 等力线开关在场景重建后保持用户设置
+    blastingManager?.setIsoLineEnabled?.(isoLineEnabled.value)
+    // 载波/标尺在材质重建（uniform 回默认值）后同样保持用户设置
+    blastingManager?.setVibrationCarrierHz?.(carrierHz.value)
+    blastingManager?.setVibrationNormMode?.(normMode.value)
+    blastingManager?.setVibrationVectorField?.(vectorFieldOn.value)
+    blastingManager?.setVibrationTranslucent?.(translucentEnabled.value)
+    // 场景(重)建后：保持雷管误差设置、并同步监测点列表（与重建后的管理器状态一致）
+    blastingManager?.setDelayJitter?.(delayJitter.value)
+    refreshMonitorPoints()
     // 场景(重)建后立刻刷新振动场元信息，使"振动场"面板的模式按钮/就绪徽标
     // 无需等待播放帧或 WS 推送即可用（本地解析场三模式随时可切换）
     vibrationFieldInfo.value = blastingManager?.getVibrationFieldInfo?.() || null
     blastDesign.value = blastingManager?.getBlastDesign?.() || null
+    // 主动触发一次等值线构建（等值线不应依赖播放推进才可见——C 修复）
+    blastingManager?.refreshContours?.()
   }
 
   return {
@@ -1130,9 +1387,42 @@ export default function useBlasting() {
     // 萨道夫斯基场地参数（K/α）
     sadoskyParams,
     setSadoskyParams,
+    // 自动量程（色标满刻度跟随岩体代表性峰值，供图例显示）
+    fieldRange,
     // 振动场底材"白模"开关（场图层开启时是否切白模底）
     whiteModelEnabled,
     setWhiteModelEnabled,
+    translucentEnabled,
+    setTranslucentEnabled,
+    isoLineEnabled,
+    setIsoLineEnabled,
+    // 干涉载波 / 色彩标尺 / 等值线密度 / 提取诊断
+    carrierHz,
+    setVibrationCarrierHz,
+    normMode,
+    setVibrationNormMode,
+    contourDensity,
+    setVibrationContourDensity,
+    contourStats,
+    // 矢量箭头场（P1-6）
+    vectorFieldOn,
+    setVectorFieldOn,
+    // 损伤边界可调参数（P0-1，UI 滑块 → setDamageBoundary → shader/后端）
+    damageMaxRadius,
+    setDamageMaxRadius,
+    // 仿真 PPV 衰减 vs 萨道夫斯基对比曲线（P2-8 验证）
+    ppvDecayData,
+    // 场点拾取全时程曲线（P1-6 点击出时程）
+    pointHistory,
+    // 雷管延期误差（蒙特卡洛）
+    delayJitter,
+    setDelayJitter,
+    // 监测点（测点波时程曲线）
+    monitorPoints,
+    addMonitorPoint,
+    removeMonitorPoint,
+    monitorPickActive,
+    toggleMonitorPick,
     // 场点拾取（查询空间任意点 PPV/应力/损伤）
     ppvPickEnabled,
     pickedPpv,

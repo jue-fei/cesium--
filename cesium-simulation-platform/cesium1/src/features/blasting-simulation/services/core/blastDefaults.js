@@ -44,3 +44,22 @@ export function toFiniteNumber(value, fallback = null) {
   const num = Number(value)
   return Number.isFinite(num) ? num : fallback
 }
+
+// ─── 动画时长判据（Worker 回放烘焙 / 渲染器直播实测两侧共用）────────────
+// 背景：旧判据是"99% 碎片计数 FLAG_LANDED"。实测该计数在约 99.3% 处进入
+// 平台期（约 0.7% 的边角石因贴合不良/反复滚动永不置位），真实布孔下 99%
+// 可能永不达成 → 时长回退到硬上限，进度条虚长数倍（时间条远超真实事件）。
+// 改为质量加权的"静止比"：LANDED，或速度低于 REST_SPEED 即视为已停稳，
+// 该口径天然收敛到 1，不受平台期影响。
+
+/** 静止速度阈值(m/s)：碎片速度低于此值即视为"肉眼静止" */
+export const REST_SPEED = 1.0
+
+/** 静止质量比阈值：≥ 该比例质量已停稳即视为爆堆成形（抛掷结束） */
+export const SETTLE_REST_MASS_RATIO = 0.98
+
+/** 抛掷结束后额外保持时长(s)：仅用于让观众看清爆堆成形 */
+export const HOLD_AFTER_SETTLED = 1.5
+
+/** 回放时长硬上限(s)：兜底防永不静止（真实事件约 3~6s） */
+export const REPLAY_MAX_DURATION = 20

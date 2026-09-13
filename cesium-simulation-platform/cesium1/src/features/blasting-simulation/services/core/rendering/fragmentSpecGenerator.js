@@ -48,6 +48,13 @@ export const HOLE_TYPE_WEIGHTS = {
   empty: { velocityFactor: 0, axialBias: 0, sizeFactor: 0 }
 }
 
+// 初始破碎扩散半径：从孔心附近做高斯采样生成碎石头起始位置。
+// 旧值 σ=0.35m 偏小，破碎区呈"孔状斑块"、断面边缘与孔间空隙覆盖偏稀；放大到 0.45m
+// 并随装药量平缓过渡，使破碎带覆盖更接近真实"沿孔周形成的连续破碎带"。
+const HOLE_SIGMA_BASE = 0.45 // 基准σ(m)，装药量=平均时的扩散半径
+const HOLE_SIGMA_RATIO_MIN = 0.7 // 最小σ倍数（小装药孔扩散收窄）
+const HOLE_SIGMA_RATIO_MAX = 1.6 // 最大σ倍数（大装药孔扩散放宽）
+
 // ─── 延时场耦合参数 ───
 // 后序孔因前序孔形成新自由面，块度更细、方向偏向已形成自由面（轴向）
 const DELAY_SIZE_DECAY = 0.04 // 每序块度衰减系数
@@ -215,6 +222,7 @@ export function generateFragmentSpecs(options = {}) {
   const specs = []
   const positions = []
   const velocities = []
+  const holeGroups = [] // 每种孔产生的碎片索引分组（供体积还原后按块径做孔内排布）
   let generatedMassKg = 0
 
   // ── 炮孔参数驱动模式 ──
@@ -262,6 +270,17 @@ export function generateFragmentSpecs(options = {}) {
   const delayOrderMap = new Map()
   sortedDelays.forEach((d, i) => delayOrderMap.set(d, i))
 
+  // 段间间隔(ms)：取相邻不同延时段的最小间隔，作为同段内各碎块脱离时间抖动的上限。
+  // 真实爆破中同段雷管仍有亚毫秒级起爆离散、且岩体破碎后各块并非同一瞬间脱离开来，
+  // 用该量级的连续抖动打散"同段整批齐射"，使相邻段抛掷在时间上交叠成连续过程。
+  let _segGapMs = 100
+  if (sortedDelays.length > 1) {
+    for (let k = 1; k < sortedDelays.length; k++) {
+      _segGapMs = Math.min(_segGapMs, sortedDelays[k] - sortedDelays[k - 1])
+    }
+  }
+  _segGapMs = Math.max(10, _segGapMs)
+
   if (useHoleDriven) {
     // ── 炮孔驱动模式：逐孔生成碎片 ──
     for (const alloc of holeAllocations) {
@@ -270,7 +289,7 @@ export function generateFragmentSpecs(options = {}) {
       if (h.holeType === 'empty') continue
 
       const holeChargeKg = Number(h.chargeKg) || 0
-      const delayTime = (Number(h.delayMs) || 0) / 1000 // ms → s
+      const delayBaseMs = Number(h.delayMs) || 0 // 该孔所属雷管段的标称延时(ms)
 
       // 孔型权重（默认辅助孔基准）
       const w = HOLE_TYPE_WEIGHTS[h.holeType] || HOLE_TYPE_WEIGHTS.auxiliary
@@ -288,6 +307,11 @@ export function generateFragmentSpecs(options = {}) {
       const chargeRatio = Math.max(0.3, Math.min(2.5, holeChargeKg / Math.max(0.1, avgCharge)))
       const vBaseHole = vBase * Math.pow(chargeRatio, 0.4) * w.velocityFactor
 
+      // 初始破碎扩散半径随装药量平缓过渡：装药越多的孔破碎越充分、扩散带越宽
+      const sampleSigma =
+        HOLE_SIGMA_BASE *
+        Math.max(HOLE_SIGMA_RATIO_MIN, Math.min(HOLE_SIGMA_RATIO_MAX, chargeRatio))
+
       // 速度方向轴向偏置（孔型 axialBias + 延时场方向偏移）
       const totalAxialBias = w.axialBias + delayDirBias
 
@@ -297,6 +321,11 @@ export function generateFragmentSpecs(options = {}) {
         y: face.cy + face.ry * (h.x || 0) + face.uy * (h.y || 0),
         z: face.cz + face.rz * (h.x || 0) + face.uz * (h.y || 0)
       }
+
+      // 记录本孔碎片的分组（体积还原后用放大后块径做孔内非重叠排布）
+      const holeStartIdx = specs.length
+      const holeLocalCX = _worldToFaceLateral(face, holeWorldPos)
+      const holeLocalCY = _worldToFaceHeight(face, holeWorldPos)
 
       for (let i = 0; i < alloc.count; i++) {
         // 1. KCO Swebrec 等质量分层采样物理尺寸，叠加孔型粒径系数与延时块度衰减
@@ -311,8 +340,8 @@ export function generateFragmentSpecs(options = {}) {
         // 2. 显示尺寸
         const dispSize = _computeDisplaySize(physSize)
 
-        // 3. 从孔附近高斯采样位置（σ = 0.35m，模拟炮孔破裂范围）
-        const facePos = _sampleNearHole(face, holeWorldPos, 0.35, rng)
+        // 3. 从孔附近高斯采样位置（σ 随装药量变化，模拟炮孔破裂范围）
+        const facePos = _sampleNearHole(face, holeWorldPos, sampleSigma, rng)
 
         // 4. 用孔局部 vBase 计算发射速度（叠加轴向偏置）
         const vel = _computeLaunchVelocity(
@@ -350,11 +379,21 @@ export function generateFragmentSpecs(options = {}) {
           maxBounces: ENHANCED_MAX_BOUNCES,
           variantIndex: selectVariantBySize(physSize, safeX50, estX80, safeXmax, rng),
           color,
-          delayTime // 分段起爆延迟（秒），物理引擎在 simTime < delayTime 时跳过该碎片
+          // 分段起爆延迟（秒）：在所属段标称延时上叠加 [0,_segGapMs) 连续抖动，
+          // 打散同段整批齐射，使相邻段抛掷在时间上交叠成连续过程。
+          // 物理引擎在 simTime < delayTime 时跳过该碎片
+          delayTime: (delayBaseMs + rng() * _segGapMs) / 1000
         })
 
         positions.push(facePos)
         velocities.push(vel)
+      }
+      if (specs.length > holeStartIdx) {
+        holeGroups.push({
+          lx: holeLocalCX,
+          ly: holeLocalCY,
+          indices: Array.from({ length: specs.length - holeStartIdx }, (_, k) => holeStartIdx + k)
+        })
       }
     }
   } else {
@@ -505,6 +544,15 @@ export function generateFragmentSpecs(options = {}) {
     positions[i] = _clampInsideTunnel(face, p, specs[i].dispSize * maxR)
   }
 
+  // ─── 孔内初始位置按放大后块径错开排布 ───────────────────
+  // 体积还原后物理块径被统一放大（k≤3.5），而初始采样点仍挤在孔心 σ 附近。
+  // 若不做排布，大碎块会互相重叠、甚至"从掌子面里冒出"。此处对同一炮孔的碎片
+  // 按其放大后渲染半径在掌子面内错开：块与块不重叠、离孔心至少一个半径，
+  // 使起爆面铺得更接近真实"沿孔周连续破碎带"。
+  if (holeGroups.length > 0) {
+    _repackHolePositions(face, specs, positions, holeGroups, variantMaxRadii, rng)
+  }
+
   // ─── 分布直方图诊断（分布闭合） ───
   const safeXmaxForHist = Math.max(0.1, Number(metrics.fragmentXmax) || Number(kco?.xmax) || 2.0)
   const sizeBinCount = 20
@@ -621,6 +669,85 @@ function _sampleNearHole(face, holeWorldPos, sigma, rng = Math.random) {
     }
   }
   return _projectWorldPointToFace(face, holeWorldPos)
+}
+
+/**
+ * 方案2：体积还原后，把同孔内碎片的初始位置按其放大后块径错开排布。
+ * 使同一炮孔破碎出的几块代表性碎岩在掌子面上不重叠、且离孔心至少一个半径，
+ * 避免"大碎块全部挤在孔心、起爆时互相穿模/从掌子面里冒出"的失真。
+ * 采用大块先置、小块填空隙的贪心：每块在孔心附近环形带上随机试位，
+ * 首个与已放置块不相交（间距 ≥ 半径和）且落在断面内的位置即被采用；
+ * 找不到时兜底保留当前位置。仅调整掌子面内（横向/高度）排布，
+ * 保留已有的沿面法线推离量；只保证同孔内部不重叠，相邻炮孔破碎带相互衔接属正常。
+ * @param {FaceGeometry} face
+ * @param {Array} specs
+ * @param {Array<{x,y,z}>} positions
+ * @param {Array<{lx:number,ly:number,indices:number[]}>} holeGroups
+ * @param {Array<number>} variantMaxRadii
+ * @param {Function} rng
+ */
+function _repackHolePositions(
+  face,
+  specs,
+  positions,
+  holeGroups,
+  variantMaxRadii,
+  rng = Math.random
+) {
+  for (const g of holeGroups) {
+    // 由大到小排布：大块先占位当骨架，小块填空隙
+    const items = g.indices
+      .map(idx => ({
+        idx,
+        r: Math.max(0.05, (variantMaxRadii[specs[idx].variantIndex] || 1.2) * specs[idx].dispSize)
+      }))
+      .sort((a, b) => b.r - a.r)
+
+    const placed = []
+    for (const it of items) {
+      const ri = it.r
+      const minRad = ri + 0.05 // 离孔心至少一个半径，避免压在孔轴线上
+      const searchMax = Math.max(minRad + 0.4, 1.4)
+      let chosen = null
+      for (let attempt = 0; attempt < 48; attempt++) {
+        const rad = minRad + rng() * (searchMax - minRad)
+        const ang = rng() * Math.PI * 2
+        const lx = g.lx + Math.cos(ang) * rad
+        const ly = g.ly + Math.sin(ang) * rad
+        if (!_isPointInsideFace(face, lx, ly)) continue
+        let clear = true
+        for (const p of placed) {
+          if (Math.hypot(lx - p.x, ly - p.y) < ri + p.r) {
+            clear = false
+            break
+          }
+        }
+        if (clear) {
+          chosen = { x: lx, y: ly }
+          break
+        }
+      }
+      if (!chosen) {
+        chosen = {
+          x: _worldToFaceLateral(face, positions[it.idx]),
+          y: _worldToFaceHeight(face, positions[it.idx])
+        }
+      }
+      // 重建世界坐标：面内用新排布的 (lx,ly)，保留已有沿面法线推离量 s
+      const px = positions[it.idx]
+      const s = (px.x - face.cx) * face.nx + (px.y - face.cy) * face.ny + (px.z - face.cz) * face.nz
+      positions[it.idx] = _clampInsideTunnel(
+        face,
+        {
+          x: face.cx + face.rx * chosen.x + face.ux * chosen.y + face.nx * s,
+          y: face.cy + face.ry * chosen.x + face.uy * chosen.y + face.ny * s,
+          z: face.cz + face.rz * chosen.x + face.uz * chosen.y + face.nz * s
+        },
+        ri
+      )
+      placed.push({ x: chosen.x, y: chosen.y, r: ri })
+    }
+  }
 }
 
 /**

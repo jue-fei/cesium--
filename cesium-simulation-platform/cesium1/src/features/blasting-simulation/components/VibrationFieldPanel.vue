@@ -25,7 +25,121 @@
         >
           {{ whiteModelEnabled ? '白模底材：开' : '白模底材：关' }}
         </button>
+        <button
+          class="btn"
+          :class="{ primary: isoLineEnabled }"
+          @click="$emit('toggle-iso-line', !isoLineEnabled)"
+        >
+          {{ isoLineEnabled ? '等力线：开' : '等力线：关' }}
+        </button>
+        <button
+          class="btn"
+          :class="{ primary: translucentEnabled }"
+          @click="$emit('toggle-translucent', !translucentEnabled)"
+        >
+          {{ translucentEnabled ? '半透明：开' : '半透明：关' }}
+        </button>
         <span class="pick-hint">开：热力色以白色底显示；关：保留岩石纹理底</span>
+      </div>
+    </div>
+
+    <!-- 场渲染参数：艺术化渲染(载波) / 标尺 / 等值线密度 / 提取诊断 -->
+    <div class="section">
+      <div class="section-title">场渲染参数</div>
+      <!-- 物理诚实化说明（P1）：当前为解析叠加场，多孔干涉由各炮孔几何位置+微差
+         延时按波动矢量叠加真实计算；隧道自由面采用"镜象源法"近似反射。非 FDTD
+         全波解 → 无衍射/绕射/多次反射边界特征。如需真反射请启用后端 FDTD 待办项。 -->
+      <div class="field-note">
+        <span class="field-label">场算法</span>
+        <span class="field-value">解析叠加场 · 多源几何+延时真实叠加</span>
+        <div class="field-note-hint">
+          界面自由面：镜象源近似反射；边界无衍射/绕射。FDTD 真边界为后端待办。
+        </div>
+      </div>
+      <!-- 核心可视化开关（矢量箭头）-->
+      <div class="row mt-1">
+        <button
+          class="btn"
+          :class="{ primary: vectorFieldOn }"
+          @click="$emit('toggle-vector-field', !vectorFieldOn)"
+        >
+          {{ vectorFieldOn ? '矢量箭头：开' : '矢量箭头：关' }}
+        </button>
+      </div>
+      <!-- 损伤边界可调参数（P0-1）：工程人员按现场实际炸药量手动收束损伤区，
+          start 指令透传后端，同时即时作用于解析支 -->
+      <div class="slider-row mt-1">
+        <span class="slider-label">损伤半径上限</span>
+        <input
+          class="slider-input"
+          type="range"
+          min="1"
+          max="25"
+          step="0.5"
+          :value="damageMaxRadius"
+          @input="$emit('set-damage-max-radius', Number($event.target.value))"
+        />
+        <span class="slider-value">{{ damageMaxRadius }} m</span>
+      </div>
+      <div class="hint-sm">
+        损伤超『损伤半径上限』一律归为弹性区。波场本身按岩体几何边界自然衰减到零
+        （不反弹、不绕射），无需再设传播范围。
+      </div>
+      <!-- 干涉载波属"艺术化渲染"选项：默认关闭、折叠隐藏。物理干涉由多源矢量叠加
+         （各炮孔延期差+路径差）本身产生，无需该视觉载波伪影。 -->
+      <details class="artistic">
+        <summary>
+          <span class="summary-label">艺术化渲染（默认关闭 · 仅观感）</span>
+          <span v-if="carrierHz > 0" class="summary-flag">载波已开</span>
+        </summary>
+        <div class="slider-row mt-1">
+          <span class="slider-label">干涉载波</span>
+          <input
+            class="slider-input"
+            type="range"
+            min="0"
+            max="48"
+            step="1"
+            :value="carrierHz"
+            @input="$emit('set-carrier-hz', Number($event.target.value))"
+          />
+          <span class="slider-value">{{ carrierHz > 0 ? carrierHz + ' Hz' : '关' }}</span>
+        </div>
+        <div class="hint-sm">
+          物理干涉已由多源矢量叠加（各炮孔延期差 + 路径差 → 相位差）本身产生，不需要载波。 默认关闭
+          → 瞬时振速 v(t) 为平滑衰减包络，等值线平滑渐变不闪烁；开启叠加 cos
+          振荡波纹，仅改变渲染观感，不影响峰值场与点选采样所得 PPV/应力/损伤数值。
+        </div>
+      </details>
+      <div class="slider-row mt-1">
+        <span class="slider-label">等值线密度</span>
+        <input
+          class="slider-input"
+          type="range"
+          min="4"
+          max="24"
+          step="1"
+          :value="contourDensity"
+          @input="$emit('set-contour-density', Number($event.target.value))"
+        />
+        <span class="slider-value">{{ contourDensity }} 档</span>
+      </div>
+      <div class="row mt-1">
+        <span class="slider-label">色彩标尺</span>
+        <button class="btn" :class="{ primary: normMode === 1 }" @click="$emit('set-norm-mode', 1)">
+          对数
+        </button>
+        <button class="btn" :class="{ primary: normMode === 0 }" @click="$emit('set-norm-mode', 0)">
+          线性
+        </button>
+        <span class="pick-hint">对数展开幂律衰减的动态范围</span>
+      </div>
+      <div v-if="contourStats" class="diag-row">
+        等值线提取：{{ contourStats.loops + contourStats.openChains }} 条（闭环
+        {{ contourStats.loops }} / 开链 {{ contourStats.openChains }}）· 滤碎环
+        {{ contourStats.loopsFiltered }} · 滤碎链 {{ contourStats.chainsFiltered }} · 顶点
+        {{ contourStats.totalPoints.toLocaleString() }} · 耗时
+        {{ contourStats.extractMs.toFixed(1) }} ms
       </div>
     </div>
 
@@ -68,7 +182,8 @@
         </label>
       </div>
       <div class="hint-sm mt-1">
-        PPV = K·(Q<sup>1/3</sup>/R)<sup>α</sup>，默认
+        峰值振速 v<sub>p</sub> = K·(Q<sup>1/3</sup>/R)<sup>α</sup>，热力图显示该峰值随
+        波前到达后衰减的当前瞬时振速 v(t)。默认
         K=30、α=1.5（隧道局部尺度）。可选文献实测标定集快速反标定。
       </div>
     </div>
@@ -89,7 +204,7 @@
       <div v-if="pickedPpv" class="pick-result" :class="{ miss: !pickedPpv.inside }">
         <template v-if="pickedPpv.inside">
           <div class="pick-line">
-            <span>该点 PPV</span><b>{{ pickedPpv.ppvCmps.toFixed(2) }} cm/s</b>
+            <span>该点瞬时振速 v(t)</span><b>{{ pickedPpv.ppvCmps.toFixed(2) }} cm/s</b>
           </div>
           <div class="pick-line">
             <span>等效应力 σ_vm</span><b>{{ fmtStress(pickedPpv.stressMPa) }}</b>
@@ -100,6 +215,9 @@
           <div class="pick-line sub">
             <span>网格坐标</span><b>{{ fmtGrid }}</b>
           </div>
+          <div class="pick-line sub">
+            <span>峰值矢量 (Vx/Vy/Vz)</span><b class="vec">{{ vecLabel }}</b>
+          </div>
         </template>
         <template v-else>
           <div class="pick-line"><span>命中点</span><b>场外（未在振动场内）</b></div>
@@ -108,28 +226,61 @@
       <div v-else class="hint-sm">尚未拾取。采样结果按当前 K/α 实时插值计算。</div>
     </div>
 
+    <!-- 场点全时程曲线（点击岩体任一点 → Vx/Vy/Vz/Vmag 时程） -->
+    <div v-if="pointHistory" class="section">
+      <div class="section-title">该点全时程曲线</div>
+      <canvas ref="historyCanvasRef" class="chart-canvas"></canvas>
+      <div class="chart-legend">
+        <span class="lg"><i class="c1"></i>Vx</span>
+        <span class="lg"><i class="c2"></i>Vy</span>
+        <span class="lg"><i class="c3"></i>Vz</span>
+        <span class="lg"><i class="c4"></i>|V|</span>
+        <span class="lg-lg">PPV {{ pointPpvCmps }} cm/s</span>
+      </div>
+    </div>
+
+    <!-- 仿真 vs 萨道夫斯基公式：PPV 衰减曲线对比（P2-8 验证） -->
+    <div v-if="ppvDecayData" class="section">
+      <div class="section-title">
+        峰值振速衰减对比（仿真 vs 萨道夫斯基）
+        <span class="legend-badge">K={{ ppvDecayData.K }}, α={{ ppvDecayData.alpha }}</span>
+      </div>
+      <canvas ref="decayCanvasRef" class="chart-canvas"></canvas>
+      <div class="chart-legend">
+        <span class="lg"><i class="c5"></i>仿真（多源叠加·全时程峰值）</span>
+        <span class="lg"><i class="c6"></i>萨道夫斯基 K·(Q<sup>1/3</sup>/R)<sup>α</sup></span>
+        <span class="lg-lg">总药量 {{ ppvTotalQ }} kg</span>
+      </div>
+    </div>
+
     <!-- 色阶图例 -->
     <div class="section">
       <div class="section-title">图例</div>
       <div v-if="vibrationFieldInfo" class="legend">
         <template v-if="vibrationMode === 'ppv'">
-          <div class="legend-title">PPV 峰值速度 (cm/s)</div>
-          <div
-            class="legend-bar"
-            :style="{ background: `linear-gradient(to right, ${ppvGradient})` }"
-          ></div>
-          <div class="legend-ticks">
-            <span v-for="t in ppvTicks" :key="t">{{ t }}</span>
+          <div class="legend-title">
+            瞬时质点振速 v(t) — 满刻度 {{ ppvMaxCmps }} cm/s
+            <span class="legend-badge">离散 {{ industrialBands }} 档</span>
+            <span v-if="normMode === 1" class="legend-badge">对数刻度</span>
+          </div>
+          <div class="legend-discrete">
+            <div v-for="it in ppvLegendItems" :key="'pi' + it.i" class="legend-cell">
+              <span class="legend-swatch" :style="{ background: it.css }"></span>
+              <span class="legend-range">{{ it.label }}</span>
+            </div>
           </div>
         </template>
         <template v-else-if="vibrationMode === 'stress'">
-          <div class="legend-title">σ_vm 等效应力 (MPa)</div>
-          <div
-            class="legend-bar"
-            :style="{ background: `linear-gradient(to right, ${stressGradient})` }"
-          ></div>
-          <div class="legend-ticks">
-            <span v-for="t in stressTicks" :key="t">{{ t }}</span>
+          <div class="legend-title">
+            σ_vm 等效应力 — 满刻度 {{ stressMaxMpa }} MPa
+            <span class="legend-badge">离散 {{ industrialBands }} 档</span>
+            <span v-if="normMode === 1" class="legend-badge">对数刻度</span>
+          </div>
+          <div class="legend-discrete">
+            <div v-for="it in stressLegendItems" :key="'si' + it.i" class="legend-cell">
+              <span class="legend-swatch" :style="{ background: it.css }"></span>
+              <span class="legend-range">{{ it.label }}</span>
+            </div>
           </div>
         </template>
         <template v-else>
@@ -161,8 +312,16 @@
           <span class="field-value">{{ formatT(lastT) }} s</span>
         </div>
         <div class="field-item">
-          <span class="field-label">帧号</span>
-          <span class="field-value">{{ lastFrame }}</span>
+          <span class="field-label">瞬时帧</span>
+          <span class="field-value">{{ currentFrame }} / {{ maxFrame }}</span>
+        </div>
+        <div class="field-item">
+          <span class="field-label">显示状态</span>
+          <span class="field-value">{{ displayState }}</span>
+        </div>
+        <div class="field-item">
+          <span class="field-label">等值线来源</span>
+          <span class="field-value">静置峰值场</span>
         </div>
         <div class="field-item">
           <span class="field-label">网格尺寸</span>
@@ -192,7 +351,7 @@
       <div class="section-title">数据状态</div>
       <div class="ready-list">
         <div class="ready-row">
-          <span class="ready-label">PPV 振动</span>
+          <span class="ready-label">瞬时振速</span>
           <span class="ready-badge" :class="readyPpv ? 'ok' : 'pending'">{{
             readyPpv ? '已就绪' : '等待中'
           }}</span>
@@ -215,16 +374,14 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
-  PPV_TICKS,
-  STRESS_TICKS,
   DAMAGE_LEGEND,
-  PPV_LEGEND_STOPS,
   PPV_LEGEND_MAX,
-  STRESS_LEGEND_STOPS,
   STRESS_LEGEND_MAX,
-  gradientCss
+  INDUSTRIAL_BANDS_DEFAULT,
+  industrialBandCount,
+  industrialLegendItems
 } from '../services/core/rendering/vibrationColorScales.js'
 
 defineOptions({ name: 'VibrationFieldPanel' })
@@ -234,17 +391,52 @@ const props = defineProps({
   vibrationMode: { type: String, default: 'ppv' },
   vibrationFieldInfo: { type: Object, default: null },
   sadoskyParams: { type: Object, default: () => ({ k: 30, alpha: 1.5 }) },
+  // 自动量程（绝对量程，仿真前解析扫描并固定）：{ ppvRefMps, stressRefMPa }，null 时回退固定刻度
+  fieldRange: { type: Object, default: null },
+  // 工业离散色阶档数（12~16）：与等值线密度 / shader uNormBands 同源
+  bandCount: { type: Number, default: INDUSTRIAL_BANDS_DEFAULT },
   ppvPickEnabled: { type: Boolean, default: false },
   pickedPpv: { type: Object, default: null },
   // 振动场底材"白模"开关（true=白模底，false=保留岩石纹理底）
-  whiteModelEnabled: { type: Boolean, default: false }
+  whiteModelEnabled: { type: Boolean, default: false },
+  // 等力线（等值线）开关（true=在热力图上叠加等值线，shader 默认开启）
+  isoLineEnabled: { type: Boolean, default: true },
+  // 半透明渲染（true=热力场上限 0.55 露出岩底轮廓）
+  translucentEnabled: { type: Boolean, default: false },
+  // 干涉载波频率（视觉 Hz，0=关）：渲染层瞬时振速 cos 载波 → 干涉波纹
+  // 默认 0=关闭：真实物理干涉由多源矢量叠加本身产生，载波仅作为艺术化渲染选项
+  carrierHz: { type: Number, default: 0 },
+  // 损伤边界可调参数（P0-1，m）：start 透传后端 + 即时作用解析支
+  damageMaxRadius: { type: Number, default: 7 },
+  // 播放帧计数（总帧 = Math.floor(duration/0.05)-1），用于明确当前"瞬时帧"位置
+  currentFrame: { type: Number, default: 0 },
+  maxFrame: { type: Number, default: 0 },
+  // 色彩标尺：0=线性 1=对数（图例刻度与 shader uNormMode 同口径）
+  normMode: { type: Number, default: 1 },
+  // 等值线密度（色带分档数，条数 = density−1）
+  contourDensity: { type: Number, default: 12 },
+  // 矢量箭头场开关（P1-6：展示波传播方向）
+  vectorFieldOn: { type: Boolean, default: false },
+  // 场点拾取全时程曲线数据（computeMonitorTimeHistory 输出，null=无拾取点）
+  pointHistory: { type: Object, default: null },
+  // 仿真 vs 萨道夫斯基 PPV 衰减对比数据（computePpvDecayProfile 输出，null=不可用）
+  ppvDecayData: { type: Object, default: null },
+  // 最近一次等值线提取诊断 stats（null=尚未提取）
+  contourStats: { type: Object, default: null }
 })
 
 const emit = defineEmits([
   'set-vibration-mode',
   'update-sadosky-params',
   'toggle-ppv-pick',
-  'toggle-white-model'
+  'toggle-white-model',
+  'toggle-iso-line',
+  'toggle-translucent',
+  'set-carrier-hz',
+  'set-norm-mode',
+  'set-contour-density',
+  'toggle-vector-field',
+  'set-damage-max-radius'
 ])
 
 // 萨道夫斯基参数本地编辑态（外部 props 变化时同步）
@@ -312,18 +504,63 @@ function applyPreset() {
   applySadosky()
 }
 
-const ppvTicks = PPV_TICKS
-const stressTicks = STRESS_TICKS
 const damageLegend = DAMAGE_LEGEND
-const ppvGradient = gradientCss(PPV_LEGEND_STOPS, PPV_LEGEND_MAX)
-const stressGradient = gradientCss(STRESS_LEGEND_STOPS, STRESS_LEGEND_MAX)
+
+// ─── 工业离散图例（色块 + 数值区间）──────────────────────
+// 满刻度来自绝对量程（仿真前解析扫描并固定，见 blastingManager._computeAutoFieldRefs），
+// 区间边界 = 色阶边界（与等值线级别、shader 离散取色同一公式），三处严格对齐。
+const ppvLegendItems = computed(() =>
+  industrialLegendItems({
+    ref: ppvMaxCmps.value / 100,
+    unitScale: 100,
+    normMode: props.normMode,
+    bands: industrialBands.value
+  }).map(it => ({
+    ...it,
+    label: `${fmtTickVal(it.lo)} ~ ${fmtTickVal(it.hi)}`
+  }))
+)
+const stressLegendItems = computed(() =>
+  industrialLegendItems({
+    ref: stressMaxMpa.value,
+    unitScale: 1,
+    normMode: props.normMode,
+    bands: industrialBands.value
+  }).map(it => ({
+    ...it,
+    label: `${fmtTickVal(it.lo)} ~ ${fmtTickVal(it.hi)}`
+  }))
+)
+
+// 自动量程图例：满刻度跟随岩体代表性峰值（fieldRange），否则回退固定刻度。
+// 色带本身固定（LUT 绝对值），动态量程只重标刻度：等距分数点映射到 0~满刻度。
+const ppvMaxCmps = computed(() =>
+  props.fieldRange?.ppvRefMps > 0 ? props.fieldRange.ppvRefMps * 100 : PPV_LEGEND_MAX
+)
+const stressMaxMpa = computed(() =>
+  props.fieldRange?.stressRefMPa > 0 ? props.fieldRange.stressRefMPa : STRESS_LEGEND_MAX
+)
+function fmtTickVal(v) {
+  if (v >= 100) return String(Math.round(v))
+  if (v >= 10) return String(Number(v.toFixed(1)))
+  return String(Number(v.toPrecision(2)))
+}
+// 工业离散色阶档数（12~16）：与等值线密度（contourDensity）/ shader uNormBands 同源
+const industrialBands = computed(() => industrialBandCount(props.contourDensity ?? props.bandCount))
 
 const modeLabel = computed(() => {
   const m = (props.vibrationModes || []).find(x => x.key === props.vibrationMode)
   return m ? m.label : props.vibrationMode
 })
 const lastT = computed(() => props.vibrationFieldInfo?.lastT)
-const lastFrame = computed(() => props.vibrationFieldInfo?.lastFrame ?? 0)
+// 明确时间状态：热力图渲染的是当前模拟时刻 t 的瞬时振速场 v(t)。
+// 载波关闭(=0)时为平滑衰减包络（真实物理干涉由多源矢量叠加产生，推荐）；
+// 载波开启时叠加艺术化 cos 振荡波纹，仅观感、不影响峰值场与采样数值。
+const displayState = computed(() =>
+  props.carrierHz > 0
+    ? `瞬时振荡 v(t)·含艺术化载波(${props.carrierHz}Hz)`
+    : '瞬时振速场 v(t)·平滑衰减包络'
+)
 const gridShapeText = computed(() => (props.vibrationFieldInfo?.gridShape || []).join('×') || '-')
 const voxelCountText = computed(() => {
   const v = props.vibrationFieldInfo?.voxelCount
@@ -377,6 +614,236 @@ const fmtGrid = computed(() => {
   if (!p || p.gridX == null) return '—'
   return `${p.gridX.toFixed(1)}, ${p.gridY.toFixed(1)}, ${p.gridZ.toFixed(1)}`
 })
+// 峰值时刻的三分量速度矢量（与监测点时程同源，单位 m/s）
+const vecLabel = computed(() => {
+  const v = props.pickedPpv?.vector
+  if (!v || !Number.isFinite(v.vmag)) return '—'
+  return `Vx ${v.vx.toFixed(3)} / Vy ${v.vy.toFixed(3)} / Vz ${v.vz.toFixed(3)} m/s`
+})
+
+// ─── 图表绘制（Canvas 2D，无第三方依赖） ─────────────────────
+const historyCanvasRef = ref(null)
+const decayCanvasRef = ref(null)
+const pointPpvCmps = computed(() => {
+  const p = props.pointHistory?.ppv
+  return Number(p) > 0 ? (p * 100).toFixed(2) : '—'
+})
+const ppvTotalQ = computed(() =>
+  Number(props.ppvDecayData?.totalQ) > 0 ? Number(props.ppvDecayData.totalQ).toFixed(1) : '—'
+)
+
+let histRaf = 0
+let ro1 = null
+let ro2 = null
+function drawHistoryChart() {
+  histRaf = 0
+  const canvas = historyCanvasRef.value
+  const h = props.pointHistory
+  if (!canvas || !h) return
+  const { t, vx, vy, vz, vmag } = h
+  const n = t?.length || 0
+  if (n < 2) return
+  drawVibeCurves(canvas, { t, series: [vx, vy, vz, vmag], title: '' })
+}
+function drawDecayChart() {
+  const canvas = decayCanvasRef.value
+  const d = props.ppvDecayData
+  if (!canvas || !d) return
+  const { r, sim, theory } = d
+  drawDecayCurves(canvas, { r, sim, theory })
+}
+
+function drawVibeCurves(canvas, { t, series, title }) {
+  const parent = canvas.parentElement
+  const w = parent.clientWidth || 320
+  const h2 = 160
+  const dpr = Math.max(1, window.devicePixelRatio || 1)
+  canvas.width = Math.round(w * dpr)
+  canvas.height = Math.round(h2 * dpr)
+  canvas.style.width = w + 'px'
+  canvas.style.height = h2 + 'px'
+  const ctx = canvas.getContext('2d')
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.clearRect(0, 0, w, h2)
+  const padL = 10
+  const padB = 16
+  const plotW = w - padL - 8
+  const plotH = h2 - 8 - padB
+  const colors = ['#7aa2f7', '#e0af68', '#73daca', '#f7768e']
+  let pmax = 1e-6
+  for (const arr of series)
+    for (let i = 0; i < t.length; i++) pmax = Math.max(pmax, Math.abs(arr[i]))
+  const niceMax = _niceNum(pmax * 1.15)
+  const tmax = Math.max(1e-6, t[t.length - 1])
+  // 网格 + 左轴刻度
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'
+  ctx.fillStyle = 'rgba(255,255,255,0.55)'
+  ctx.font = '10px Consolas, monospace'
+  ctx.lineWidth = 1
+  for (let i = 0; i <= 4; i++) {
+    const x = padL + (i / 4) * plotW
+    ctx.beginPath()
+    ctx.moveTo(x, 8)
+    ctx.lineTo(x, 8 + plotH)
+    ctx.stroke()
+    const y = 8 + (i / 4) * plotH
+    ctx.beginPath()
+    ctx.moveTo(padL, y)
+    ctx.lineTo(padL + plotW, y)
+    ctx.stroke()
+    const val = niceMax * (1 - i / 4)
+    ctx.fillText(val > 10 ? val.toFixed(0) : val.toFixed(2), 2, y + 3)
+  }
+  ctx.fillText(tmax.toFixed(2) + 's', padL + plotW - 28, 8 + plotH + 11)
+  // 对称零轴
+  const zeroY = 8 + plotH / 2
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)'
+  ctx.beginPath()
+  ctx.moveTo(padL, zeroY)
+  ctx.lineTo(padL + plotW, zeroY)
+  ctx.stroke()
+  const toY = v => zeroY - (v / niceMax) * (plotH / 2)
+  series.forEach((arr, si) => {
+    ctx.strokeStyle = colors[si]
+    ctx.lineWidth = si === 3 ? 2 : 1.3
+    ctx.beginPath()
+    for (let i = 0; i < t.length; i++) {
+      const px = padL + (t[i] / tmax) * plotW
+      const py = toY(arr[i])
+      if (i === 0) ctx.moveTo(px, py)
+      else ctx.lineTo(px, py)
+    }
+    ctx.stroke()
+  })
+}
+
+// 双对数坐标的 PPV 衰减对比（R 横轴、PPV 纵轴均取 log10 → 幂律衰减成直线，
+// 仿真曲线与萨道夫斯基直线拟合贴近即验证算法可靠）
+function drawDecayCurves(canvas, { r, sim, theory }) {
+  const parent = canvas.parentElement
+  const w = parent.clientWidth || 320
+  const h2 = 160
+  const dpr = Math.max(1, window.devicePixelRatio || 1)
+  canvas.width = Math.round(w * dpr)
+  canvas.height = Math.round(h2 * dpr)
+  canvas.style.width = w + 'px'
+  canvas.style.height = h2 + 'px'
+  const ctx = canvas.getContext('2d')
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.clearRect(0, 0, w, h2)
+  const padL = 10
+  const padB = 16
+  const plotW = w - padL - 8
+  const plotH = h2 - 8 - padB
+  const rMin = Math.log10(Math.max(1e-3, r[0]))
+  const rMax = Math.log10(r[r.length - 1])
+  let vMin = Infinity
+  let vMax = -Infinity
+  for (let i = 0; i < r.length; i++) {
+    if (sim[i] > 0) {
+      vMin = Math.min(vMin, Math.log10(sim[i]))
+      vMax = Math.max(vMax, Math.log10(sim[i]))
+    }
+    if (theory[i] > 0) {
+      vMin = Math.min(vMin, Math.log10(theory[i]))
+      vMax = Math.max(vMax, Math.log10(theory[i]))
+    }
+  }
+  vMin = Math.floor(vMin - 0.3)
+  vMax = Math.ceil(vMax + 0.3)
+  if (rMax - rMin < 1e-6) return
+  const X = x => padL + ((Math.log10(x) - rMin) / (rMax - rMin)) * plotW
+  const Y = v => 8 + plotH - ((Math.log10(v) - vMin) / (vMax - vMin)) * plotH
+  // 网格 + 刻轴（log10 刻度标签）
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'
+  ctx.fillStyle = 'rgba(255,255,255,0.55)'
+  ctx.font = '10px Consolas, monospace'
+  ctx.lineWidth = 1
+  for (let i = 0; i <= 3; i++) {
+    const x = padL + (i / 3) * plotW
+    ctx.beginPath()
+    ctx.moveTo(x, 8)
+    ctx.lineTo(x, 8 + plotH)
+    ctx.stroke()
+    const y = 8 + (i / 3) * plotH
+    ctx.beginPath()
+    ctx.moveTo(padL, y)
+    ctx.lineTo(padL + plotW, y)
+    ctx.stroke()
+  }
+  // 标注轴：R(m) 与 V(cm/s)
+  ctx.fillText('R(m)', padL + plotW - 24, 8 + plotH + 11)
+  ctx.fillText('V(cm/s)', 4, 8 + plotH + 11)
+  // 理论线（萨道夫斯基 K·(Q^1/3/R)^α · 0.01 → m/s → ×100 → cm/s 同轴）
+  const tArr = []
+  for (let i = 0; i < r.length; i++) tArr.push([r[i], theory[i]])
+  _strokeLogLine(ctx, X, Y, tArr, 'rgba(254,202,87,0.95)', 2)
+  // 仿真线（多源叠加全时程峰值）
+  const sArr = []
+  for (let i = 0; i < r.length; i++) sArr.push([r[i], sim[i]])
+  _strokeLogLine(ctx, X, Y, sArr, 'rgba(122,162,247,0.95)', 1.6)
+}
+
+function _strokeLogLine(ctx, X, Y, pts, color, lw) {
+  ctx.strokeStyle = color
+  ctx.lineWidth = lw
+  ctx.beginPath()
+  let started = false
+  for (const [rx, v] of pts) {
+    if (!(v > 0)) {
+      started = false
+      continue
+    }
+    const px = X(rx)
+    const py = Y(v)
+    if (!started) {
+      ctx.moveTo(px, py)
+      started = true
+    } else ctx.lineTo(px, py)
+  }
+  ctx.stroke()
+}
+
+function _niceNum(v) {
+  if (!(v > 0)) return 1
+  const exp = Math.floor(Math.log10(v))
+  const base = Math.pow(10, exp)
+  const m = v / base
+  const niceM = m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10
+  return niceM * base
+}
+
+watch(
+  () => props.pointHistory,
+  () => {
+    if (histRaf) cancelAnimationFrame(histRaf)
+    histRaf = requestAnimationFrame(drawHistoryChart)
+  },
+  { deep: true }
+)
+watch(
+  () => props.ppvDecayData,
+  () => requestAnimationFrame(drawDecayChart),
+  { deep: true }
+)
+onMounted(() => {
+  ro1?.disconnect()
+  ro1 = new ResizeObserver(() => {
+    if (histRaf) cancelAnimationFrame(histRaf)
+    histRaf = requestAnimationFrame(drawHistoryChart)
+  })
+  ro2?.disconnect()
+  ro2 = new ResizeObserver(() => requestAnimationFrame(drawDecayChart))
+  if (historyCanvasRef.value?.parentElement) ro1.observe(historyCanvasRef.value.parentElement)
+  if (decayCanvasRef.value?.parentElement) ro2.observe(decayCanvasRef.value.parentElement)
+  requestAnimationFrame(drawHistoryChart)
+  requestAnimationFrame(drawDecayChart)
+})
+onBeforeUnmount(() => {
+  if (histRaf) cancelAnimationFrame(histRaf)
+  ro1?.disconnect()
+  ro2?.disconnect()
+})
 </script>
 
 <style scoped>
@@ -423,17 +890,133 @@ const fmtGrid = computed(() => {
   font-size: 12px;
   color: var(--text-muted);
 }
+.legend-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  color: var(--primary-color);
+  background: rgba(64, 158, 255, 0.12);
+  border: 1px solid rgba(64, 158, 255, 0.25);
+}
 .legend-bar {
   height: 14px;
   border-radius: 3px;
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
-.legend-ticks {
+/* 工业离散图例：N 个色块 + 数值区间（无渐变条） */
+.legend-discrete {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 2px 0 4px;
+}
+.legend-cell {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 104px;
+}
+.legend-swatch {
+  width: 18px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  flex: none;
+}
+.legend-range {
   font-size: 11px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.legend-ticks {
+  position: relative;
+  height: 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.legend-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.legend-tick:first-child {
+  transform: translateX(0);
+}
+.legend-tick:last-child {
+  transform: translateX(-100%);
+}
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.slider-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 60px;
+  flex-shrink: 0;
+}
+.slider-input {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--primary-color);
+}
+.slider-value {
+  font-size: 12px;
+  color: var(--text-primary);
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.diag-row {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+/* 艺术化渲染折叠块：默认折叠隐藏，仅观感选项不入主流程 */
+.artistic {
+  margin-top: 6px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.artistic summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+.artistic summary:hover {
+  color: var(--text-primary);
+}
+.artistic[open] summary {
+  margin-bottom: 6px;
+}
+.summary-label {
+  color: var(--text-secondary);
+}
+.summary-flag {
+  font-size: 11px;
+  color: var(--primary-color);
+  background: rgba(64, 158, 255, 0.12);
+  border: 1px solid rgba(64, 158, 255, 0.25);
+  padding: 1px 6px;
+  border-radius: 999px;
 }
 .damage-legend-grid {
   display: flex;
@@ -470,6 +1053,21 @@ const fmtGrid = computed(() => {
   font-weight: 600;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+}
+.field-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-color, rgba(120, 160, 255, 0.25));
+  border-radius: 6px;
+  background: rgba(20, 30, 55, 0.4);
+}
+.field-note-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
 }
 
 .ready-list {
@@ -547,5 +1145,61 @@ select.param-input {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
+}
+.pick-line b.vec {
+  color: var(--primary-light);
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* 图表（时程曲线 / PPV 衰减对比） */
+.chart-canvas {
+  display: block;
+  width: 100%;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.22);
+}
+.chart-legend {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.chart-legend .lg {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.chart-legend .lg i {
+  display: inline-block;
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+.chart-legend .c1 {
+  background: #7aa2f7;
+}
+.chart-legend .c2 {
+  background: #e0af68;
+}
+.chart-legend .c3 {
+  background: #73daca;
+}
+.chart-legend .c4 {
+  background: #f7768e;
+}
+.chart-legend .c5 {
+  background: #7aa2f7;
+}
+.chart-legend .c6 {
+  background: #feca57;
+}
+.chart-legend .lg-lg {
+  margin-left: auto;
+  font-size: 11px;
+  color: #f7768e;
+  font-family: 'Consolas', monospace;
 }
 </style>

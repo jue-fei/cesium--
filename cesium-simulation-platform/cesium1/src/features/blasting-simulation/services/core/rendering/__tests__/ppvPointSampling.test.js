@@ -20,7 +20,8 @@ function makeRenderer() {
     center: new THREE.Vector3(0, 0, 0),
     right: new THREE.Vector3(1, 0, 0),
     up: new THREE.Vector3(0, 1, 0),
-    forward: new THREE.Vector3(0, 0, 1)
+    forward: new THREE.Vector3(0, 0, 1),
+    origin: new THREE.Vector3(0, 0, 0) // 爆源=网格原点（遮挡/轴向修正的参照点）
   })
   const sim = new LocalVibrationSimulator({
     chargeKg: 100,
@@ -99,5 +100,34 @@ describe('振动场点选拾取采样 sampleAtWorldPoint', () => {
     expect(a.inside).toBe(true)
     expect(b.inside).toBe(true)
     expect(Math.abs(a.ppvCmps - b.ppvCmps)).toBeLessThan(1e-3)
+  })
+
+  // 洞身遮挡/轴向延展后因子（与 sceneBuilder.js shader 同款）：注入 holeGeom
+  // 后点选值 = 纯数据值 × occ·agn，保证与屏幕热力图颜色同口径
+  it('洞身遮挡已禁用：PPV/应力只受轴向延展因子影响（X 形/斜向黑影回归）', () => {
+    const r = makeRenderer()
+    // 横向点（旧实现中视线会穿过洞身段 → occ<1 产生直线边界黑影）
+    const p = [8.5, 0.5, 0.5]
+    const raw = r.sampleAtWorldPoint(p)
+    expect(raw.inside).toBe(true)
+
+    // 无 provider（缺省）→ 系数 1，等于纯数据值
+    const baseline = r.sampleAtWorldPoint(p)
+    expect(baseline.ppvCmps).toBeCloseTo(raw.ppvCmps, 9)
+
+    // 注入洞身几何也不再强衰减：occ 已禁用（直线切线投影 = X 形/斜向黑影伪影）
+    r.setHoleGeomProvider(() => ({ radius: 9, len: 2.5, lateralAttn: 0.95 }))
+    const adj = r.sampleAtWorldPoint(p)
+    // 仅剩轴向延展因子 agn（uLateralAttn=0.95）：温和衰减（≈0.95~0.97）、无强遮挡
+    expect(adj.ppvCmps).toBeLessThan(raw.ppvCmps)
+    expect(adj.ppvCmps).toBeGreaterThan(raw.ppvCmps * 0.9)
+    // 应力与 PPV 同一因子 → 比值不变
+    expect(adj.stressMPa / adj.ppvCmps).toBeCloseTo(raw.stressMPa / raw.ppvCmps, 9)
+
+    // 纯轴向点（ax=1 → agn=1）→ 与纯数据值一致
+    const p2 = [0, 0, 20]
+    const raw2 = r.sampleAtWorldPoint(p2)
+    const adj2 = r.sampleAtWorldPoint(p2)
+    expect(adj2.ppvCmps).toBeCloseTo(raw2.ppvCmps, 9)
   })
 })

@@ -33,6 +33,12 @@ import RAPIER from '@dimforge/rapier3d-compat'
 import { RapierPhysicsEngine } from './rapierPhysicsEngine.js'
 // 共享 LCG RNG（utils/rng.js 无 Three.js 依赖，可在 Worker/computation 层安全引入）
 import { makeRng } from '../utils/rng.js'
+// 时长判据常量单源（渲染器直播实测侧共用同一组值，避免两侧口径漂移）
+import {
+  SETTLE_REST_MASS_RATIO as REPLAY_SETTLE_REST_RATIO,
+  HOLD_AFTER_SETTLED as REPLAY_HOLD_AFTER_SETTLED,
+  REPLAY_MAX_DURATION
+} from '../blastDefaults.js'
 
 let engine = null
 let bodyLandedEnabled = false
@@ -44,21 +50,29 @@ let currentEpoch = null
 // ─── 关键帧录制（Replay）───────────────────────────
 // 方案：不再单独烘焙（大事件求解太慢 + 空闲门控会被连续播放饿死）。
 // 直播 step 本身就是完整物理演化——每步 0.05s 求解后把状态录成关键帧，
-// 全部碎片落地 + 保持 3s 后打包推送主线程 → 回放模式启用：
+// 抛掷结束（静止质量比达标）+ 保持 REPLAY_HOLD_AFTER_SETTLED 后打包推送主线程
+// → 回放模式启用：
 //  - 倍速播放不再受逐 step 求解吞吐限制（动画与进度条同步）；
 //  - 循环重播回到 t=0 瞬时完成（无竞态、无需重建物理）；
-//  - 进度条时长 = 全部落地 + 3s（随事件自适应）。
+//  - 进度条时长 = 抛掷结束 + 保持（随事件自适应），与真实物理事件同尺度。
 // 录制零额外物理开销（只打包每步已算好的状态），首次完整播放结束即就绪。
 const REPLAY_KEY_DT = 0.05 // 关键帧间隔(s)，与播放帧网格一致
-const REPLAY_HOLD_AFTER_SETTLED = 3 // 全部落地后再录制 3s
-const REPLAY_MAX_DURATION = 40 // 硬上限(s)，兜底防永不静止
+// 抛掷结束后再录制多久(s)：只用于让观众看清爆堆成形，不是"等最后一颗石头"。
+// 旧值 3s 叠加在已偏长的落地判据上，使时间条明显超出真实事件。
+// （REPLAY_HOLD_AFTER_SETTLED / REPLAY_SETTLE_REST_RATIO / REPLAY_MAX_DURATION
+//   三个常量由 blastDefaults.js 单源 import，渲染器直播实测侧用同一组值。）
 const REPLAY_FLOATS_PER_BODY = 8 // 每碎片每关键帧 float 数 [px,py,pz,qx,qy,qz,qw,flags]
 const REPLAY_MAX_KEYS = Math.ceil(REPLAY_MAX_DURATION / REPLAY_KEY_DT) + 4
+// 静止比抖动确认步数：静止比存在 ~1e-4 量级抖动（碎片被安息角判定解除支撑、
+// 又在斜面上重新滚动），单帧穿越阈值可能是尖峰 → 要求连续 N 步达标才锁定，
+// 避免提前截断动画。3 步 = 0.15s，远小于事件尺度。
+const SETTLE_CONFIRM_STEPS = 3
 
 let replayKeyChunks = [] // Float32Array[]（每关键帧一块，顺序 = 录制顺序）
 let replayLandingList = [] // [t,x,y,z,speed, ...]（每碎片一次落地事件）
 let replayRecording = false // 是否在录制关键帧
-let replaySettledAt = -1 // 全部落地时刻(s)
+let replaySettledAt = -1 // 抛掷结束（静止比达标）时刻(s)
+let replaySettleConfirm = 0 // 连续达标步数（抗抖动尖峰）
 let replaySession = null // 对应的烘焙会话号（主线程据此丢弃陈旧数据）
 
 // ─── 全速预计算（Precompute）──────────────────────
@@ -72,7 +86,7 @@ let precomputeChunkScheduled = false
 let lastInitPosVel = { positions: null, velocities: null }
 const PRECOMPUTE_CHUNK = 64 // 每块最多推进的步数
 const PRECOMPUTE_PROGRESS_EVERY = 8 // 每多少步上报一次进度
-const PRECOMPUTE_ESTIMATE_S = 25 // 进度百分比估算基准（约一版事件的落地+3s）
+const PRECOMPUTE_ESTIMATE_S = 5 // 进度百分比估算基准（约一版事件的抛掷结束+保持）
 const PRECOMPUTE_BLAST_TRIGGER = 0.1 // 预计算内起爆激活时刻（与主线程 blastTriggerTime 一致）
 
 // ─── 工具：解包主线程传来的 Float32Array ─────────────────
@@ -157,6 +171,7 @@ function clearReplayRecording() {
   replayKeyChunks = []
   replayLandingList = []
   replaySettledAt = -1
+  replaySettleConfirm = 0
   replayRecording = false
   replaySession = null
 }
@@ -197,10 +212,16 @@ function recordStepIfNeeded() {
   if (!replayRecording) return false
   pushReplayKey()
   const total = engine._fragmentBodies.length
-  const landed = engine.landedFragmentCount
-  // 99% 碎片落地即视为"爆堆成形"（容忍极少数滚动未停的边缘石），
-  // 与渲染器观测阈值一致；完成后 +3s 保持
-  if (landed >= total * 0.99 && replaySettledAt < 0) replaySettledAt = engine.simTime
+  // 抛掷结束判据：质量加权静止比 ≥ REPLAY_SETTLE_REST_RATIO（爆堆成形），
+  // 且连续 SETTLE_CONFIRM_STEPS 步达标（抗静止比抖动尖峰）。
+  // 不用"99% 碎片 FLAG_LANDED 计数"——该计数存在平台期（约 0.7% 的边角石永不
+  // 置位），真实布孔下 99% 可能永不达成 → 时长回退到 REPLAY_MAX_DURATION，
+  // 时间条虚长数倍（用户实测根因）。
+  if (replaySettledAt < 0) {
+    const restRatio = total > 0 ? engine.restMassRatio : 0
+    replaySettleConfirm = restRatio >= REPLAY_SETTLE_REST_RATIO ? replaySettleConfirm + 1 : 0
+    if (replaySettleConfirm >= SETTLE_CONFIRM_STEPS) replaySettledAt = engine.simTime
+  }
   const done =
     (replaySettledAt >= 0 && engine.simTime - replaySettledAt >= REPLAY_HOLD_AFTER_SETTLED) ||
     engine.simTime >= REPLAY_MAX_DURATION ||
@@ -296,6 +317,7 @@ function abortPrecomputeForLive() {
   replayKeyChunks = []
   replayLandingList = []
   replaySettledAt = -1
+  replaySettleConfirm = 0
   replayRecording = true
   pushReplayKey()
 }
@@ -420,6 +442,7 @@ function handleMessage(msg) {
         replayKeyChunks = []
         replayLandingList = []
         replaySettledAt = -1
+        replaySettleConfirm = 0
         replayRecording = true
         pushReplayKey()
         break
@@ -538,6 +561,7 @@ function doSeekTo(msg) {
   replayKeyChunks = []
   replayLandingList = []
   replaySettledAt = -1
+  replaySettleConfirm = 0
   replayRecording = true
   pushReplayKey()
 
