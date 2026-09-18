@@ -211,18 +211,10 @@ def build_ppv_grid(tunnel_width: float = 18, tunnel_height: float = 15,
     return grid_xyz, (nx, ny, nz), bounds_min, bounds_max
 
 
-# 干涉子波载波品质因数（与前端 localVibrationSimulator.js 的 WAVELET_Q=4 同口径）：
-# 载波 cos(2πf·gap)·exp(-πf·gap/Q) 为有限时长瞬态脉冲（每周期 e^(-π/Q)≈0.46，
-# 4 周期后 <5%）。短的子波脉冲使各炮孔源的波前环彼此分明，多源相长/相消干涉
-# 在色带上更容易读出（Q=10 的长波列会把干涉糊成同心圆）。
-WAVELET_Q = 4.0
-
-
 def ppv_field_3d(grid_xyz: np.ndarray, blast_center: np.ndarray,
                  charge_kg: float, K: float = 30, alpha: float = 1.5,
                  beta: float = 0.02, c_p: float = 4500, t: float = 0.0,
                  visual_c_p: float = 35.0, visual_beta: float = 0.8,
-                 carrier_hz: float = 0.0,
                  influence_radius: Optional[float] = None,
                  influence_tau: float = 3.0) -> np.ndarray:
     """3D 球面波 PPV 振动场计算
@@ -276,11 +268,6 @@ def ppv_field_3d(grid_xyz: np.ndarray, blast_center: np.ndarray,
     mask = t >= arrival
     gap = np.maximum(t - arrival, 0.0)
     decay = np.exp(-(beta + visual_beta) * gap)
-    # 干涉子波载波（与前端 waveletOsc 同口径）：从到达处起振为 0、有限时长脉冲；
-    # carrier_hz=0 时退化为单调衰减包络
-    if carrier_hz > 0:
-        decay = decay * np.sin(2.0 * np.pi * carrier_hz * gap) * np.exp(
-            (-np.pi * carrier_hz * gap) / WAVELET_Q)
     ppv = K * (charge_kg ** (1.0 / 3.0) / r) ** alpha * decay * mask
     # 爆源影响半径能量包络：把解析场收束为有界爆源体积（P0-2 近场物理近似）
     if influence_radius is not None and influence_radius > 0:
@@ -288,12 +275,59 @@ def ppv_field_3d(grid_xyz: np.ndarray, blast_center: np.ndarray,
     return (ppv * 0.01).astype(np.float32)  # cm/s → m/s
 
 
+def _expand_sources_with_reflections(sources: List[dict],
+                                     face_z: Optional[float],
+                                     coeff: float,
+                                     max_refl_sources: int = 16) -> List[dict]:
+    """自由面（掌子面）镜象源展开 —— 与前端 expandSourcesWithReflections 同口径。
+
+    真实爆破中掌子面是自由面（应力为零，压力释放边界）：应力波入射近全反射并
+    对应拉伸波，自由面处法向质点速度**加倍**。镜像法口径：径向核的镜像贡献须
+    取"指向镜像点"方向 —— 以标准"背离源点"径向核表达即**负号镜像**
+    （amp_scale = −coeff）。正号同镜像对应刚性边界（面上法向振速归零），与本
+    物理口径相反（见前端同口径注释与 staggeredPeakExact.test.js）。
+
+    源在岩体侧（z > face_z）时生成镜像源（z' = 2·face_z − z，同延时），且仅对
+    接收点 z ≥ face_z（岩体一侧）有效 → 展开条目带 gate_z_min=face_z，
+    由 ppv_field_3d_multi / peak_ppv_envelope_multi 在接收侧门控。
+
+    :param sources: 直达装药源 [{pos, charge_kg, delay_s}]
+    :param face_z: 自由面平面 z 坐标（None/空 → 不展开）
+    :param coeff: 反射系数（0~1，≤0.001 视为关闭）
+    :param max_refl_sources: 生成反射的源数上限（按药量取最大，控计算量；
+        与前端 _REFL_MAX_SOURCES 同值）
+    :return: 直达 + 镜象反射条目列表（原列表不变）
+    """
+    if face_z is None or not (coeff > 0.001) or not sources:
+        return list(sources)
+    rock_side = [
+        s for s in sources
+        if float(s.get('charge_kg', 0.0)) > 0.0
+        and float(s.get('pos', [0.0, 0.0, 0.0])[2]) > float(face_z)
+    ]
+    if not rock_side:
+        return list(sources)
+    refl = sorted(rock_side, key=lambda s: -float(s.get('charge_kg', 0.0)))[:max_refl_sources]
+    out = list(sources)
+    for s in refl:
+        pos = list(s.get('pos', [0.0, 0.0, 0.0]))
+        img = dict(s)
+        img['pos'] = [pos[0], pos[1], 2.0 * float(face_z) - pos[2]]
+        # 自由面（压力释放边界）取**负号镜像**（幅值为负等效于贡献方向指向镜像
+        # 点）→ 面上法向振速与直达同向叠加而加倍；正号镜像对应刚性边界。
+        # |amp_scale| = coeff 为反射损耗；乘在幅值上（萨道夫斯基幅值 ∝ q^(α/3)，
+        # 改药量会得到 coeff^(α/3) 的错误衰减）。与前端 img.coef 取负 / GPU 同口径。
+        img['amp_scale'] = -abs(float(s.get('amp_scale', 1.0))) * float(coeff)
+        img['gate_z_min'] = float(face_z)
+        out.append(img)
+    return out
+
+
 def ppv_field_3d_multi(grid_xyz: np.ndarray, sources: List[dict],
                        t: float, K: float = 30, alpha: float = 1.5,
                        beta: float = 0.02, c_p: float = 4500,
                        visual_c_p: float = 35.0, visual_beta: float = 0.8,
                        min_standoff: float = 0.5,
-                       carrier_hz: float = 0.0,
                        influence_radius: Optional[float] = None,
                        influence_tau: float = 3.0) -> np.ndarray:
     """3D 多装药源 PPV 场 —— 多应力波矢量叠加（波场干涉，非单一同心圆）
@@ -309,7 +343,8 @@ def ppv_field_3d_multi(grid_xyz: np.ndarray, sources: List[dict],
     源间距离与延时差产生相长/相消干涉：掏槽孔孔底汇拢处相长（核心高应力）、
     相位错开处出现干涉瓣——波场不再是一个药包中心的单一同心球面环。
 
-    :param sources: 装药源列表，每项 {pos:[x,y,z], charge_kg:float, delay_s:float}
+    :param sources: 装药源列表，每项 {pos:[x,y,z], charge_kg:float, delay_s:float,
+        gate_z_min:float(可选，镜象反射条目接收侧门控——z < gate_z_min 不参与)}
     :return: (N,) PPV 数组(m/s)（矢量叠加模长，波前未到达处为 0）
     """
     if not sources:
@@ -324,6 +359,12 @@ def ppv_field_3d_multi(grid_xyz: np.ndarray, sources: List[dict],
         delay = float(s.get('delay_s', 0.0))
         if q <= 0:
             continue
+        # 镜象反射条目接收侧门控：仅岩体一侧（z ≥ gate_z_min）参与
+        gate_act = None
+        if s.get('gate_z_min') is not None:
+            gate_act = grid[:, 2] >= float(s['gate_z_min'])
+            if not gate_act.any():
+                continue
         d = grid - pos                    # (N,3)
         r = np.linalg.norm(d, axis=1, keepdims=True)          # (N,1)
         r_safe = np.maximum(r, min_standoff)
@@ -332,22 +373,26 @@ def ppv_field_3d_multi(grid_xyz: np.ndarray, sources: List[dict],
         if not mask.any():
             continue
         amp = K * (q ** (1.0 / 3.0) / r_safe) ** alpha            # (N,1) cm/s
+        # 镜象反射条目幅值系数（amp_scale<1，反射损耗；直达源为 1）
+        if s.get('amp_scale') is not None:
+            amp = amp * float(s['amp_scale'])
         gap = np.maximum(t - arrival, 0.0).reshape(-1, 1)  # (N,1) 对齐 amp
         amp *= np.exp(-(beta + visual_beta) * gap)  # 实时回落
-        # 多孔延差+路径差 → 相位差 → 干涉条纹（同前端 waveletOsc，Q=WAVELET_Q）
-        if carrier_hz > 0:
-            amp *= np.sin(2.0 * np.pi * carrier_hz * gap) * np.exp(
-                (-np.pi * carrier_hz * gap) / WAVELET_Q)
         # 单位径向矢量：u = d / r（标准化）
         unit = d / r_safe
         contrib = (amp * unit) * (mask[:, None].astype(np.float64))  # (N,3) cm/s 矢量
+        if gate_act is not None:
+            contrib *= gate_act[:, None]
         v += contrib
 
     ppv = np.sqrt((v ** 2).sum(axis=1))
     # 爆源影响半径能量包络：取到最近爆源的距离作径向坐标，收束为有界爆源体积
+    # （与前端同口径：只统计直达装药源，不含镜象反射条目）
     if influence_radius is not None and influence_radius > 0:
         dmin = np.full(grid.shape[0], np.inf, dtype=np.float64)
         for s in sources:
+            if s.get('gate_z_min') is not None:
+                continue
             pos = np.asarray(s.get('pos', [0.0, 0.0, 0.0]), dtype=np.float64).reshape(1, 3)
             dmin = np.minimum(dmin, np.linalg.norm(grid - pos, axis=1))
         ppv = ppv * _radial_energy_envelope(dmin, influence_radius, influence_tau)
@@ -358,51 +403,143 @@ def peak_ppv_envelope_multi(grid_xyz: np.ndarray, sources: List[dict],
                             K: float = 30.0, alpha: float = 1.5,
                             min_standoff: float = 0.5, visual_c_p: float = 35.0,
                             influence_radius: Optional[float] = None,
-                            influence_tau: float = 3.0) -> tuple:
+                            influence_tau: float = 3.0,
+                            beta: float = 0.02, visual_beta: float = 0.8,
+                            peak_method: str = "history",
+                            split_envelope: bool = False) -> tuple:
     """确定性峰值包络 + 波前到达时刻（损伤判据专用，seek 即时无重算）
 
-    与前端 localVibrationSimulator.computeMultiSourcePeakDamageZones 同口径：
+    与前端 localVibrationSimulator.computeMultiSourcePeakDamageZones 同口径。
 
-        peak(p)   = |Σ_s A_s(r_s)·û_s|，A_s(r)=K·(q_s^(1/3)/r)^α·0.01（m/s）
-        arrival(p)= min_s(delay_s + r_s/c_view)
-        peak(p,t) = peak(p) · 1[t ≥ arrival(p)]
+    peak_method="history"（默认，文献驱动升级）——**时域错峰叠加峰值**：
+        依据杨年华《爆破振动波叠加数值预测方法》（爆炸与冲击 2012, 32(1):84）
+        的时域线性叠加预测原理 F(t) = Σ f_i(t+T_i)，峰值应取"各源波形按
+        (延时 + 路径时差) 错峰叠加后时程的最大值"，而非全源幅值同时求和：
+            peak(p) = max_k e^(−D·arr_k)·| Σ_{j≤k} A_j·e^(+D·arr_j)·û_j |
+        其中 arr = delay + r/c_view **按该点自身的到达序升序**（到达序随点变化），
+        D = β+β_v 为到达后时变衰减率。两个到达之间 F(t) 单调衰减 → 局部极大
+        只出现在到达时刻，上式即模型的精确解。
+        【勿改回延时序增量累加】旧实现按全局延时序累加 B，仅在"路径时差 <<
+        延期间隔"（物理波速 c≈4500 m/s）时与精确解一致；visual_c_p≈35 m/s 的
+        可视化模式下路径时差（~1s）压倒延期差（0~0.2s），延时序会把尚未到达
+        的源以 e^(+D·Δarr)>1 的放大权重提前计入 → 峰值系统性偏高（前端
+        staggeredPeakExact.test.js 以暴力时程采样锁定该口径）。
+        物理效果：延时充分错开（>子波持时）的各源波形近乎不重叠 → 峰值
+        ≈ 最强单源幅值；同段齐发 → 退化为全源同相叠加（上界）。这正是
+        Blair(1993)/李洪超等(爆炸与冲击 2026, 46(8):085203) 指出的"线性
+        同时叠加系统性高估实测 PPV"的修正；韩亮等(振动与冲击 2019, 38(3))
+        实测亦表明错峰叠加的降振率随延时的增长先升后稳（子波完全分离）。
 
-    损伤是"经历过的最大 PPV"的不可逆判据：对时变衰减场 v(t)=A·e^(−D·gap)（单调
-    递减），波前扫过该点时即取得全程峰值，故峰值=几何峰值、与载波相位/采样时刻
-    无关。与"逐帧采样 np.maximum 累积"（受载波过零与时变衰减影响而欠估计，且
-    seek 需 O(target) 次全场正演重算、阻塞事件循环）相比，本式一次预计算
-    (peak_full, arrival)，任意 t（含 seek 回拉）只做 O(N) 门控——同一 (t, 源
-    几何) 正放/回拉/拖动进度条结果完全一致。
+    peak_method="bound"（旧口径，保守上界）：
+        peak(p)   = |Σ_s A_s(r_s)·û_s|（全源同时到达，Holmberg–Persson 类
+        "幅值直接相加"假设，三角形不等式上界，安全评估偏保守）。
 
-    :param sources: 装药源列表，每项 {pos:[x,y,z], charge_kg:float, delay_s:float}
-    :return: (peak_full(N,) float32 全程几何峰值 m/s, arrival(N,) float64 最早到达 s)
+    arrival(p)= min_s(delay_s + r_s/c_view)（只计直达与过门控条目）；
+    peak(p,t) = peak(p)·1[t ≥ arrival(p)]。
+
+    损伤是"经历过的最大 PPV"的不可逆判据。与"逐帧采样 np.maximum 累积"
+    （受载波过零与时变衰减影响而欠估计，且 seek 需 O(target) 次全场正演
+    重算）相比，本式一次预计算 (peak_full, arrival)，任意 t（含 seek 回拉）
+    只做 O(N) 门控——同一 (t, 源几何) 正放/回拉/拖动进度条结果完全一致。
+
+    :param sources: 装药源列表，每项 {pos:[x,y,z], charge_kg:float, delay_s:float,
+        gate_z_min:float(可选，镜象反射条目接收侧门控——z < gate_z_min 不参与，
+        且不计入 dmin 影响包络)}
+    :param beta / visual_beta: 时变衰减率 D = beta + visual_beta（history 法
+        用于相邻源错峰时的幅值回落权重，与 ppv_field_3d_multi 同口径）
+    :param peak_method: "history"（默认，时域错峰叠加）| "bound"（保守上界）
+    :param split_envelope: True 时**不乘**影响包络、额外返回 dmin —— 即返回
+        (peak_core, arrival, dmin)，调用方以 peak_core × env(dmin) 自行合成。
+        影响半径滑块热更新只需 O(N) 重乘包络，不必重算 O(nS·N) 核心场。
+    :return: split_envelope=False：(peak_full(N,) float32, arrival(N,) float64)；
+             True：(peak_core, arrival, dmin(N,) float64)
     """
     n = grid_xyz.shape[0]
     grid = np.asarray(grid_xyz, dtype=np.float64)
-    v = np.zeros((n, 3), dtype=np.float64)
     arrival = np.full(n, np.inf, dtype=np.float64)
     dmin = np.full(n, np.inf, dtype=np.float64)
     if not sources:
         return np.zeros(n, dtype=np.float32), arrival
-    for s in sources:
-        pos = np.asarray(s.get('pos', [0.0, 0.0, 0.0]), dtype=np.float64).reshape(1, 3)
-        q = float(s.get('charge_kg', 0.0))
-        delay = float(s.get('delay_s', 0.0))
-        if q <= 0:
-            continue
-        d = grid - pos
-        r = np.linalg.norm(d, axis=1, keepdims=True)          # (N,1)
-        r_safe = np.maximum(r, min_standoff)
-        np.minimum(arrival, delay + r_safe[:, 0] / visual_c_p, out=arrival)
-        np.minimum(dmin, r_safe[:, 0], out=dmin)
-        amp = K * (q ** (1.0 / 3.0) / r_safe) ** alpha * 0.01  # (N,1) m/s
-        unit = d / r_safe                                       # 单位径向矢量
-        v += amp * unit
-    peak = np.sqrt((v ** 2).sum(axis=1))
-    if influence_radius is not None and influence_radius > 0:
+    history = str(peak_method).lower() != "bound"
+    decay = max(float(beta) + float(visual_beta), 0.0)
+    entries = [s for s in sources if float(s.get('charge_kg', 0.0)) > 0.0]
+    if history:
+        nS = len(entries)
+        pos_arr = np.array([s.get('pos', [0.0, 0.0, 0.0]) for s in entries],
+                           dtype=np.float64)                       # (nS,3)
+        coef = K * np.power(np.array([float(s.get('charge_kg', 0.0)) for s in entries]),
+                            alpha / 3.0) * 0.01                    # (nS,) m/s
+        coef = coef * np.array([float(s.get('amp_scale', 1.0)) for s in entries])
+        delay_arr = np.array([float(s.get('delay_s', 0.0)) for s in entries])
+        gate_flag = np.array([s.get('gate_z_min') is not None for s in entries], dtype=bool)
+        gate_min = np.array([float(s.get('gate_z_min', 0.0)) for s in entries])
+        direct_idx = np.nonzero(~gate_flag)[0]
+        # 分块逐点到达序精确累加：每点对 nS 个到达时刻 argsort 后顺序累加
+        # B=Σ A·e^(+D·arr)·û，逐到达时刻取候选 e^(−D·arr)·|B| 的最大值。
+        # 指数防溢出钳制（arr·D ≤ 20 → e^20≈4.9e8）；float32 中间量（29 万点×91 源
+        # 实测 ~1s，setFieldParams 滑块热更新可接受）。精度：float32 不可分辨的
+        # 到达序抖动（~1e-6s 量级）对峰值影响可忽略（误差远小于 1%）。
+        CHUNK = 8192
+        f32 = np.float32
+        pos_arr = pos_arr.astype(f32)
+        coef = coef.astype(f32)
+        delay_arr = delay_arr.astype(f32)
+        peak = np.zeros(n, dtype=np.float32)
+        inf32 = f32(np.inf)
+        for c0 in range(0, n, CHUNK):
+            c1 = min(n, c0 + CHUNK)
+            g = grid[c0:c1].astype(f32)                        # (m,3)
+            diff = g[:, None, :] - pos_arr[None, :, :]         # (m,nS,3)
+            r_safe = np.maximum(np.linalg.norm(diff, axis=2), min_standoff)
+            arrc = delay_arr[None, :] + r_safe / f32(visual_c_p)  # (m,nS)
+            act = np.ones(arrc.shape, dtype=bool)
+            if gate_flag.any():
+                act[:, gate_flag] = g[:, 2:3] >= gate_min[gate_flag][None, :]
+            arrc = np.where(act, arrc, inf32)                  # 失活条目排最后
+            np.minimum(arrival[c0:c1], arrc.min(axis=1), out=arrival[c0:c1])
+            if direct_idx.size:
+                np.minimum(dmin[c0:c1], r_safe[:, direct_idx].min(axis=1),
+                           out=dmin[c0:c1])
+            order = np.argsort(arrc, axis=1, kind='stable')
+            arr_s = np.take_along_axis(arrc, order, axis=1)
+            amp_s = np.take_along_axis(
+                coef[None, :] * np.power(r_safe, -alpha, dtype=f32), order, axis=1)
+            unit_s = np.take_along_axis(diff / r_safe[..., None],
+                                        order[:, :, None], axis=1)
+            w = np.where(np.isfinite(arr_s),
+                         np.exp(np.minimum(decay * arr_s, 20.0)), 0.0)
+            B = np.cumsum((amp_s * w)[..., None] * unit_s, axis=1)   # (m,nS,3)
+            # 失活条目 arr=inf → e^(−D·inf)=0，候选自然为 0
+            cand = np.exp(-decay * arr_s) * np.sqrt((B ** 2).sum(axis=2))
+            peak[c0:c1] = np.maximum(peak[c0:c1], cand.max(axis=1))
+    else:
+        v = np.zeros((n, 3), dtype=np.float64)
+        for s in entries:
+            pos = np.asarray(s.get('pos', [0.0, 0.0, 0.0]), dtype=np.float64).reshape(1, 3)
+            q = float(s.get('charge_kg', 0.0))
+            delay = float(s.get('delay_s', 0.0))
+            d = grid - pos
+            r = np.linalg.norm(d, axis=1, keepdims=True)          # (N,1)
+            r_safe = np.maximum(r, min_standoff)
+            arr = delay + r_safe[:, 0] / visual_c_p
+            np.minimum(arrival, arr, out=arrival)
+            if s.get('gate_z_min') is None:
+                np.minimum(dmin, r_safe[:, 0], out=dmin)
+            amp = K * (q ** (1.0 / 3.0) / r_safe) ** alpha * 0.01  # (N,1) m/s
+            if s.get('amp_scale') is not None:
+                amp = amp * float(s['amp_scale'])
+            unit = d / r_safe                                       # 单位径向矢量
+            contrib = amp * unit
+            if s.get('gate_z_min') is not None:
+                contrib = contrib * (grid[:, 2:3] >= float(s['gate_z_min']))
+            v += contrib
+        peak = np.sqrt((v ** 2).sum(axis=1))
+    if not split_envelope and influence_radius is not None and influence_radius > 0:
         # 与瞬时场同口径的空间包络：峰值收束在同一有界爆源体积内
         peak = peak * _radial_energy_envelope(dmin, influence_radius, influence_tau)
     peak = np.where(np.isfinite(dmin), peak, 0.0)
+    if split_envelope:
+        return peak.astype(np.float32), arrival, dmin
     return peak.astype(np.float32), arrival
 
 
@@ -466,6 +603,13 @@ def pack_ppv_binary(frame: int, t: float, grid_shape: tuple,
 #   Persson P A, Holmberg R, Lee J. Rock Blasting and Explosives Engineering. 1994
 #   胡英国等. 爆炸与冲击, 2015, 35(4):547-554（岩体爆破损伤 PPV 临界值实验研究）
 #   周传波等. JRMGE, 2025（考虑介质阻尼的振动场正演与损伤评价）
+# 完整岩体阈值量级对照（文献映射，供档位核对）：
+#   Bauer & Calder 1970：<254 mm/s 完整岩体不产生新裂纹；254~635 轻微片帮；
+#                        635~2540 强拉伸与径向裂纹；≥2540 岩体解体
+#   Langefors & Kihlström 1973（隧道）：305 mm/s 无衬砌隧道落石、610 mm/s 新裂缝
+#   → fracture 档 100 cm/s 边界正对 Persson–Holmberg 700~1000 mm/s 损伤带；
+#     throw 档 200 cm/s 量级对应 Bauer 解体下限；micro_crack 20~50 cm/s
+#     低于 Bauer 254 mm/s 无损下限 → 显示口径偏保守（定性可视化，非定量判据）
 DAMAGE_THRESHOLDS_CMPS = (20.0, 50.0, 100.0, 200.0)
 DAMAGE_ZONE_LABELS = ('elastic', 'micro_crack', 'crack_growth', 'fracture', 'throw')
 
@@ -533,19 +677,27 @@ def stress_field_from_ppv(ppv: np.ndarray,
                           nu: float = 0.25,
                           r: Optional[np.ndarray] = None,
                           near_field_radius: float = 0.0,
-                          near_field_gain: float = NEAR_FIELD_GAIN) -> dict:
+                          near_field_gain: float = NEAR_FIELD_GAIN,
+                          dynamic_poisson: bool = True) -> dict:
     """由 PPV 振动场反演岩体应力场（弹性球面波本构，一阶近似）
 
     爆破应力波在岩体中产生两种破坏性应力（这是岩体爆破破坏/生成裂隙的机制）：
         - 径向压应力 σ_rr（加载相）：σ_rr = ρ · c_p · v_r   （波阻抗关系）
-        - 切向拉应力 σ_θθ（幅值）：σ_θθ = (ν / (1−ν)) · σ_rr（切向受拉，方向与径向相反）
-    切向拉应力是产生径向裂隙的主因（应力波使介质切向受拉，见文献依据）。
+        - 切向拉应力 σ_θθ（幅值）：σ_θθ = b · σ_rr，b = ν_d/(1−ν_d)
+          （切向受拉，方向与径向相反；切向拉应力是产生径向裂隙的主因）
+    动态泊松比（文献驱动优化，dynamic_poisson=True 默认开启）：
+        高应变率下岩体动态泊松比 μ_d ≈ 0.8·μ（静态），侧应力系数以 μ_d 计——
+        依据：梁瑞等《球状药包应力波叠加过程的破岩特性》长江科学院院报 2020,
+        37(4):67-72（λ=μ_d/(1−μ_d)，μ_d=0.8μ；粉碎区衰减 δ=3、裂隙区
+        δ=2−μ_d/(1−μ_d)）；刘步青《基于可视化的微差爆破应力波叠加及破裂机制
+        研究》（孔间拉应力是岩桥损伤主因，受泊松效应控制）。
+        ν=0.25 时 b：静态 0.333 → 动态 0.286（切向拉/等效应力约降 6%~14%）。
 
     主应力状态（压缩为正，切向拉为负）：σ_1 = σ_rr（最大主应力，径向），
                σ_2 = σ_3 = −σ_θθ（切向，两正交方向相等，为拉应力）。
     von Mises 等效应力：
 
-        σ_vm = |σ_rr − σ_θθ| = σ_rr · (1 + ν/(1−ν)) = σ_rr / (1−ν)   （再乘近场项 F(r)）
+        σ_vm = |σ_rr − σ_θθ| = σ_rr · (1 + b) = σ_rr / (1−ν_d)   （再乘近场项 F(r)）
 
     近场几何修正（与前端 localVibrationSimulator.NEAR_FIELD_* 同口径）：
         F(r) = 1 + NEAR_FIELD_GAIN · (r_nf / r)²
@@ -555,13 +707,14 @@ def stress_field_from_ppv(ppv: np.ndarray,
         - 弹性一阶近似，适用于中远场（r > 5R_charge，R_charge 为药包半径）；
         - 近场（爆腔附近）存在塑性变形，弹性预测偏低，需配合损伤分区修正；
           近场修正项按一阶几何等效给定，仅表达空间结构，不作工程定量结论；
-        - σ_θθ 为切向拉应力幅值（成缝判据 σ_θθ ≥ σ_t 岩体抗拉强度）。
+        - σ_θθ 为切向拉应力幅值（成缝判据 σ_θθ ≥ σ_t 岩体动态抗拉强度）。
 
     理论依据：
         - Hwang & Mohanty, Int. J. Rock Mech. Min. Sci., 2005（球面波应力-速度关系）
         - 罗章喜, 爆炸与冲击 1982, 3:34-40（光面爆破理论：冲击波使岩石切向受拉）
         - Wang X. et al., Processes 2023, 11(9):2805（σ_θ = −b·σ_r, b = ν/(1−ν)）
-        - 梁瑞等, 高压物理学报 2022, 36(6):064202（裂隙区径向压力+切向拉力，Mises 判据）
+        - 梁瑞等, 高压物理学报 2022, 36(6):064202 及 长江科学院院报 2020, 37(4):67-72
+          （动态侧应力系数 λ=μ_d/(1−μ_d)，μ_d=0.8μ；裂隙区径向压+切向拉，Mises 判据）
         - 陶颂霖《爆破力学》，中南大学出版社（弹性波应力反演）
 
     :param ppv: (N,) PPV 数组(m/s)，来自 ppv_field_3d（已含 ×0.01 cm/s→m/s）。
@@ -569,18 +722,21 @@ def stress_field_from_ppv(ppv: np.ndarray,
         否则应力场与振速场只差常数（两图相同）。
     :param rho: 岩体密度(kg/m³)，默认 2650（中硬岩）
     :param c_p: 纵波速度(m/s)，默认 4500
-    :param nu: 泊松比，默认 0.25
+    :param nu: 静态泊松比，默认 0.25（dynamic_poisson=True 时按 μ_d=0.8μ 折算）
+    :param dynamic_poisson: True（默认）用动态泊松比 μ_d=0.8μ 计算侧应力系数
     :param r: (N,) 各点到爆心距离(m)，近场几何修正用；None 或 near_field_radius<=0 时不施加
     :param near_field_radius: 近场交叉半径 r_nf(m)，由 compute_near_field_radius() 给出
     :param near_field_gain: 近场增益 A
     :return: dict，各字段均为 (N,) float32 数组，单位 Pa：
         sigma_rr   - 径向应力幅值（最大主应力 σ_1，压应力）
-        sigma_theta- 切向拉应力幅值（σ_θθ = ν/(1−ν)·σ_rr，最小主应力 σ_3）
-        sigma_vm   - von Mises 等效应力 = σ_rr/(1−ν)·F(r)
+        sigma_theta- 切向拉应力幅值（σ_θθ = b·σ_rr，最小主应力 σ_3）
+        sigma_vm   - von Mises 等效应力 = σ_rr/(1−ν_d)·F(r)
         sigma_1    - 最大主应力（= sigma_rr）
         sigma_3    - 最小主应力（= −sigma_theta，切向拉应力）
     """
     ppv = np.asarray(ppv, dtype=np.float32)
+    # 动态泊松比（梁瑞 2020：μ_d = 0.8·μ）：高应变率下侧应力系数降低
+    nu_eff = (0.8 * float(nu)) if dynamic_poisson else float(nu)
     # 近场几何放大 F(r) = 1 + gain·(r_nf/r)²（缺 r 或 r_nf<=0 → 不施加，退化为旧行为）
     nf = None
     if r is not None and float(near_field_radius) > 0.0:
@@ -591,17 +747,138 @@ def stress_field_from_ppv(ppv: np.ndarray,
     sigma_rr = (rho * c_p * ppv).astype(np.float32)
     if nf is not None:
         sigma_rr = (sigma_rr * nf).astype(np.float32)
-    # 切向拉应力幅值 σ_θθ = (ν/(1−ν))·σ_rr；ν=0.25 → 系数 0.333
-    theta_factor = nu / (1.0 - nu)
+    # 切向拉应力幅值 σ_θθ = b·σ_rr，b = μ_d/(1−μ_d)；μ_d=0.8ν=0.2 → b≈0.25
+    theta_factor = nu_eff / (1.0 - nu_eff)
     sigma_theta = (sigma_rr * theta_factor).astype(np.float32)
-    # von Mises：σ_1=σ_rr, σ_2=σ_3=−σ_θθ（拉）→ σ_vm = |σ_rr + σ_θθ| = σ_rr/(1−ν)
-    sigma_vm = (sigma_rr / (1.0 - nu)).astype(np.float32)
+    # von Mises：σ_1=σ_rr, σ_2=σ_3=−σ_θθ（拉）→ σ_vm = |σ_rr + σ_θθ| = σ_rr/(1−μ_d)
+    sigma_vm = (sigma_rr / (1.0 - nu_eff)).astype(np.float32)
     return {
         'sigma_rr': sigma_rr,
         'sigma_theta': sigma_theta,
         'sigma_vm': sigma_vm,
         'sigma_1': sigma_rr,        # 最大主应力（径向压应力主导）
         'sigma_3': -sigma_theta     # 最小主应力（切向拉应力）
+    }
+
+
+# ─── 雷管延期误差概率模型（韩亮等, 振动与冲击 2019, 38(3)）────────────────
+# 雷管延期误差可视为随机变量 t_i ~ N(0, σ²)；对非电毫秒雷管批次抽样回归得
+#   σ(ms) ≈ 0.017·t_nominal(ms) + 3.483   （95% 置信上界口径，段别越高 σ 越大，
+#   如 MS10(380ms)→σ≈10.3ms、MS15(880ms)→σ≈19.0ms）
+# 数码电子雷管延期精度 ≤1ms，取 σ≈1.2ms（含起爆器同步误差量级）。
+# 用途：给多源模拟的各源叠加确定性高斯抖动（同前端 delayJitterMs 机制），
+# 打破完美对称干涉、贴近实测波形的随机性（李洪超等 2026 蒙特卡罗口径）。
+DETONATOR_SIGMA_A = 0.017   # ms/ms：σ 随名义延时的回归斜率（非电）
+DETONATOR_SIGMA_B = 3.483   # ms：回归截距（非电）
+DETONATOR_SIGMA_ELECTRONIC = 1.2  # ms：数码电子雷管典型 σ
+
+
+def detonator_delay_sigma(delay_ms: float, detonator_type: str = "nonel") -> float:
+    """单段雷管延期误差标准差 σ(ms)
+
+    :param delay_ms: 该段雷管的名义延期(ms)
+    :param detonator_type: "nonel"（非电毫秒雷管，韩亮 2019 回归式）
+                           | "electronic"（数码电子雷管，固定 σ）
+    """
+    d = max(0.0, float(delay_ms or 0.0))
+    if str(detonator_type).lower().startswith("elec"):
+        return DETONATOR_SIGMA_ELECTRONIC
+    return DETONATOR_SIGMA_A * d + DETONATOR_SIGMA_B
+
+
+def apply_detonator_jitter(sources: List[dict], detonator_type: str = "nonel",
+                           seed: int = 12345) -> List[dict]:
+    """对装药源列表施加确定性雷管延期抖动（返回抖动后的深拷贝）
+
+    每源按其名义延时取 σ=detonator_delay_sigma(...)，叠加 Box–Muller 高斯
+    抖动（按 (seed, 源序号) 确定性可复现，同一场景多次调用结果一致）。
+    应在**场景构建时调用一次**并缓存结果——逐帧调用会使波形逐帧随机抖动。
+
+    :param sources: [{pos, charge_kg, delay_s, ...}]（delay_s 单位秒）
+    :return: 抖动后的源列表（delay_s ≥ 0 钳制）
+    """
+    rng = np.random.default_rng(int(seed) & 0xFFFFFFFF)
+    out = []
+    for i, s in enumerate(sources):
+        t = dict(s)
+        delay_ms = float(s.get('delay_s', 0.0)) * 1000.0
+        sigma_ms = detonator_delay_sigma(delay_ms, detonator_type)
+        if sigma_ms > 0.0:
+            t['delay_s'] = max(0.0, delay_ms + float(rng.normal(0.0, sigma_ms))) / 1000.0
+        out.append(t)
+    return out
+
+
+# ─── 损伤范围理论（粉碎区/裂隙区半径，文献驱动）─────────────────────────
+# 损伤区（裂隙区）半径不再用固定显示上限，而由孔壁初始压力与岩体动态强度推算：
+#   孔壁初始压力（耦合装药，波阻抗透射）：
+#       P_cJ = ρ_e·D²/(γ+1) = ρ_e·D²/4（γ=3，乳化炸药典型）
+#       P_b  = 2·Z_r/(Z_r+Z_e)·P_cJ·(d_c/d_b)^(2γ)
+#       Z_r = ρ_r·c_p（岩体波阻抗），Z_e = ρ_e·D（炸药波阻抗），
+#       不耦合装药时按装药/炮孔直径比的 2γ 次方折减（d_c≤d_b，耦合取 1）
+#   冲击波/应力波分区衰减（梁瑞等 2020，长江科学院院报 37(4):67-72）：
+#       粉碎区（冲击波）δ=3；裂隙区（应力波）δ = 2 − μ_d/(1−μ_d)，μ_d=0.8μ
+#   粉碎区半径：r_c = r_b·(P_b/σ_cd)^(1/3)          （σ_cd 岩体动态抗压强度）
+#   裂隙区半径：r_t = r_c·(b·σ_cd/σ_td)^(1/(2−b))    （b = μ_d/(1−μ_d)；r_c 处
+#               σ_r 恰衰减到 σ_cd，切向拉应力 b·σ_r 降至 σ_td 岩体动态抗拉强度处
+#               即裂隙区外缘——切向受拉成缝机制，见宗琦《爆破》1994 裂隙区半径）
+# 文献量级核对：耦合装药裂隙区约为装药半径的 10~20 倍（本式 42mm 孔约 7~12 倍、
+#   250mm 孔约 7~8 倍，同量级）；多炮孔群的损伤范围 = 各源裂隙区半径的并集
+#   （dmin(p) ≤ r_t 即损伤），孔间岩桥叠加增强见刘步青学位论文实验结论。
+DETONATION_GAMMA = 3.0          # 爆炸产物等熵指数（乳化炸药典型）
+ROCK_SIGMA_CD_DEFAULT = 100e6   # Pa：岩体动态抗压强度默认（中硬岩量级）
+ROCK_SIGMA_TD_DEFAULT = 10e6    # Pa：岩体动态抗拉强度默认（约为抗压 1/10）
+BOREHOLE_RADIUS_DEFAULT = 0.021  # m：隧道炮孔半径默认（Φ42mm）
+
+
+def damage_zone_radius(rho_explosive: float = 1200.0,
+                       vod: float = 4500.0,
+                       borehole_radius: float = BOREHOLE_RADIUS_DEFAULT,
+                       charge_diameter: Optional[float] = None,
+                       rho_rock: float = 2650.0,
+                       c_p: float = 4500.0,
+                       nu: float = 0.25,
+                       sigma_cd: float = ROCK_SIGMA_CD_DEFAULT,
+                       sigma_td: float = ROCK_SIGMA_TD_DEFAULT) -> dict:
+    """由爆岩参数推算粉碎区/裂隙区（损伤区）半径（文献理论，见模块注释）
+
+    :param rho_explosive: 炸药密度(kg/m³)
+    :param vod: 爆速(m/s)
+    :param borehole_radius: 炮孔半径(m)
+    :param charge_diameter: 药卷直径(m)；None=耦合装药（不耦合折减不生效）
+    :param rho_rock / c_p: 岩体密度/纵波速度（波阻抗透射用）
+    :param nu: 岩体静态泊松比（动态按 μ_d=0.8μ 折算）
+    :param sigma_cd / sigma_td: 岩体动态抗压/抗拉强度(Pa)
+    :return: dict(wall_pressure, crush_radius, crack_radius, b, decay_crack)（SI 单位）
+    """
+    rb = float(borehole_radius)
+    if rb <= 0:
+        rb = BOREHOLE_RADIUS_DEFAULT
+    # 爆腔压力与波阻抗透射（耦合装药）
+    p_cj = float(rho_explosive) * float(vod) ** 2 / (DETONATION_GAMMA + 1.0)
+    z_r = float(rho_rock) * float(c_p)
+    z_e = float(rho_explosive) * float(vod)
+    p_b = 2.0 * z_r / (z_r + z_e) * p_cj
+    # 不耦合折减：(d_c/d_b)^(2γ)
+    if charge_diameter is not None and float(charge_diameter) > 0:
+        decouple = min(1.0, float(charge_diameter) / (2.0 * rb)) ** (2.0 * DETONATION_GAMMA)
+        p_b *= decouple
+    # 动态侧应力系数（μ_d = 0.8μ，梁瑞 2020）
+    mu_d = 0.8 * float(nu)
+    b = mu_d / (1.0 - mu_d)
+    sigma_cd = max(float(sigma_cd), 1e5)
+    sigma_td = max(float(sigma_td), 1e4)
+    # 粉碎区：δ=3
+    r_crush = rb * (p_b / sigma_cd) ** (1.0 / 3.0)
+    # 裂隙区：δ = 2−b，r_c 处 σ_r = σ_cd（由构造），切向拉 b·σ_r ≤ σ_td 处为外缘
+    decay_crack = 2.0 - b
+    r_crack = r_crush * (b * sigma_cd / sigma_td) ** (1.0 / decay_crack)
+    return {
+        'wall_pressure': p_b,
+        'crush_radius': r_crush,
+        'crack_radius': r_crack,
+        'b': b,
+        'decay_crack': decay_crack,
     }
 
 
@@ -671,16 +948,27 @@ def damage_zone_field(grid_xyz: np.ndarray,
                       thresholds: tuple = DAMAGE_THRESHOLDS_CMPS,
                       max_radius: float = DAMAGE_MAX_RADIUS,
                       atten_tau: float = DAMAGE_ATTEN_TAU,
-                      void_mask: Optional[np.ndarray] = None) -> np.ndarray:
-    """带空间约束的损伤分区（P0-2：把损伤收束到隧道临空面附近）。
+                      void_mask: Optional[np.ndarray] = None,
+                      radius_model: str = "theory",
+                      borehole_radius: float = BOREHOLE_RADIUS_DEFAULT,
+                      min_radius: float = 0.0) -> np.ndarray:
+    """带空间约束的损伤分区（损伤范围理论驱动，P0-2 显示收束保留为上限）。
+
+    损伤范围模型（radius_model）：
+      - "theory"（默认，文献驱动）：损伤硬上限取**裂隙区半径** r_t——由孔壁初始
+        压力与岩体动态强度推算（damage_zone_radius()，宗琦 1994 / 梁瑞 2020 /
+        戴俊《岩石动力学特性与爆破理论》），多炮孔群按"距最近源 dmin(p) ≤ r_t"
+        取并集（孔间岩桥叠加增强见刘步青学位论文）。客户端 max_radius 仅作为
+        **更严的上限**参与取 min（UI 滑块只能收紧、不能放大物理范围）。
+        可见性下限 min_radius（如 2×网格分辨率）：r_t 小于网格尺度时以下限计，
+        避免损伤区整体落到亚体素而不可见（纯显示层保护，不影响物理口径）。
+      - "fixed"（旧口径）：直接用 max_radius（P0-1/P0-2 的固定 7m 显示上限）。
 
     解析近场用萨道夫斯基经验公式本身不适用（R→0 发散、无爆腔膨胀项），故在此对
-    所需最大损伤半径做硬约束 + 平滑深度衰减，使损伤只沿隧道轮廓向外发展 5~10m，
-    而非等向铺满整个计算域的红圆：
-
-      1. 距最近爆源距离 r → 深度衰减系数 g(r)：r ≤ (max_radius−atten_tau) 内为 1，
-     (max_radius−atten_tau)→max_radius 线性过渡到 0，r ≥ max_radius 后为 0
-     ——max_radius 为**硬上限**（恰在 max_radius 处归零），超程一律 elastic。
+    所需最大损伤半径做硬约束 + 平滑深度衰减，使损伤只沿隧道轮廓向外发展：
+      1. 距最近爆源距离 r → 深度衰减系数 g(r)：r ≤ (R_eff−tau) 内为 1，
+     (R_eff−tau)→R_eff 线性过渡到 0，r ≥ R_eff 后为 0
+     ——R_eff 为**硬上限**（恰在 R_eff 处归零），超程一律 elastic。
        等效于把"参与损伤分区的有效 PPV"乘 g：越往外档位越低，超程归 elastic。
       2. 叠加隧道空腔掩码：空腔（已开挖洞身）内无岩体 → 一律归 0（elastic）。
       3. 复用升级后的 Persson 阈值分区（damage_zone_classify）。
@@ -690,25 +978,49 @@ def damage_zone_field(grid_xyz: np.ndarray,
     :param sources: 爆源列表 [{pos, charge_kg, ...}]，缺省用 blast_center
     :param blast_center: 单爆心 (x,y,z)，sources 缺省时的爆源
     :param thresholds: (4,) PPV 阈值(cm/s)
-    :param max_radius: 损伤区最大计算半径(m)（硬上限，恰在此处衰减到 0）
-    :param atten_tau: 超过 (max_radius−atten_tau) 后平滑衰减到 0 的过渡宽度(m)
+    :param max_radius: 损伤区上限(m)（theory 模式下为 UI 收紧上限；fixed 模式下即硬上限）
+    :param atten_tau: 超过 (R_eff−tau) 后平滑衰减到 0 的过渡宽度(m)
     :param void_mask: (N,) bool 隧道空腔掩码（可选）
+    :param radius_model: "theory"（默认，裂隙区半径理论）| "fixed"（固定上限）
+    :param borehole_radius: 炮孔半径(m)（theory 模式用）
+    :param min_radius: 损伤范围可见性下限(m)（theory 模式；0=不启用）
     :return: (N,) int8 分区数组（同 damage_zone_classify）
     """
     g = np.asarray(grid_xyz, dtype=np.float64)
     ppv = np.asarray(peak_ppv_mps, dtype=np.float32).reshape(-1)
     n = g.shape[0]
+    # 损伤范围：理论裂隙区半径 + 炮孔群展开半径（多源并集的外包络）vs UI 上限
+    r_eff = max_radius
+    tau_eff = atten_tau
+    if str(radius_model).lower() == "theory":
+        theory = damage_zone_radius(borehole_radius=borehole_radius)
+        r_theory = float(theory['crack_radius'])
+        # 炮孔群展开半径：各源到爆心(掏槽质心)的最大距离——损伤区是各源裂隙区
+        # 的并集，群的外包络 = 群展开半径 + r_t（刘步青：孔间岩桥叠加增强）
+        cluster = 0.0
+        src_list0 = sources if sources else ([{'pos': list(blast_center)}] if blast_center is not None else [])
+        if src_list0 and blast_center is not None:
+            bc = np.asarray(blast_center, dtype=np.float64).reshape(1, 3)
+            for s in src_list0:
+                pos = np.asarray(s.get('pos', [0.0, 0.0, 0.0]), dtype=np.float64).reshape(1, 3)
+                cluster = max(cluster, float(np.linalg.norm(pos - bc)))
+        r_theory_eff = r_theory + cluster
+        r_eff = r_theory_eff if max_radius is None else min(float(max_radius), r_theory_eff)
+        if min_radius is not None and float(min_radius) > 0:
+            r_eff = max(r_eff, float(min_radius))
+        # 过渡宽度不超过 R_eff 一半，防 tau > R_eff 把近源也线性压暗
+        tau_eff = min(float(atten_tau), 0.5 * r_eff)
     # 最近爆源距离 → 深度衰减系数（缺省无爆源约束时衰减系数恒为 1）
-    if max_radius is not None and max_radius > 0:
+    if r_eff is not None and r_eff > 0:
         dmin = np.full(n, np.inf, dtype=np.float64)
         src_list = sources if sources else ([{'pos': list(blast_center)}] if blast_center is not None else [])
         for s in src_list:
             pos = np.asarray(s.get('pos', [0.0, 0.0, 0.0]), dtype=np.float64).reshape(1, 3)
             dmin = np.minimum(dmin, np.linalg.norm(g - pos, axis=1))
         g_r = np.where(np.isfinite(dmin), dmin, 0.0)
-        tau = max(float(atten_tau), 1e-6)
+        tau = max(float(tau_eff), 1e-6)
         # 硬上限衰减：r ≤ (radius−tau) 为 1；→ radius 线性归 0；r ≥ radius 为 0
-        atten = np.clip((max_radius - g_r) / tau, 0.0, 1.0).astype(np.float64)
+        atten = np.clip((r_eff - g_r) / tau, 0.0, 1.0).astype(np.float64)
     else:
         atten = np.ones(n, dtype=np.float64)
     ppv_eff = ppv * atten

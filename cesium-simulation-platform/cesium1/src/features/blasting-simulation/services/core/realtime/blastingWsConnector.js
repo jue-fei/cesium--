@@ -362,7 +362,7 @@ export class BlastingWsConnector {
    * @param {Object} [opts.rockParams] - 岩体参数 {density,pWaveSpeed,sWaveSpeed,...}（可选）
    * @param {number} [opts.k] - 萨道夫斯基场地常数（可选，默认 30）
    * @param {number} [opts.alpha] - 萨道夫斯基衰减指数（可选，默认 1.5）
-   * @param {number} [opts.carrierHz] - 干涉子波载波频率 Hz（可选，0=关，默认 8Hz 开启）
+   * @param {Array} [opts.reflections] - 掌子面镜象反射配置 [{axis:'z',value,coeff}]（可选）
    */
   startStream(duration, timestep, holes, opts = {}) {
     const payload = { type: CommandType.START, duration, timestep, holes }
@@ -380,26 +380,23 @@ export class BlastingWsConnector {
     // 萨道夫斯基 K/α 参数（未提供时后端默认 K=30、α=1.5）
     if (opts.k !== undefined) payload.k = Number(opts.k)
     if (opts.alpha !== undefined) payload.alpha = Number(opts.alpha)
-    // 干涉子波载波频率（后端据此对萨道夫斯基场叠加振荡相位，多孔干涉显形）
-    if (opts.carrierHz !== undefined) payload.carrierHz = Number(opts.carrierHz)
     // 多装药源（各炮孔装药段位置/药量/延时）：后端据此做多应力波矢量叠加（非单一同心圆）
     if (Array.isArray(opts.sources)) payload.sources = opts.sources
-    // 损伤边界可调参数（P0-1/P0-2）：传播包络半径 + 损伤硬上限（m），后端据此收束场
+    // 波场传播包络半径（m）：由岩体几何实测确定，后端据此收束场；损伤半径产生规则不变
     if (opts.influenceRadius !== undefined) payload.influenceRadius = Number(opts.influenceRadius)
-    if (opts.damageMaxRadius !== undefined) payload.damageMaxRadius = Number(opts.damageMaxRadius)
+    // 掌子面自由面反射（镜象源法）：[{axis:'z', value: faceZ, coeff}]，null=不加反射
+    if (opts.reflections !== undefined) payload.reflections = opts.reflections
     this.send(payload)
   }
 
   /**
-   * 【实时生效】推流进行中热更新场参数（损伤/包络半径），无需重启后端。
+   * 【实时生效】推流进行中热更新场参数（包络半径），无需重启后端。
    * 后端收到后重算确定性峰值包络（influence_radius 参与）并推送当前时刻校正帧。
-   * @param {Object} opts - { influenceRadius, damageMaxRadius }
+   * @param {Object} opts - { influenceRadius }
    */
   updateFieldParams(opts = {}) {
     const payload = { type: 'setFieldParams' }
     if (opts.influenceRadius !== undefined) payload.influenceRadius = Number(opts.influenceRadius)
-    if (opts.damageMaxRadius !== undefined) payload.damageMaxRadius = Number(opts.damageMaxRadius)
-    if (opts.carrierHz !== undefined) payload.carrierHz = Number(opts.carrierHz)
     this.send(payload)
   }
 

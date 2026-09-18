@@ -213,14 +213,13 @@
           :white-model-enabled="whiteModelEnabled"
           :iso-line-enabled="isoLineEnabled"
           :translucent-enabled="translucentEnabled"
-          :carrier-hz="carrierHz"
           :norm-mode="normMode"
+          :carrier-hz="carrierHz"
           :contour-density="contourDensity"
           :contour-stats="contourStats"
           :current-frame="currentFrame"
           :max-frame="maxFrame"
           :vector-field-on="vectorFieldOn"
-          :damage-max-radius="damageMaxRadius"
           :point-history="pointHistory"
           :ppv-decay-data="ppvDecayData"
           @set-vibration-mode="setVibrationDisplayMode"
@@ -229,11 +228,10 @@
           @toggle-white-model="setWhiteModelEnabled"
           @toggle-iso-line="setIsoLineEnabled"
           @toggle-translucent="setTranslucentEnabled"
-          @set-carrier-hz="setVibrationCarrierHz"
           @set-norm-mode="setVibrationNormMode"
+          @set-carrier-hz="setVibrationCarrierHz"
           @set-contour-density="setVibrationContourDensity"
           @toggle-vector-field="setVectorFieldOn"
-          @set-damage-max-radius="setDamageMaxRadius"
         />
         <!-- 监测点（3D 布点 + 三分量时程曲线）+ 雷管延期误差控制 -->
         <MonitorPointsPanel
@@ -313,19 +311,17 @@ const {
   ppvPickEnabled,
   pickedPpv,
   togglePpvPick,
-  // 干涉载波 / 色彩标尺 / 等值线密度 / 提取诊断（VibrationFieldPanel 控件所需的
+  // 色彩标尺 / 等值线密度 / 提取诊断（VibrationFieldPanel 控件所需的
   // props 与事件处理，之前漏解构导致模板读取到 undefined → 控件形同虚设）
-  carrierHz,
-  setVibrationCarrierHz,
   normMode,
   setVibrationNormMode,
+  carrierHz,
+  setVibrationCarrierHz,
   contourDensity,
   setVibrationContourDensity,
   contourStats,
   vectorFieldOn,
   setVectorFieldOn,
-  damageMaxRadius,
-  setDamageMaxRadius,
   ppvDecayData,
   pointHistory,
   blastDesign,

@@ -29,15 +29,14 @@
 // 使损伤区收束到爆源邻近数米，避免解析场下出现"无视隧道轮廓的无边红圆/黄块"）
 const DAMAGE_THRESHOLDS_CMPS = [20.0, 50.0, 100.0, 200.0]
 
-// ─── 径向能量包络 / 损伤深度上限（与后端 blast_physics.py 逐项同口径） ─────────
+// ─── 径向能量包络（与后端 blast_physics.py 同口径） ─────────
 // 后端 ppv_field_3d_multi / peak_ppv_envelope_multi 施加 env(r)（BLAST_INFLUENCE_
-// RADIUS/TAU），damage_zone_field 施加 atten(r)（DAMAGE_MAX_RADIUS/ATTEN_TAU）。
-// 本地模拟器（暂停/推流结束后接管热力图的数据源）必须施加同一对空间门控，
+// RADIUS/TAU）。损伤半径完全由 PPV 阈值纯物理计算，不施加人工 atten 上限。
+// 本地模拟器（暂停/推流结束后接管热力图的数据源）必须施加同一空间门控，
 // 否则同一时刻 WS 推流帧与本地帧的场值/分区不一致——拖动进度条时两数据源交替
 // 写纹理，表现为"Seek 后热力图跳变/损伤区错位"。r 取到最近**真实**装药源的
 // 距离（不含镜象反射源，与后端 dmin 口径一致）。未传参（0/null）时门控关闭。
 const INFLUENCE_ENVELOPE_TAU = 3.0
-const DAMAGE_ATTEN_TAU = 1.5
 
 // ─── 近场几何修正（区分"应力场"与"振速场"的空间结构）─────────────
 // 弹性球面波在近场尚未充分发散：空腔膨胀的准静态应力场（σ ∝ r^-3）与几何
@@ -83,6 +82,51 @@ export function nearFieldGain(r, rnf, gain = NEAR_FIELD_GAIN) {
   return 1 + g * k * k
 }
 
+// ─── 损伤范围理论（粉碎区/裂隙区半径，与后端 damage_zone_radius 跨语言镜像）──
+// 依据：宗琦《岩石内爆炸应力波破裂区半径的计算》爆破 1994；梁瑞等 长江科学院院报
+// 2020, 37(4):67-72（粉碎区衰减 δ=3、裂隙区 δ=2−μ_d/(1−μ_d)，μ_d=0.8μ）；刘步青
+// 学位论文（孔间岩桥叠加增强）。孔壁初始压力（耦合装药波阻抗透射）：
+//   P_cJ = ρ_e·D²/(γ+1) = ρ_e·D²/4；P_b = 2·Z_r/(Z_r+Z_e)·P_cJ·(d_c/d_b)^(2γ)
+// 粉碎区 r_c = r_b·(P_b/σ_cd)^(1/3)；裂隙区 r_t = r_c·(b·σ_cd/σ_td)^(1/(2−b))。
+// 文献量级：裂隙区约 10~20 倍装药半径（42mm 孔 ≈0.16m、250mm 孔 ≈0.9m）。
+export const DETONATION_GAMMA = 3.0
+export const ROCK_SIGMA_CD_DEFAULT = 100e6 // Pa 动态抗压（中硬岩量级）
+export const ROCK_SIGMA_TD_DEFAULT = 10e6 // Pa 动态抗拉（≈抗压 1/10）
+export const BOREHOLE_RADIUS_DEFAULT = 0.021 // m（Φ42mm 隧道炮孔）
+
+/**
+ * 损伤范围理论：由爆岩参数推算粉碎区/裂隙区半径（与后端同口径）
+ * @param {Object} [o] - { rhoExplosive=1200, vod=4500, boreholeRadius=0.021,
+ *   chargeDiameter=null(耦合), rhoRock=2650, cp=4500, nu=0.25,
+ *   sigmaCd=100e6, sigmaTd=10e6 }
+ * @returns {{wallPressure:number, crushRadius:number, crackRadius:number,
+ *            b:number, decayCrack:number}}（SI 单位）
+ */
+export function damageZoneRadius(o = {}) {
+  const rhoE = Number(o.rhoExplosive) > 0 ? Number(o.rhoExplosive) : 1200
+  const vod = Number(o.vod) > 0 ? Number(o.vod) : 4500
+  const rb = Number(o.boreholeRadius) > 0 ? Number(o.boreholeRadius) : BOREHOLE_RADIUS_DEFAULT
+  const rhoR = Number(o.rhoRock) > 0 ? Number(o.rhoRock) : 2650
+  const cp = Number(o.cp) > 0 ? Number(o.cp) : 4500
+  const nu = Number(o.nu) > 0 ? Number(o.nu) : 0.25
+  const sigmaCd = Math.max(Number(o.sigmaCd) || ROCK_SIGMA_CD_DEFAULT, 1e5)
+  const sigmaTd = Math.max(Number(o.sigmaTd) || ROCK_SIGMA_TD_DEFAULT, 1e4)
+  const pCj = (rhoE * vod * vod) / (DETONATION_GAMMA + 1.0)
+  const zr = rhoR * cp
+  const ze = rhoE * vod
+  let pb = (2 * zr) / (zr + ze) * pCj
+  const dc = Number(o.chargeDiameter)
+  if (Number.isFinite(dc) && dc > 0) {
+    pb *= Math.min(1.0, dc / (2 * rb)) ** (2 * DETONATION_GAMMA)
+  }
+  const muD = 0.8 * nu
+  const b = muD / (1 - muD)
+  const rCrush = rb * Math.cbrt(pb / sigmaCd)
+  const decayCrack = 2.0 - b
+  const rCrack = rCrush * Math.pow((b * sigmaCd) / sigmaTd, 1.0 / decayCrack)
+  return { wallPressure: pb, crushRadius: rCrush, crackRadius: rCrack, b, decayCrack }
+}
+
 function _radialEnv(distance, radius) {
   if (!(radius > 0)) return 1
   const tau = INFLUENCE_ENVELOPE_TAU
@@ -90,10 +134,22 @@ function _radialEnv(distance, radius) {
   return e < 0 ? 0 : e > 1 ? 1 : e
 }
 
-function _damageAtten(distance, maxRadius) {
-  if (!(maxRadius > 0)) return 1
-  const e = (maxRadius - distance) / DAMAGE_ATTEN_TAU
-  return e < 0 ? 0 : e > 1 ? 1 : e
+/**
+ * 逐点到指定距离表列（列索引数组）的最小距离。门控 env 的 r 与后端
+ * dmin 同口径：只统计**真实装药源**（直达）列，不含镜象反射源。
+ * 峰值槽的源按延时升序排序后，直达/反射列在表中交错 → 由调用方传列索引。
+ */
+function _dminFromDistColumns(distTable, colIdx, nPoints) {
+  if (!colIdx || colIdx.length === 0) return null
+  const dmin = new Float32Array(nPoints).fill(Infinity)
+  for (let k = 0; k < colIdx.length; k++) {
+    const base = colIdx[k] * nPoints
+    for (let i = 0; i < nPoints; i++) {
+      const r = distTable[base + i]
+      if (r < dmin[i]) dmin[i] = r
+    }
+  }
+  return dmin
 }
 
 /**
@@ -115,11 +171,11 @@ function _dminFromDistTable(distTable, nDirect, nPoints) {
 }
 
 // ─── 自由面反射（镜象源法）：让掌子面/隧道临空面真正参与波场计算 ─────────────
-// 真实爆破中掌子面与隧道内壁是自由面（应力为零），应力波入射发生近全反射，
-// 对应拉伸波：自由面处法向质点速度加倍（同号镜象源）→ 靠近轮廓处振速场
-// 出现"局部放大 + 直达波/反射波干涉相消"，这正是用户要求的"隧道轮廓不能只是
-// 视觉贴图，必须能反射波场"。用镜象源法近似：把装药源沿自由面镜像为同号
-// 虚拟源（幅值 × 反射系数 <1），反射波路径 = 接收点至镜像源距离，且仅在自由面
+// 真实爆破中掌子面与隧道内壁是自由面（应力为零，压力释放边界），应力波入射
+// 发生近全反射，对应拉伸波：自由面处法向质点速度加倍（**负号镜像**——镜像贡献
+// 方向取"指向镜像点"，见 expandSourcesWithReflections）→ 靠近轮廓处振速场
+// 出现"局部放大 + 直达波/反射波干涉条纹"，这正是用户要求的"隧道轮廓不能只是
+// 视觉贴图，必须能反射波场"。反射波路径 = 接收点至镜像源距离，且仅在自由面
 // 岩体一侧（z ≥ 掌子面）有效。物理口径与 GPU 着色器（sceneBuilder uReflectOn/
 // uFaceZ/uReflectCoeff）完全一致。
 //
@@ -181,7 +237,10 @@ export function tunnelFaceBoostFactor(p3, face) {
  * @returns {Array} 展开后条目（含 gate）
  */
 export function expandSourcesWithReflections(entries, reflections, maxReflSources = 0) {
-  const src = (entries || []).filter(s => Number(s.chargeKg) > 0)
+  // 空源判定兼容两种条目口径：{chargeKg,...}（原始源）与 {coef,...}
+  // （computeMonitorTimeHistory/computePointVector 已折算幅值、不含 chargeKg
+  // —— 只按 chargeKg 过滤会把它们整批丢掉，测点时程/矢量箭头场恒为零）
+  const src = (entries || []).filter(s => Number(s.chargeKg) > 0 || Number(s.coef) > 0)
   const out = src.map(s => ({ ...s, gate: null }))
   const planes = normalizeReflections(reflections)
   if (!planes.length || src.length === 0) return out
@@ -201,6 +260,13 @@ export function expandSourcesWithReflections(entries, reflections, maxReflSource
       if (sv <= pl.value) continue // 源不在岩体侧，无反射
       const img = { ...s }
       img[pl.axis] = 2 * pl.value - sv // 沿自由面镜像
+      // 自由面（压力释放边界）用**负号镜像**：径向核的镜像贡献方向取"指向镜像点"
+      // （幅值取负等效），使自由面上法向质点速度与直达波同向叠加而**加倍**——
+      // 与单源标量路径（v_direct + v_refl）及物理口径一致。同号正镜像对应
+      // 刚性边界（法向振速在面上归零），与本处注释声称的"法向振速加倍"相反。
+      // 幅值幅值损耗 |coeff|<1；萨道夫斯基幅值 ∝ q^(α/3)，须乘在幅值系数 coef
+      // 上而非药量上（与 GPU ampI×uReflectCoeff / 后端 amp_scale 同口径）。
+      if (Number.isFinite(Number(s.coef))) img.coef = -Number(s.coef) * pl.coeff
       img.gate = { axis: pl.axis, min: pl.value }
       out.push(img)
     }
@@ -423,15 +489,28 @@ const _PEAK_CACHE_MAX_SLOTS = 4
 const _peakCacheMap = new Map()
 function _getPeakCache(gridXyz, distFp, K) {
   let slot = _peakCacheMap.get(gridXyz)
-  if (slot && slot.fp === distFp && slot.K === K && slot.zones) return slot
+  if (slot && slot.fp === distFp && slot.K === K && slot.corePeak) return slot
   return null
 }
-function _setPeakCache(gridXyz, distFp, K, zones, arrival, peak) {
+function _setPeakCache(gridXyz, distFp, K, corePeak, arrival, dmin) {
   if (!_peakCacheMap.has(gridXyz) && _peakCacheMap.size >= _PEAK_CACHE_MAX_SLOTS) {
     const oldest = _peakCacheMap.keys().next().value
     _peakCacheMap.delete(oldest)
   }
-  const slot = { grid: gridXyz, fp: distFp, K, zones, arrival, peak }
+  // corePeak/arrival/dmin 与 influenceRadius 无关（O(nS·N) 重算）；peak/zones 为
+  // 乘 env 后的派生场（O(N)），按 influenceRadius 挂在槽上二级缓存——滑块拖动
+  // 只重跑派生，不触发核心场重算
+  const slot = {
+    grid: gridXyz,
+    fp: distFp,
+    K,
+    corePeak,
+    arrival,
+    dmin,
+    peak: null,
+    zones: null,
+    derivedFp: null
+  }
   _peakCacheMap.set(gridXyz, slot)
   return slot
 }
@@ -520,9 +599,10 @@ export function computePpvField3d(gridXyz, chargeKg, t, options = {}, out = null
  * 坐标系与平台一致：x=掌子面内横向（左右）、y=掌子面内竖向、z=掌子面轴向（进入岩体为正）。
  * 掌子面位于 z=faceOffset；collar 位于 (posX, posY, faceOffset)。
  *
- * 装药沿炮孔布置、偏孔底（底部起爆）。装药源中心取装药段中点：
- *   - 已知 chargeLength（装药段长）时，源距孔口 = depth − chargeLength/2；
- *   - 缺省时按"底部 60%"经验（cd = 0.6·depth）。
+ * 事件渲染源位置默认取**炮孔孔口/起始点**（collar）：
+ *   - 这样热力图波前起点与掌子面上实际炮孔位置完全重合；
+ *   - depth/chargeLength 仍作为事件设计属性保留，但不再偷偷把可视源推到孔底。
+ *   - 如需研究装药段中点，可由调用方显式传 sourcePositionMode='charge-center'。
  *
  * 两类布孔方向：
  *   1. 楔形/倾斜掏槽孔（cut，inclination>0）：孔口分列掏槽核心两侧、孔轴向核心收敛
@@ -536,11 +616,12 @@ export function computePpvField3d(gridXyz, chargeKg, t, options = {}, out = null
  * @param {Object} h - 炮孔数据 { posX, posY, depth, chargeLength, inclinationAngle/azimuth,
  *                       holeType/type, chargeKg, delayMs, isEmptyHole, id }
  * @param {number} faceOffset - 掌子面轴向位置(m)
- * @param {Object} center - 掏槽孔质心 { x, y }（用于楔形孔向内收敛）
+ * @param {Object} center - 掏槽孔质心 { x, y }（仅 charge-center 模式用于楔形孔向内收敛）
+ * @param {Object} [options] - { sourcePositionMode:'collar'|'charge-center' }
  * @returns {{x:number,y:number,z:number,chargeKg:number,delayMs:number,id?:*} | null}
  *          空孔或未装药孔返回 null（不参与应力波源）
  */
-export function resolveChargePosition(h, faceOffset, center) {
+export function resolveChargePosition(h, faceOffset, center, options = {}) {
   const q = Number(h.chargeKg)
   if (!(q > 0) || !!h.isEmptyHole) return null
 
@@ -552,9 +633,21 @@ export function resolveChargePosition(h, faceOffset, center) {
   const inc = Math.max(0, Number(h.inclinationAngle ?? h.inclination) || 0) * (Math.PI / 180)
 
   const collarX = Number(h.posX) || 0
-  const collarY =
-    Number.isFinite(Number(h.posY)) && Number(h.posY) !== 0 ? Number(h.posY) : center.y
+  const rawY = Number(h.posY)
+  // y=0 是合法的底板孔位，不能被误判为"缺省值"而替换成掏槽中心。
+  const collarY = Number.isFinite(rawY) ? rawY : center.y
   const collarZ = faceOffset
+  const sourcePositionMode = String(options.sourcePositionMode || 'collar').toLowerCase()
+  if (sourcePositionMode === 'collar') {
+    return {
+      x: collarX,
+      y: collarY,
+      z: collarZ,
+      chargeKg: q,
+      delayMs: Number(h.delayMs) || 0,
+      id: h.id
+    }
+  }
 
   if (isCut && inc > 0.02) {
     // 楔形掏槽：孔轴指向掏槽核心（核心 = 掏槽孔质心），装药源取**装药段中点**
@@ -596,26 +689,55 @@ export function resolveChargePosition(h, faceOffset, center) {
  * @param {Array} holes - 炮孔数据列表
  * @param {number} faceOffset - 掌子面轴向位置(m)
  * @param {Object} cutCenter - 掏槽孔质心 { x, y }（楔形孔向内收敛的基准）
- * @param {Object} [options] - { delayJitterMs, rngSeed }
+ * @param {Object} [options] - { sourcePositionMode, delayJitterMs, rngSeed, jitterModel, detonatorType }
+ *   - sourcePositionMode 默认 collar：源与炮孔孔口一致；charge-center 仅用于显式物理对比。
  *   - delayJitterMs>0：各段雷管起爆延期的蒙特卡洛误差（±σ ms，正态分布）。
  *     按 (rngSeed + 源索引) 确定性产生抖动 → 同一场景每次重建结果一致，
  *     且瞬时场/峰值场/损伤/等值线共用同一批抖动后源（打破完美对称干涉）。
+ *   - jitterModel='han2019'（文献驱动，推荐）：σ 逐源按其名义延时取值——韩亮等
+ *     《雷管延期误差对地震波叠加降振的概率分析》(振动与冲击 2019, 38(3))
+ *     非电毫秒雷管批次回归 σ_base(t)=0.017·t+3.483 ms（段别越高 σ 越大）；
+ *     detonatorType='electronic' 时取固定 σ≈1.2ms（数码电子雷管 ≤1ms 精度）。
+ *     UI 的 delayJitterMs 作为**锚定缩放**：σ_i = σ_base(t_i)·delayJitterMs/
+ *     σ_base(100ms)——默认 5ms 时 100ms 段误差=5ms（与旧常数口径衔接），
+ *     短段略小、长段按回归式比例放大；delayJitterMs=0 → 纯理论 σ_base。
+ *     jitterModel='off' → 完全关闭抖动（复现精确设计延期）。
  * @returns {Array} 装药源列表 [{x,y,z,chargeKg,delayMs,id}]；无有效源时返回空数组
  */
+const HAN2019_A = 0.017
+const HAN2019_B = 3.483
+const HAN2019_ANCHOR_MS = 100
+const ELECTRONIC_SIGMA_MS = 1.2
+
 export function buildChargeSources(holes, faceOffset, cutCenter, options = {}) {
   if (!Array.isArray(holes) || holes.length === 0) return []
   const center = cutCenter || { x: 0, y: 0 }
   const jitterMs = Number(options.delayJitterMs) > 0 ? Number(options.delayJitterMs) : 0
+  const jitterModel = String(
+    options.jitterModel ?? (jitterMs > 0 ? 'const' : 'han2019')
+  ).toLowerCase()
+  const detonatorType = String(options.detonatorType || 'nonel').toLowerCase()
   const seedBase = typeof options.rngSeed === 'number' ? options.rngSeed : 12345
+  // 韩亮 2019 回归基线 σ_base(t)=0.017·t+3.483；电子雷管固定 σ
+  const sigmaBase = t =>
+    detonatorType.startsWith('elec')
+      ? ELECTRONIC_SIGMA_MS
+      : HAN2019_A * Math.max(0, t) + HAN2019_B
+  // UI 锚定缩放：σ(anchor)=delayJitterMs（未传/为 0 时 scale=1，纯理论口径）
+  const anchorScale =
+    jitterMs > 0 ? jitterMs / Math.max(sigmaBase(HAN2019_ANCHOR_MS), 1e-6) : 1.0
   const sources = []
   for (let idx = 0; idx < holes.length; idx++) {
-    const s = resolveChargePosition(holes[idx], faceOffset, center)
+    const s = resolveChargePosition(holes[idx], faceOffset, center, options)
     if (!s) continue
-    // 雷管起爆误差：对每段装药的 base delay 叠加确定性高斯抖动（σ=jitterMs）
-    if (jitterMs > 0) {
+    // 雷管起爆误差：对每段装药的 base delay 叠加确定性高斯抖动
+    if (jitterModel === 'han2019') {
+      const base = Number(s.delayMs) || 0
+      s.delayMs = Math.max(0, base + _seededGauss(seedBase + idx) * sigmaBase(base) * anchorScale)
+    } else if (jitterModel === 'const' && jitterMs > 0) {
       const base = Number(s.delayMs) || 0
       s.delayMs = Math.max(0, base + _seededGauss(seedBase + idx) * jitterMs)
-    }
+    } // jitterModel==='off' → 不抖动
     sources.push(s)
   }
   return sources
@@ -741,8 +863,10 @@ export function computeMonitorTimeHistory(point, sources, times, options = {}) {
  * 用于"仿真结果 vs 萨道夫斯基经验公式"对比验证：
  *   - sim[i]    = 仿真 PPV：多装药源（含自由面反射）全时程峰值（包络，不载波）
  *                 取 computeMonitorTimeHistory 的 ppv（与热图/监测点同一物理模型）；
- *   - theory[i] = 萨道夫斯基公式：v = K·(Q^(1/3)/R)^α，Q 取所有源总装药量（kg），
- *                 R 取采样点到爆心（掌子面掏槽质心）的直线距离。
+ *   - theory[i] = 萨道夫斯基公式：v = K·(Q^(1/3)/R)^α，Q 取**最大单响药量**
+ *                 （maxChargePerDelay，微差爆破振动预测规范口径——同段齐发孔
+ *                 药量之和，而非全部源总装药量），R 取采样点到爆心（掌子面掏槽
+ *                 质心）的直线距离。总药量口径会系统性高估理论线 n^(α/3) 倍。
  * 两者放在同一图表可直接验证多孔叠加模拟是否符合经验衰减律（P2 级对比验证）。
  *
  * @param {Array} sources - 装药源（[{x,y,z,chargeKg,delayMs}]）
@@ -768,6 +892,9 @@ export function computePpvDecayProfile(sources, options = {}) {
       : [{ axis: 'z', count: 16, spacing: 2.0 }] // 默认沿 +z：自掌子面向岩体内部
   const srcList = (sources || []).filter(s => Number(s.chargeKg) > 0)
   const totalQ = srcList.reduce((a, s) => a + (Number(s.chargeKg) || 0), 0) || 100
+  // 最大单响药量（kg，规范口径）：雷管延时带抖动后同段孔不再严格同刻，
+  // 按 15ms 滑窗取"窗内药量和"最大——段间隔(≥25ms)远大于窗宽时即同段齐发药量
+  const maxChargePerDelay = _maxChargePerDelay(srcList, 15)
 
   const r = []
   const sim = []
@@ -806,10 +933,32 @@ export function computePpvDecayProfile(sources, options = {}) {
     })
     r.push(dist)
     sim.push(hist.ppv)
-    theory.push(sadoskyPpv(totalQ, dist, { K, alpha, minStandoff }))
+    theory.push(sadoskyPpv(maxChargePerDelay, dist, { K, alpha, minStandoff }))
     labels.push(label)
   }
-  return { r, sim, theory, labels, totalQ, K, alpha }
+  return { r, sim, theory, labels, totalQ, maxChargePerDelay, K, alpha }
+}
+
+// 最大单响药量（kg）：按 delay(ms) 升序双指针滑窗，取窗宽 windowMs 内药量和的
+// 最大值。同段齐发孔的抖动延时彼此相差远小于窗宽 → 归入同窗；相邻段别间隔
+// （毫秒雷管 ≥25ms）大于窗宽 → 不会误并。
+function _maxChargePerDelay(srcList, windowMs = 15) {
+  if (!srcList || srcList.length === 0) return 0
+  const arr = srcList
+    .map(s => ({ d: Number(s.delayMs) || 0, q: Number(s.chargeKg) || 0 }))
+    .sort((a, b) => a.d - b.d)
+  let best = 0
+  let sum = 0
+  let lo = 0
+  for (let hi = 0; hi < arr.length; hi++) {
+    sum += arr[hi].q
+    while (arr[hi].d - arr[lo].d > windowMs) {
+      sum -= arr[lo].q
+      lo++
+    }
+    if (sum > best) best = sum
+  }
+  return best
 }
 
 /**
@@ -866,7 +1015,9 @@ export function computePointVector(point, sources, t, options = {}) {
     const r = Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz), minStandoff)
     const gap = t - (ss.delay + r * invCp)
     if (gap <= 0) continue
-    const osc = twoPiF > 0 ? Math.cos(twoPiF * gap) : 1.0
+    // sin 起振为零：波前到达瞬间质点速度连续（与 computeMonitorTimeHistory /
+    // 单源 computePpvField3d 同口径；旧 cos 在 gap→0+ 跳到满幅，物理不连续）
+    const osc = twoPiF > 0 ? Math.sin(twoPiF * gap) : 1.0
     const a = ss.coef * Math.pow(r, -alpha) * Math.exp(-decay * gap) * osc
     const inv = 1 / Math.max(r, 1e-6)
     vx += a * dx * inv
@@ -1040,7 +1191,8 @@ export function computeMultiSourcePpvField3d(gridXyz, t, options = {}, out = nul
  *   - 径向压应力 σ_rr = ρ·c_p·v_r（加载相，波阻抗关系）
  *   - 切向拉应力 σ_θθ = ν/(1−ν)·σ_rr（切向受拉，方向与径向相反；σ_θθ≥σ_t
  *     抗拉强度处产生径向裂隙，是爆破成缝的主因）
- * von Mises：σ_1=σ_rr（压）、σ_2=σ_3=−σ_θθ（拉）→ σ_vm = σ_rr/(1−ν) × F(r)
+ * von Mises：σ_1=σ_rr（压）、σ_2=σ_3=−σ_θθ（拉）→ σ_vm = σ_rr/(1−μ_d) × F(r)
+ * （μ_d 为动态泊松比 ≈0.8μ，见函数内注释；其中 F(r) 为近场几何修正）。
  * 其中 F(r) 为近场几何修正（见模块头 NEAR_FIELD_* 注释）。
  * 与后端 blast_physics.py::stress_field_from_ppv 完全一致。
  *
@@ -1065,6 +1217,14 @@ export function computeStressFieldFromPpv(ppv, options = {}, out = null, distanc
   const rho = options.rho ?? 2650.0
   const cp = options.cp ?? 4500.0
   const nu = options.nu ?? 0.25
+  // 动态泊松比（默认开启，与后端 stress_field_from_ppv dynamic_poisson=True 同口径）：
+  // 高应变率下 μ_d ≈ 0.8·μ（静态），侧应力系数 b = μ_d/(1−μ_d)——
+  // 依据：梁瑞等《球状药包应力波叠加过程的破岩特性》长江科学院院报 2020, 37(4):67-72
+  // （λ=μ_d/(1−μ_d)，μ_d=0.8μ；β<arctanλ 切向受压压碎、β≥arctanλ 切向受拉剪裂）；
+  // 刘步青《基于可视化的微差爆破应力波叠加及破裂机制研究》（孔间拉应力受泊松效应
+  // 控制，是岩桥损伤主因）。ν=0.25：b 0.333→0.286，σ_vm 约 -6.25%。
+  const dynamicPoisson = options.dynamicPoisson !== false
+  const nuEff = dynamicPoisson ? 0.8 * nu : nu
   // 近场几何修正参数（见模块头 NEAR_FIELD_* 注释）：r_nf<=0 时 F≡1，退化为
   // 纯辐射项（与旧行为数值一致）
   const nfR = Number(options.nearFieldRadius) > 0 ? Number(options.nearFieldRadius) : 0
@@ -1074,12 +1234,12 @@ export function computeStressFieldFromPpv(ppv, options = {}, out = null, distanc
   const nPoints = ppv.length
   const sigmaVm = out ?? new Float32Array(nPoints)
 
-  // σ_vm = ρ·c_p·v / (1−ν) × F(r)——径向压 + 切向拉（幅值 ν/(1−ν)·σ_rr）的等效应力。
+  // σ_vm = ρ·c_p·v / (1−μ_d) × F(r)——径向压 + 切向拉（幅值 b·σ_rr）的等效应力。
   // 相比旧的弹性一维应变式 σ_vm=σ_rr·(1−2ν)/(1−ν)，本式体现了爆破破坏由
   // 切向拉应力主导的力学机制，数值更贴近实测应力幅值。
   // 注意：传入的 ppv 应为**峰值包络场**（computeMultiSourcePeakField3d），
   // 不是瞬时振速——否则应力场与振速场只差常数（两图相同）。
-  const vmFactor = rho * cp * (1.0 / (1.0 - nu))
+  const vmFactor = rho * cp * (1.0 / (1.0 - nuEff))
   const useNf = nfR > 0 && distance && distance.length >= nPoints
 
   for (let i = 0; i < nPoints; i++) {
@@ -1140,7 +1300,6 @@ export function computePeakDamageZones(gridXyz, chargeKg, t, options = {}, out =
   const visualCp = options.visualCp ?? 35.0
   // 空间门控（与后端 peak_ppv_envelope_multi + damage_zone_field 同口径）
   const influenceRadius = Number(options.influenceRadius) > 0 ? Number(options.influenceRadius) : 0
-  const damageMaxRadius = Number(options.damageMaxRadius) > 0 ? Number(options.damageMaxRadius) : 0
   const origin = options.origin ?? null
   const ox = origin ? Number(origin[0]) || 0 : 0
   const oy = origin ? Number(origin[1]) || 0 : 0
@@ -1162,12 +1321,11 @@ export function computePeakDamageZones(gridXyz, chargeKg, t, options = {}, out =
       zones[i] = 0
       continue
     }
-    // 峰值 PPV（无时变衰减）× 包络 × 损伤深度衰减 → cm/s → Persson 档位
+    // 峰值 PPV（无时变衰减）× 包络 → cm/s → Persson 档位
     const cm =
       sadoskyPpv(chargeKg, r, { K, alpha, minStandoff }) *
       100.0 *
-      _radialEnv(r, influenceRadius) *
-      _damageAtten(r, damageMaxRadius)
+      _radialEnv(r, influenceRadius)
     let zone = 0
     for (let th = 0; th < DAMAGE_THRESHOLDS_CMPS.length; th++) {
       if (cm >= DAMAGE_THRESHOLDS_CMPS[th]) zone = th + 1
@@ -1176,6 +1334,138 @@ export function computePeakDamageZones(gridXyz, chargeKg, t, options = {}, out =
   }
 
   return zones
+}
+
+// 时域错峰叠加峰值的"逐点到达序"精确累加（内部共享：_ensurePeakSlot 与
+// computeSurfacePeakField）。
+//
+// 模型：每源波形为到达后指数衰减包络 A·e^(−D·τ)（无载波），点 p 总速度
+//   V(p,t) = Σ_{arr_s(p)≤t} A_s·e^(−D·(t−arr_s(p)))·û_s，arr_s(p)=delay_s+r_s/c̄
+// 两个到达时刻之间 V 单调衰减 → 局部极大只出现在到达时刻，故
+//   peak(p) = max_k e^(−D·arr_k)·|Σ_{j≤k} A_j·e^(+D·arr_j)·û_j|
+// 其中求和按**该点自身的到达序**。不能按全局延时序累加：visualCp 模式下路径
+// 时差（r/c̄ 可达 ~1s）会压倒延期差（0~0.2s），到达序与延时序大面积颠倒，
+// 延时序累加把尚未到达的源以 e^(+D·Δarr)>1 的放大权重提前计入 → 峰值系统性
+// 偏高（既非精确也非保守上界）。物理波速（4500 m/s）下两序几乎一致，本实现
+// 在两种情况下都给出精确解。
+//
+// 实现：逐点收集活跃（过 gate）源的 (arr, w=A·e^(min(D·arr,20)), û)，插入排序
+// 按 arr 升序（复用上一点排序结果暖启动——网格邻点到达序变化极小，近似线性），
+// 顺序累加 B 并逐到达时刻评估候选取最大。指数钳制 e^(D·arr)≤e^20 防 float 溢出。
+// gate 未过的 (源,点) 不参与候选与 arrival。逐源循环读 distTable 列（源主序）。
+//
+// @param {Float32Array} gridXyz 点集 (N×3)
+// @param {Array} src 展开后源条目 [{x,y,z,delay,coef,gate}]（次序不限）
+// @param {Float32Array} distTable/distPow _getDistCache 输出（源主序 nS×N）
+// @param {number} nPoints 点数 N
+// @param {number} peakDecay 到达后时变衰减率 D=beta+visualBeta (1/s)
+// @param {number} invCp 1/visualCp
+// @param {Float32Array} arrival 输出：最早到达时刻（s，gate 未过源不参与）
+// @param {Float32Array} [peakOut] 输出复用缓冲
+// @returns {Float32Array} peak（m/s，未乘任何整形因子）
+function _staggeredPeakAccumulate(
+  gridXyz,
+  src,
+  distTable,
+  distPow,
+  nPoints,
+  peakDecay,
+  invCp,
+  arrival,
+  peakOut = null
+) {
+  const nS = src.length
+  const peak = peakOut ?? new Float32Array(nPoints)
+  if (nS === 0) return peak
+  const delayOf = new Float64Array(nS)
+  const coefOf = new Float64Array(nS)
+  const gAxis = new Int8Array(nS)
+  const gMin = new Float64Array(nS)
+  for (let s = 0; s < nS; s++) {
+    const e = src[s]
+    delayOf[s] = e.delay
+    coefOf[s] = e.coef
+    if (e.gate) {
+      gAxis[s] = _GATE_AXIS[e.gate.axis]
+      gMin[s] = e.gate.min
+    } else {
+      gAxis[s] = -1
+    }
+  }
+  const EXP_CLAMP = Math.exp(20.0)
+  // 可复用逐点缓冲（槽位 = 源序）
+  const keyBuf = new Float64Array(nS)
+  const wBuf = new Float64Array(nS)
+  const uxBuf = new Float64Array(nS)
+  const uyBuf = new Float64Array(nS)
+  const uzBuf = new Float64Array(nS)
+  const idxBuf = new Uint32Array(nS)
+  let prevM = -1
+  for (let i = 0; i < nPoints; i++) {
+    const gx = gridXyz[i * 3]
+    const gy = gridXyz[i * 3 + 1]
+    const gz = gridXyz[i * 3 + 2]
+    let m = 0
+    let arrMin = Infinity
+    for (let s = 0; s < nS; s++) {
+      if (gAxis[s] >= 0 && (gAxis[s] === 0 ? gx : gAxis[s] === 1 ? gy : gz) < gMin[s]) continue
+      const r = distTable[s * nPoints + i]
+      const arr = delayOf[s] + r * invCp
+      if (arr < arrMin) arrMin = arr
+      keyBuf[m] = arr
+      const dCl = peakDecay * arr
+      wBuf[m] = coefOf[s] * distPow[s * nPoints + i] * (dCl > 20 ? EXP_CLAMP : Math.exp(dCl))
+      const inv = 1 / (r > 1e-6 ? r : 1e-6)
+      uxBuf[m] = (gx - src[s].x) * inv
+      uyBuf[m] = (gy - src[s].y) * inv
+      uzBuf[m] = (gz - src[s].z) * inv
+      m++
+    }
+    arrival[i] = arrMin
+    if (m === 0) continue
+    if (m === 1) {
+      peak[i] = wBuf[0] * Math.exp(-peakDecay * keyBuf[0])
+      prevM = m
+      continue
+    }
+    // idxBuf 须为 [0,m) 的排列：点间活跃集不变时沿用上一点次序（暖启动），
+    // 活跃集变大则补尾部、变小则重建
+    if (prevM !== m) {
+      if (prevM < m && prevM > 0) {
+        for (let k = prevM; k < m; k++) idxBuf[k] = k
+      } else {
+        for (let k = 0; k < m; k++) idxBuf[k] = k
+      }
+      prevM = m
+    }
+    // 插入排序（近有序输入近似 O(m)）
+    for (let a = 1; a < m; a++) {
+      const iA = idxBuf[a]
+      const kA = keyBuf[iA]
+      let b = a - 1
+      while (b >= 0 && keyBuf[idxBuf[b]] > kA) {
+        idxBuf[b + 1] = idxBuf[b]
+        b--
+      }
+      idxBuf[b + 1] = iA
+    }
+    let bx = 0
+    let by = 0
+    let bz = 0
+    let best = 0
+    for (let k = 0; k < m; k++) {
+      const j = idxBuf[k]
+      const w = wBuf[j]
+      bx += w * uxBuf[j]
+      by += w * uyBuf[j]
+      bz += w * uzBuf[j]
+      const cand =
+        Math.exp(-peakDecay * keyBuf[j]) * Math.sqrt(bx * bx + by * by + bz * bz)
+      if (cand > best) best = cand
+    }
+    peak[i] = best
+  }
+  return peak
 }
 
 /**
@@ -1197,10 +1487,25 @@ function _ensurePeakSlot(gridXyz, options = {}) {
   const alpha = options.alpha ?? 1.5
   const minStandoff = options.minStandoff ?? 0.5
   const visualCp = options.visualCp ?? 35.0
+  // 峰值方法（文献驱动升级，与后端 peak_ppv_envelope_multi 同口径）：
+  //  - 'history'（默认）：时域错峰叠加峰值——杨年华(爆炸与冲击 2012)时域线性
+  //    叠加预测原理：峰值取"各源波形按(延时+路径时差)错峰叠加后时程最大值"，
+  //    修正 Blair(1993)/李洪超(爆炸与冲击 2026) 指出的"全源同时线性叠加系统性
+  //    高估"。数学实现（_staggeredPeakAccumulate，逐点**到达序**精确解）：
+  //        peak(p) = max_k e^(−D·arr_k)·|Σ_{j≤k} A_j·e^(+D·arr_j)·û_j|
+  //    （arr=delay+r/c̄ 按该点升序）。旧"延时序"增量累加在 visualCp 模式下
+  //    （路径时差压倒延期差）会把未到达源放大提前计入 → 系统性偏高。
+  //    D = beta+visualBeta（与瞬时场同一时变衰减率）。延时充分错开 → 峰值≈最强
+  //    单源幅值；同段齐发 → 退化为全源同相叠加（韩亮 2019 实测降振率规律一致）。
+  //  - 'bound'：旧口径保守上界 |Σ A_s·û_s|（Holmberg–Persson 类同时叠加）。
+  const peakMethod = options.peakMethod === 'bound' ? 'bound' : 'history'
+  const beta = Number(options.beta ?? 0.02)
+  const visualBeta = Number(options.visualBeta ?? 0.8)
+  const peakDecay = Math.max(Number(options.peakDecay ?? beta + visualBeta), 0)
   // 空间门控（与后端 peak_ppv_envelope_multi + damage_zone_field 同口径）：
-  // 峰值场 × env(influenceRadius)；分区判据 digitize(peak × env × atten(damageMaxRadius))
+  // 峰值场 × env(influenceRadius)。损伤分区判据 digitize(peak × env)——损伤半径
+  // 完全由 PPV 阈值纯物理计算得出，不设人工硬上限（damageMaxRadius 已废弃）。
   const influenceRadius = Number(options.influenceRadius) > 0 ? Number(options.influenceRadius) : 0
-  const damageMaxRadius = Number(options.damageMaxRadius) > 0 ? Number(options.damageMaxRadius) : 0
 
   const src0 = sources.map(s => {
     const q = Number(s.chargeKg)
@@ -1217,7 +1522,17 @@ function _ensurePeakSlot(gridXyz, options = {}) {
   // 自由面反射同样计入峰值叠加（损伤是"经历过的峰值"不可逆判据，近掌子面
   // 反射放大应体现为更高分区）。与 computeMultiSourcePpvField3d 使用同一
   // 反射源数上限 → 距离缓存指纹一致，两遍共享同一 (dist, distPow) 表。
-  const src = expandSourcesWithReflections(src0, options.reflections, _REFL_MAX_SOURCES)
+  const srcExpanded = expandSourcesWithReflections(src0, options.reflections, _REFL_MAX_SOURCES)
+  // 延时升序稳定排序（同延时保持原序：直达先于其镜像反射）——时域错峰叠加
+  // 要求按起爆顺序累加。直达源列索引随后用于 dmin（不含反射源，与后端同口径）。
+  const order = srcExpanded
+    .map((e, idx) => idx)
+    .sort((a, b) => srcExpanded[a].delay - srcExpanded[b].delay)
+  const src = order.map(idx => srcExpanded[idx])
+  const directCols = []
+  for (let k = 0; k < order.length; k++) {
+    if (order[k] < src0.length) directCols.push(k)
+  }
 
   const nPoints = gridXyz.length / 3
   // alpha 必须显式传入：距离缓存按 (源几何, minStandoff, visualCp, alpha) 指纹单槽复用，
@@ -1225,74 +1540,100 @@ function _ensurePeakSlot(gridXyz, options = {}) {
   const cache = _getDistCache(gridXyz, src, minStandoff, visualCp, alpha)
   const distTable = cache.dist
   const distPow = cache.distPow
-  // 门控用 dmin（到最近真实装药源距离，不含镜象反射源）
-  const dminArr =
-    influenceRadius > 0 || damageMaxRadius > 0
-      ? _dminFromDistTable(distTable, src0.length, nPoints)
-      : null
 
-  // 峰值几何场与最早到达时刻均与 t 无关 → 按 (点集引用, 距离缓存指纹, K) 一次性
-  // 预计算并缓存（多槽：体网格与岩面顶点集各自独立成槽，互不踩踏）；
-  // 此后每个模拟时刻只做 O(N) 门控（z = t ≥ arrival ? zonePre : 0）。
-  // 门控参数必须纳入缓存指纹：滑块拖动（influence/damageMax 变化）若不失效，
-  // 缓存返回旧口径分区（滑块"无效"的根因）。
-  const gateFp = `${cache.fp}|e${influenceRadius}|d${damageMaxRadius}`
+  // 核心峰值几何场与最早到达时刻均与 t、influenceRadius 无关 → 按 (点集引用,
+  // 距离缓存指纹, K, peakMethod, peakDecay) 一次性预计算并缓存（多槽：体网格与
+  // 岩面顶点集各自独立成槽，互不踩踏）；此后每个模拟时刻只做 O(N) 门控。
+  // influenceRadius 只以 O(N) 的 env 乘法进入派生场（peak/zones），按其值二级
+  // 缓存 → 包络半径滑块拖动不触发 O(nS·N) 核心重算。peakMethod/peakDecay 改变
+  // 错峰语义，必须使核心缓存失效。
+  const gateFp = `${cache.fp}|pm${peakMethod}|pd${peakDecay.toFixed(4)}`
   let peakSlot = _getPeakCache(gridXyz, gateFp, K)
   if (!peakSlot) {
     const invCp = 1 / Math.max(visualCp, 1e-3)
-    const acc = _ensureAccBuffers(nPoints)
-    const accX = acc.cx
-    const accY = acc.cy
-    const accZ = acc.cz
-    accX.fill(0)
-    accY.fill(0)
-    accZ.fill(0)
+    const history = peakMethod === 'history'
     const arrival = new Float32Array(nPoints).fill(Infinity)
+    const peakPre = new Float32Array(nPoints)
     const nS = src.length
-    for (let s = 0; s < nS; s++) {
-      const srcS = src[s]
-      const sx = srcS.x
-      const sy = srcS.y
-      const sz = srcS.z
-      const dS = srcS.delay
-      const coef = srcS.coef
-      const base = s * nPoints
-      // 反射条目接收侧门控（与瞬时场一致）
-      const gate = srcS.gate
-      const gAx = gate ? _GATE_AXIS[gate.axis] : -1
-      const gMin = gate ? gate.min : 0
+    // 门控用 dmin（到最近真实装药源距离，不含镜象反射源）——恒随核心场缓存：
+    // 派生 env(dmin) 需要它，且影响半径滑块变化时不重算核心场
+    const dminArr = _dminFromDistColumns(distTable, directCols, nPoints)
+    if (history) {
+      // 逐点到达序精确解（含反射条目 gate；见 _staggeredPeakAccumulate）
+      _staggeredPeakAccumulate(
+        gridXyz,
+        src,
+        distTable,
+        distPow,
+        nPoints,
+        peakDecay,
+        invCp,
+        arrival,
+        peakPre
+      )
+    } else {
+      const acc = _ensureAccBuffers(nPoints)
+      const accX = acc.cx
+      const accY = acc.cy
+      const accZ = acc.cz
+      accX.fill(0)
+      accY.fill(0)
+      accZ.fill(0)
+      for (let s = 0; s < nS; s++) {
+        const srcS = src[s]
+        const sx = srcS.x
+        const sy = srcS.y
+        const sz = srcS.z
+        const dS = srcS.delay
+        const coef = srcS.coef
+        const base = s * nPoints
+        // 反射条目接收侧门控（与瞬时场一致）
+        const gate = srcS.gate
+        const gAx = gate ? _GATE_AXIS[gate.axis] : -1
+        const gMin = gate ? gate.min : 0
+        for (let i = 0; i < nPoints; i++) {
+          if (gAx >= 0 && gridXyz[i * 3 + gAx] < gMin) continue
+          const r = distTable[base + i]
+          const arr = dS + r * invCp
+          if (arr < arrival[i]) arrival[i] = arr // 任意源（含反射波）波前到达即计入
+          const a = coef * distPow[base + i]
+          const inv = 1 / Math.max(r, 1e-6)
+          accX[i] += a * ((gridXyz[i * 3] - sx) * inv)
+          accY[i] += a * ((gridXyz[i * 3 + 1] - sy) * inv)
+          accZ[i] += a * ((gridXyz[i * 3 + 2] - sz) * inv)
+        }
+      }
       for (let i = 0; i < nPoints; i++) {
-        if (gAx >= 0 && gridXyz[i * 3 + gAx] < gMin) continue
-        const r = distTable[base + i]
-        const arr = dS + r * invCp
-        if (arr < arrival[i]) arrival[i] = arr // 任意源（含反射波）波前到达即计入
-        const a = coef * distPow[base + i]
-        const inv = 1 / Math.max(r, 1e-6)
-        accX[i] += a * (gridXyz[i * 3 + 0] - sx) * inv
-        accY[i] += a * (gridXyz[i * 3 + 1] - sy) * inv
-        accZ[i] += a * (gridXyz[i * 3 + 2] - sz) * inv
+        peakPre[i] = Math.sqrt(accX[i] * accX[i] + accY[i] * accY[i] + accZ[i] * accZ[i])
       }
     }
+    peakSlot = _setPeakCache(gridXyz, gateFp, K, peakPre, arrival, dminArr)
+  }
+
+  // 派生场（× env(influenceRadius) 的连续峰值 + digitize 损伤分区）：O(N)，按
+  // influenceRadius 二级缓存——只有该值变化时重跑（几十 ms 级），不触发 O(nS·N)
+  // 核心场重算（体网格 65 万点核心场需秒级）
+  const dFp = `e${influenceRadius}`
+  if (peakSlot.derivedFp !== dFp) {
+    const peakEnv = new Float32Array(nPoints)
     const zonesPre = new Int8Array(nPoints)
-    const peakPre = new Float32Array(nPoints)
+    const dmin = peakSlot.dmin
+    const corePeak = peakSlot.corePeak
     for (let i = 0; i < nPoints; i++) {
-      const vx = accX[i]
-      const vy = accY[i]
-      const vz = accZ[i]
-      const mps = Math.sqrt(vx * vx + vy * vy + vz * vz)
-      // 与后端同口径：峰值场 × env；分区判据 digitize(peak × env × atten)（cm/s）
-      const dmin = dminArr ? dminArr[i] : 0
-      const env = dminArr ? _radialEnv(dmin, influenceRadius) : 1
-      const atten = dminArr ? _damageAtten(dmin, damageMaxRadius) : 1
-      peakPre[i] = mps * env
-      const cm = mps * env * atten * 100.0
+      // 与后端同口径：峰值场 × env；分区判据 digitize(peak × env)（cm/s）
+      const env = dmin ? _radialEnv(dmin[i], influenceRadius) : 1
+      const mps = corePeak[i] * env
+      peakEnv[i] = mps
+      const cm = mps * 100.0
       let zone = 0
       for (let th = 0; th < DAMAGE_THRESHOLDS_CMPS.length; th++) {
         if (cm >= DAMAGE_THRESHOLDS_CMPS[th]) zone = th + 1
       }
       zonesPre[i] = zone
     }
-    peakSlot = _setPeakCache(gridXyz, gateFp, K, zonesPre, arrival, peakPre)
+    peakSlot.peak = peakEnv
+    peakSlot.zones = zonesPre
+    peakSlot.derivedFp = dFp
   }
 
   return peakSlot
@@ -1499,56 +1840,90 @@ export function computeSurfacePeakField(surfaceXyz, options = {}) {
   // 等值线是峰值场，必须与 GPU 岩面着色同一物理口径（含自由面反射镜象源）：
   // 近掌子面反射放大在等值线上应呈现为靠近轮廓处的扭曲/梯度剧变。surface
   // 顶点集点少，全部源都生成反射项（无上限）。
-  const src = expandSourcesWithReflections(src0, options.reflections, 0)
+  const srcExpanded = expandSourcesWithReflections(src0, options.reflections, 0)
+  // 时域错峰叠加峰值（与 GPU uPeakHistory / 后端 peak_method='history' 同口径）：
+  // _staggeredPeakAccumulate 逐点**到达序**精确解 peak=max_k e^(−D·arr_k)·|ΣB|
+  // （杨年华 2012 时域叠加预测口径，修正全源同时叠加的高估；延时序累加在
+  // visualCp 模式下系统性偏高，见 helper 注释）。occ/agn/boost/env 为逐点非负
+  // 常数，在候选最大值之后统一相乘（max(f·x) = f·max(x)），不影响错峰语义。
+  const peakMethod = options.peakMethod === 'bound' ? 'bound' : 'history'
+  const peakDecay = Math.max(
+    Number(options.peakDecay ?? (Number(options.beta ?? 0.02) + Number(options.visualBeta ?? 0.8))),
+    0
+  )
+  const order = srcExpanded.map((e, idx) => idx).sort((a, b) => srcExpanded[a].delay - srcExpanded[b].delay)
+  const src = order.map(idx => srcExpanded[idx])
+  const directCols = []
+  for (let k = 0; k < order.length; k++) {
+    if (order[k] < src0.length) directCols.push(k)
+  }
 
   const cache = _getDistCache(surfaceXyz, src, minStandoff, visualCp, alpha)
   const distTable = cache.dist
   const distPow = cache.distPow
-  // 门控用 dmin（到最近真实装药源距离；distTable 前 src0.length 条恰为真实源）
+  // 门控用 dmin（到最近真实装药源距离；直达列由排序索引换算）
   const dminArr =
-    influenceRadius > 0 ? _dminFromDistTable(distTable, src0.length, nPoints) : null
-  const acc = _ensureAccBuffers(nPoints)
-  const accX = acc.cx
-  const accY = acc.cy
-  const accZ = acc.cz
-  accX.fill(0)
-  accY.fill(0)
-  accZ.fill(0)
+    influenceRadius > 0 ? _dminFromDistColumns(distTable, directCols, nPoints) : null
   const invCp = 1 / Math.max(visualCp, 1e-3)
+  const history = peakMethod === 'history'
   const nS = src.length
-  for (let s = 0; s < nS; s++) {
-    const srcS = src[s]
-    const sx = srcS.x
-    const sy = srcS.y
-    const sz = srcS.z
-    const dS = srcS.delay
-    const coef = srcS.coef
-    const base = s * nPoints
-    const gate = srcS.gate
-    const gAx = gate ? _GATE_AXIS[gate.axis] : -1
-    const gMin = gate ? gate.min : 0
+  if (history) {
+    // 逐点到达序精确解直接写入 peak（gate 未过源不参与候选/arrival）
+    _staggeredPeakAccumulate(
+      surfaceXyz,
+      src,
+      distTable,
+      distPow,
+      nPoints,
+      peakDecay,
+      invCp,
+      arrival,
+      peak
+    )
+  } else {
+    const acc = _ensureAccBuffers(nPoints)
+    const accX = acc.cx
+    const accY = acc.cy
+    const accZ = acc.cz
+    accX.fill(0)
+    accY.fill(0)
+    accZ.fill(0)
+    for (let s = 0; s < nS; s++) {
+      const srcS = src[s]
+      const sx = srcS.x
+      const sy = srcS.y
+      const sz = srcS.z
+      const dS = srcS.delay
+      const coef = srcS.coef
+      const base = s * nPoints
+      const gate = srcS.gate
+      const gAx = gate ? _GATE_AXIS[gate.axis] : -1
+      const gMin = gate ? gate.min : 0
+      for (let i = 0; i < nPoints; i++) {
+        if (gAx >= 0 && surfaceXyz[i * 3 + gAx] < gMin) continue
+        const r = distTable[base + i]
+        const arr = dS + r * invCp
+        if (arr < arrival[i]) arrival[i] = arr
+        const a = coef * distPow[base + i]
+        const inv = 1 / Math.max(r, 1e-6)
+        accX[i] += a * ((surfaceXyz[i * 3] - sx) * inv)
+        accY[i] += a * ((surfaceXyz[i * 3 + 1] - sy) * inv)
+        accZ[i] += a * ((surfaceXyz[i * 3 + 2] - sz) * inv)
+      }
+    }
     for (let i = 0; i < nPoints; i++) {
-      if (gAx >= 0 && surfaceXyz[i * 3 + gAx] < gMin) continue
-      const r = distTable[base + i]
-      const arr = dS + r * invCp
-      if (arr < arrival[i]) arrival[i] = arr
-      const a = coef * distPow[base + i]
-      const inv = 1 / Math.max(r, 1e-6)
-      accX[i] += a * (surfaceXyz[i * 3 + 0] - sx) * inv
-      accY[i] += a * (surfaceXyz[i * 3 + 1] - sy) * inv
-      accZ[i] += a * (surfaceXyz[i * 3 + 2] - sz) * inv
+      peak[i] = Math.sqrt(accX[i] * accX[i] + accY[i] * accY[i] + accZ[i] * accZ[i])
     }
   }
   for (let i = 0; i < nPoints; i++) {
-    const vx = accX[i]
-    const vy = accY[i]
-    const vz = accZ[i]
     const px = surfaceXyz[i * 3 + 0] - ox
     const py = surfaceXyz[i * 3 + 1] - oy
     const pz = surfaceXyz[i * 3 + 2] - oz
-    // 峰值场与 GPU 岩面着色同口径：隧道轮廓自由面放大（face 缺省/coeff=0 返回 1）
+    // 峰值场与 GPU 岩面着色同口径：隧道轮廓自由面放大（face 缺省/coeff=0 返回 1）。
+    // 【勿从 acc 缓冲重算峰值】history 模式 acc 保存的是 e^(+D·arr) 加权矢量，
+    // 模长并非错峰峰值——旧版在此覆盖导致等值线数据源失真。
     peak[i] =
-      Math.sqrt(vx * vx + vy * vy + vz * vz) *
+      peak[i] *
       holeOcclusion(px, py, pz) *
       axialGain(px, py, pz) *
       tunnelFaceBoostFactor(
@@ -1645,17 +2020,11 @@ export class LocalVibrationSimulator {
       visualBeta: options.visualBeta ?? 0.8, // 可视化时变衰减（波峰回落实时速度）
       cp: options.cp ?? 4500,
       visualCp: options.visualCp ?? 35, // 波前可视传播速度（见 computePpvField3d 注释）
-      // 波动相位载波（Hz，0=关）：瞬时质点速度 × cos(2πf·gap)。爆破碎破振动
-      // 的瞬时振速是正负交替的振荡波形（波峰/波谷随波前推进）；但 PPV 场/应力
-      // 反演/点选采样都需要"模长恒正"的标量场，载波只在 GPU 着色器（uCarrierHz）
-      // 与用户显式开启的"艺术化渲染"路径生效。默认 0=关（与 GPU/UI 默认一致）：
-      // 物理干涉由多源矢量叠加（各炮孔延期差+路径差）本身产生，无需载波伪影。
-      carrierHz: Number(options.carrierHz) > 0.5 ? Number(options.carrierHz) : 0,
-      // 空间门控（与后端 influence_radius / damage_max_radius 同口径）：
-      // PPV/峰值场 × env(influenceRadius)（tau=3m）；损伤分区再乘 atten(damageMaxRadius)
-      // （tau=1.5m）。由 blastingManager 透传（滑块可调），缺省 0=关。
+      // 瞬时振速为多源矢量叠加的平滑衰减包络：物理干涉由各炮孔延期差+路径差
+      // （相位差）本身产生，不叠加任何人工 cos 载波（载波伪影已废弃）。
+      // 空间门控（与后端 influence_radius 同口径）：峰值场 × env(influenceRadius)
+      // （tau=3m）。由 blastingManager 按岩体几何实测透传，缺省 0=关。
       influenceRadius: Number(options.influenceRadius) > 0 ? Number(options.influenceRadius) : 0,
-      damageMaxRadius: Number(options.damageMaxRadius) > 0 ? Number(options.damageMaxRadius) : 0,
       // 隧道马蹄形轮廓自由面放大配置（与 GPU uFaceBoost 同口径；null=关）
       tunnelFace: options.tunnelFace || null,
       rho: options.rho ?? 2650,
@@ -1834,9 +2203,7 @@ export class VibrationComputeClient {
       Number(p.visualCp),
       sim.chargeKg,
       Array.isArray(p.sources) ? p.sources.length : 0,
-      Number(p.carrierHz) || 0,
       Number(p.influenceRadius) || 0,
-      Number(p.damageMaxRadius) || 0,
       Array.isArray(p.reflections)
         ? p.reflections
             .map(r => `${r.axis}:${Number(r.value).toFixed(3)}:${Number(r.coeff).toFixed(3)}`)

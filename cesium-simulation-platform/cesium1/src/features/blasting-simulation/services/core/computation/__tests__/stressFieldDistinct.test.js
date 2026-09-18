@@ -45,8 +45,7 @@ function makeSim() {
       { x: 0, y: -0.5, z: 0.6, chargeKg: 23.8, delayMs: 120 }
     ],
     visualCp: 35,
-    influenceRadius: 30,
-    damageMaxRadius: 7
+    influenceRadius: 30
   })
 }
 
@@ -55,8 +54,11 @@ describe('应力场与振速场空间结构不同（两图一模一样回归）'
   const { ppv, sigmaVm } = sim.computeAtTime(1.2)
   const n = sigmaVm.length
 
-  it('应力 = ρ·c_p·瞬时振速/(1−ν)·F(r)，逐点可复算（波前可见）', () => {
-    const vmFactor = sim.params.rho * sim.params.cp * (1 / (1 - sim.params.nu))
+  it('应力 = ρ·c_p·瞬时振速/(1−μ_d)·F(r)，逐点可复算（波前可见，动态泊松比 μ_d=0.8ν）', () => {
+    // 动态泊松比（梁瑞 2020 长江科学院院报 37(4):67-72，μ_d=0.8μ）：
+    // σ_vm = ρ·c_p·v/(1−μ_d)·F(r)，与后端 stress_field_from_ppv(dynamic_poisson=True) 同口径
+    const nuDyn = 0.8 * sim.params.nu
+    const vmFactor = sim.params.rho * sim.params.cp * (1 / (1 - nuDyn))
     let checked = 0
     for (let i = 0; i < n; i++) {
       if (ppv[i] > 0.01) {
@@ -101,12 +103,26 @@ describe('应力场与振速场空间结构不同（两图一模一样回归）'
     expect(mx / mn).toBeGreaterThan(1.15)
   })
 
-  it('缺省（不传 distance / r_nf=0）保持旧口径 σ = ρ·c_p·v/(1−ν)', () => {
+  it('缺省（不传 distance / r_nf=0）保持纯辐射口径 σ = ρ·c_p·v/(1−μ_d)（μ_d=0.8ν）', () => {
     const v = new Float32Array([1.0, 0.5, 0.2])
     const out = computeStressFieldFromPpv(v, { rho: 2650, cp: 4500, nu: 0.25 })
-    const expectVal = (2650 * 4500) / 0.75
+    // 默认 dynamicPoisson=true（梁瑞 2020）：侧应力系数按 μ_d=0.8·0.25=0.2 → 除以 0.8
+    const expectVal = (2650 * 4500) / 0.8
     for (let i = 0; i < v.length; i++) {
       expect(Math.abs(out[i] - expectVal * v[i]) / (expectVal * v[i])).toBeLessThan(1e-6)
+    }
+    // 显式关闭动态泊松比 → 静态口径（向后兼容开关）
+    const outStatic = computeStressFieldFromPpv(v, {
+      rho: 2650,
+      cp: 4500,
+      nu: 0.25,
+      dynamicPoisson: false
+    })
+    const expectStatic = (2650 * 4500) / 0.75
+    for (let i = 0; i < v.length; i++) {
+      expect(
+        Math.abs(outStatic[i] - expectStatic * v[i]) / (expectStatic * v[i])
+      ).toBeLessThan(1e-6)
     }
   })
 })

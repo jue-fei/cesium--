@@ -25,3 +25,17 @@ outputs/
 
 # Non-project
 thesis-guidance/
+
+# Literature & research materials (large binaries)
+多源波/
+振动文献/
+爆堆文献/
+
+# Working copies / tooling
+早期版本/
+.zcode/
+.workbuddy-ai/
+_compare_versions.py
+_diff_report.txt
+*_diag_*.ppm
+

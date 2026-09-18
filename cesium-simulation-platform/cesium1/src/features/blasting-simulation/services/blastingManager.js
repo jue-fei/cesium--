@@ -153,11 +153,9 @@ export class BlastingManager {
     this._vibFieldUpdateInterval = 0.2
     // 上一步振动模拟时刻（时间轴一致性：识别回卷/前跳，见 stepLocalVibration）
     this._vibLastStepT = -1
-    // 损伤边界可调参数（P0-1：damageMaxRadius 由 UI 滑块下发）。
     // _vibInfluenceRadius = 波场可达半径：由岩体几何尺度自动取（见 setInfluenceRadiusAuto），
     // 使波一直衰减到模型边界、不在岩体中部形成能量断崖。默认给一个足够大的占位值。
     this._vibInfluenceRadius = 60
-    this._vibDamageMaxRadius = 7
     // 振动场计算 Web Worker 客户端：把多源矢量叠加的 PPV/应力/损伤场计算卸载到
     // Worker 线程，避免主线程因"网格点数×源数×幂/指数"计算卡死爆破动画。
     this._vibComputeClient = new VibrationComputeClient()
@@ -187,10 +185,10 @@ export class BlastingManager {
     // 动画总时长（秒）：优先取渲染器实测/回放时长（全部落地+保持3s），
     // 未就绪时回退数据集 simulationDurationS（默认 10s）。
     this._durationS = null
-    // 雷管起爆延期误差（蒙特卡洛，σ ms）：>0 时在 buildChargeSources 对每段装药延期
-    // 叠加确定性高斯抖动（rngSeed+源索引），GPU 着色器/局部模拟/等值线/点采样共用同一
-    // 批抖动后源 → 打破"完美同心圆"对称干涉。默认 5ms（真实雷段误差量级）。
-    this._delayJitterMs = 5
+    // 事件一致性：默认严格使用 blasting_design_holes.delayMs，不额外叠加
+    // 蒙特卡洛雷管误差。需要做概率敏感性分析时，UI/调用方可显式设置 >0。
+    this._delayJitterMs = 0
+    this._useLiteratureDesign = false
     this._rngSeed = 20240910
     // 监测点（测点波形）：3D 放置，存 {id,label,x,y,z}；时程在放置/雷管误差变更时重算
     this._monitorPoints = []
@@ -200,11 +198,6 @@ export class BlastingManager {
     // 掌子面自由面反射（P0-2 镜象源法）：默认开启
     this._vibReflectOn = true
     this._vibReflectCoeff = 0.85
-    // 波动相位载波：瞬时质点速度 v(t)=A·e^-βt·sin(2πf·t) 是真实地震动波形（非伪造），
-    // 多源相位差(延期差+路径差)产生相长/相消干涉条纹。默认 8Hz 使昆阳 43 孔微差起爆
-    // 的干涉叠加可见；0=关闭退化为单调包络（UI 可调）。前后端必须同频——后端纹理
-    // (载波)与前端解析(无载波)不同频会在网格盒边界接缝处显形为"中心矩形切块"。
-    this._vibCarrierHz = 8
     // 显示侧满量程展开因子（P99.9 反解）：默认 1（不缩放），值线峰值场到达后更新
     this._fieldAutoScale = 1
     // 半透明渲染（D）：1=热力场上限 0.55 露出岩底轮廓，0=实色 0.85
@@ -218,6 +211,10 @@ export class BlastingManager {
     this._vibFaceBoostCoeff = 0
     // 轮廓放大空间衰减长度（m）：随 coeff 中性化，λ 仅保留默认值不再参与放大
     this._vibFaceBoostLambda = 0.7
+    // 波包子波载波频率（Hz，0=关）：驱动热力图上"行波脉冲环/多源干涉瓣"。
+    // 默认关闭（0=纯包络云图）：正面近距离/掠射角下，即使 2Hz 也会把多源
+    // 相位叠加投影成规则斜纹。面板"波包频率"滑块仍可手动开启行波环。
+    this._vibCarrierHz = 0
   }
 
   /**
@@ -278,9 +275,9 @@ export class BlastingManager {
     this.clearScene()
     this.dataset = dataset
     this.currentFrame = 0
-    // 楔形掏槽事件：将 Da Balai 文献化设计直接写回 dataset.design，
-    // 使渲染器断面、炮孔、孔深/进尺标注、多源应力波、UI 全程读取同一套数据，
-    // 避免渲染器与 overlay 因两套数值而显示不一致（断面/布孔/孔深同步对齐文献）。
+    // 默认以 API 返回的 event/design/result 为唯一事实源。文献模板只能由调用方
+    // 显式开启，不能再按 eventId/名称静默覆盖当前事件的断面、炮孔和延期。
+    this._useLiteratureDesign = options.useLiteratureDesign === true
     this._stampLiteratureDesignIfNeeded()
     this.buildEntities()
     this._initThreeBridge(options.kcoOverride || {})
@@ -366,7 +363,7 @@ export class BlastingManager {
    */
   _stampLiteratureDesignIfNeeded() {
     const design = this.dataset?.design
-    if (!design) return
+    if (!this._useLiteratureDesign || !design) return
     const lit = this._resolveLiteratureDesign()
     if (!lit.design) return
     const { section: s, holes } = lit.design
@@ -600,22 +597,19 @@ export class BlastingManager {
     // holes 来自 blasting_design_holes 表，供炮孔布局与 KCO 单孔药量推导使用
     const holes = Array.isArray(design?.holes) ? design.holes : []
 
-    // 按事件对齐对应的文献化设计（002 南山 / 006 昆阳），使 3D 模型、布孔、微差时序
-    // 与文献一致；否则回退到数据库 design。多源应力波（_computeBlastSources）据此在
-    // 空间铺开、时序错开的装药源 → 非同心圆干涉波场。
-    const lit = this._resolveLiteratureDesign()
-    let effSection = null
+    // 事件一致性：默认只使用 API 返回的当前 design.holes 与 design 断面。
+    // 文献模板仅在 setDataset({ useLiteratureDesign: true }) 时显式启用。
+    const lit = this._useLiteratureDesign ? this._resolveLiteratureDesign() : { design: null }
+    let effSection = {
+      width: Number(design?.tunnelWidth) || DEFAULT_TUNNEL_WIDTH,
+      wallHeight: Number(design?.tunnelWallHeight) || DEFAULT_TUNNEL_WALL_HEIGHT,
+      archRadius: Number(design?.tunnelArchRadius) || DEFAULT_TUNNEL_ARCH_RADIUS,
+      shape: design?.tunnelShape || 'horseshoe'
+    }
     let effHoles = holes
     if (lit.design) {
       effSection = lit.design.section
       effHoles = lit.design.holes
-    } else {
-      effSection = {
-        width: Number(design?.tunnelWidth) || DEFAULT_TUNNEL_WIDTH,
-        wallHeight: Number(design?.tunnelWallHeight) || DEFAULT_TUNNEL_WALL_HEIGHT,
-        archRadius: Number(design?.tunnelArchRadius) || DEFAULT_TUNNEL_ARCH_RADIUS,
-        shape: design?.tunnelShape || 'horseshoe'
-      }
     }
     // 供 _computeBlastSources / getPpvStreamParams 读取同一套生效设计（多源应力波叠加数据源）
     this._effectiveSection = effSection
@@ -848,14 +842,12 @@ export class BlastingManager {
     this._localVibrationSim = new LocalVibrationSimulator({
       chargeKg: params.chargeKg,
       // 物理口径全量透传（与 _ensureLocalVibrationSim 初始创建一致）：重建路径漏传
-      // K/α/载波/包络/损伤上限会使模拟器回落默认 K=30/α=1.5、门控关闭 → 暂停或
+      // K/α/包络会使模拟器回落默认 K=30/α=1.5、门控关闭 → 暂停或
       // 推流结束后本地接管（拖动进度条）时场值比 WS 模式暗约 3 倍且中远场超程
       // ——"Seek 后热力图骤暗/跳变"的根因（见 syncLocalSimParams.test.js）。
       K: params.k,
       alpha: params.alpha,
-      carrierHz: this._vibCarrierHz || 0,
       influenceRadius: this._vibInfluenceRadius,
-      damageMaxRadius: this._vibDamageMaxRadius,
       tunnelWidth: Math.max(1, sizeX || params.tunnelWidth),
       tunnelHeight: Math.max(1, sizeY || params.tunnelHeight),
       lengthZ: Math.max(1, sizeZ || 40),
@@ -1073,26 +1065,6 @@ export class BlastingManager {
     this.threeBridge?.getThreeRenderer?.()?.setIsoLineStyle?.({ width, color })
   }
 
-  /**
-   * 设置干涉载波频率（视觉 Hz）：瞬时质点速度 × cos(2πf·gap) 产生多孔延时
-   * 干涉波纹（相位差 = 延期差 + 路径差）。0=关闭退化为单调包络。
-   * @param {number} hz - 0~48
-   */
-  setVibrationCarrierHz(hz) {
-    const v = Math.max(0, Math.min(48, Number(hz) || 0))
-    this._vibCarrierHz = v
-    this.threeBridge?.getThreeRenderer?.()?.setCarrierHz?.(v)
-    // CPU 本地模拟器与 GPU 同口径（载波影响瞬时体积场/测点时程波形），存在时同步
-    if (this._localVibrationSim?.params) {
-      this._localVibrationSim.params.carrierHz = v
-      this._localVibrationSim._lastT = -1
-      this._localVibrationSim._cachedPpv = null
-      this._localVibrationSim._cachedSigmaVm = null
-    }
-    // 载波影响测点时程曲线波形（Vx/Vy/Vz 振荡形态），变更后重算已放置测点
-    this.rebuildMonitorHistories()
-  }
-
   /** 开关振动场矢量箭头（P1-6：波传播方向可视化） */
   setVibrationVectorField(on) {
     this._vibVectorFieldOn = !!on
@@ -1137,7 +1109,7 @@ export class BlastingManager {
   /**
    * 计算并下发矢量箭头场（P1-6）。采样平面 = 过爆心的水平切片(y=originY) +
    * 竖直切片(x=originX)，仅取岩体侧 (z ≥ 掌子面)；每点按当前模拟时刻 t 计算
-   * 瞬时质点速度矢量（与热图同一物理模型：多源矢量叠加 + 自由面反射 + 载波）。
+   * 瞬时质点速度矢量（与热图同一物理模型：多源矢量叠加 + 自由面反射）。
    * 箭头随播放向前推进/摆动，直观展示波的传播方向。
    * @param {boolean} [force=true] - true=即便未开启也强制按当前几何重算并下发
    */
@@ -1191,7 +1163,6 @@ export class BlastingManager {
       visualBeta: 0.8,
       visualCp: 35,
       minStandoff: 0.5,
-      carrierHz: this._vibCarrierHz || 0,
       reflections: this._vibReflectOn
         ? [{ axis: 'z', value: faceZ, coeff: this._vibReflectCoeff }]
         : null
@@ -1254,6 +1225,25 @@ export class BlastingManager {
    */
   setVibrationNormMode(mode) {
     this.threeBridge?.getThreeRenderer?.()?.setNormMode?.(mode)
+  }
+
+  /**
+   * 设置热力图波包载波频率（Hz，0=关）。
+   *
+   * 该值不参与峰值判据（损伤分区/等值线用的 peak 是包络，与载波无关），
+   * 只改变岩面瞬时振速场的空间频率——即屏幕上干涉条纹的疏密：
+   *   · λ = visualCp / f（visualCp 默认 35 m/s）；f=8 时 λ=4.4m（约 4~5px/条纹，
+   *     且每帧相位推进 48°、4x 倍速下每帧跨 0.53 周期）= 观感为噪点/摩尔纹；
+   *   · f=2 时 λ=17.5m，但正面近距离仍可能出现规则斜纹；
+   *   · f=0 退化为纯包络（无行波环，最平滑，当前默认）。
+   *
+   * 经 renderer.setFieldPhysics 下发：参数被渲染器缓存，场景重建后自动重放。
+   * @param {number} hz - 0~10
+   */
+  setVibrationCarrierHz(hz) {
+    const v = Math.max(0, Math.min(30, Number(hz) || 0))
+    this._vibCarrierHz = v
+    this.threeBridge?.getThreeRenderer?.()?.setFieldPhysics?.({ carrierHz: v })
   }
 
   /**
@@ -1442,7 +1432,16 @@ export class BlastingManager {
       faceOffset,
       { x: cx, y: cy },
       {
-        // 雷管起爆误差（确定性抖动）：打破完美对称干涉；0=关闭（复现精确设计延期）
+        // 默认让显示/计算源与事件炮孔孔口一致；装药段中点仅作显式对比模式。
+        sourcePositionMode: 'collar',
+        // 事件默认严格使用设计表中的 delayMs；只有 UI 显式设置 delayJitterMs>0
+        // 才叠加概率误差。
+        // 雷管延期误差（韩亮 2019 逐段概率模型）：σ_base(t)=0.017·t+3.483ms，
+        // UI 的 delayJitterMs 作为 100ms 段的锚定缩放（默认 5ms 与旧常数口径衔接，
+        // 长段别按回归式比例放大）；0=关闭（复现精确设计延期）。确定性抖动：
+        // GPU 着色器/局部模拟/等值线/点采样共用同一批抖动后源。
+        jitterModel: this._delayJitterMs > 0 ? 'han2019' : 'off',
+        detonatorType: 'nonel',
         delayJitterMs: this._delayJitterMs,
         rngSeed: this._rngSeed
       }
@@ -1476,9 +1475,14 @@ export class BlastingManager {
     const event = this.dataset.event
     const design = this.dataset.design || {}
     const effSec = this._effectiveSection
+    const origin = this._computeBlastOrigin()
+    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const faceOffset = Number(renderer?.faceOffset ?? design.faceOffset)
+    const backendOrigin = [origin[0], origin[1], origin[2] - (Number.isFinite(faceOffset) ? faceOffset : 3)]
     return {
       chargeKg: Number(event.chargeKg) || 100,
-      blastCenter: this._computeBlastOrigin(),
+      // backend build_ppv_grid 以当前掌子面为 z=0；GPU/本地 g 系仍保留 faceOffset。
+      blastCenter: backendOrigin,
       tunnelWidth: Number(effSec?.width) || Number(design.tunnelWidth) || DEFAULT_TUNNEL_WIDTH,
       tunnelHeight:
         (Number(effSec?.wallHeight) ||
@@ -1488,9 +1492,29 @@ export class BlastingManager {
           Number(design.tunnelArchRadius) ||
           DEFAULT_TUNNEL_ARCH_RADIUS),
       k: this._sadoskyK ?? 90,
-      alpha: this._sadoskyAlpha ?? 1.58,
-      carrierHz: this._vibCarrierHz || 0
+      alpha: this._sadoskyAlpha ?? 1.58
     }
+  }
+
+  /**
+   * 获取发送给后端 WS 的多源装药位置。
+   *
+   * 前端 GPU/本地模拟使用 g 系：掌子面 z=faceOffset；后端网格把当前
+   * 掌子面归一为 z=0。必须只在边界处做一次平移，否则后端源会整体向
+   * 岩体深处错位，甚至退化为 blastCenter 单源。
+   * @returns {Array|null} [{x,y,z,chargeKg,delayMs,id}]，z 为后端面内坐标
+   */
+  getStreamBlastSources() {
+    const sources = this._computeBlastSources()
+    if (!Array.isArray(sources) || sources.length === 0) return null
+    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const design = this.dataset?.design || {}
+    const faceOffset = Number(renderer?.faceOffset ?? design.faceOffset)
+    const faceZ = Number.isFinite(faceOffset) ? faceOffset : 3
+    return sources.map(s => ({
+      ...s,
+      z: Number(s.z) - faceZ
+    }))
   }
 
   /**
@@ -1515,28 +1539,25 @@ export class BlastingManager {
   }
 
   /**
-   * 设置损伤边界可调参数（P0-1）：损伤硬上限，超 damageMaxRadius 损伤归弹性区。
-   * 波场可达半径（influenceRadius）不再由此设置——改由 setInfluenceRadiusAuto
-   * 按岩体几何尺度一次性确定，避免在岩体中部形成能量断崖。
-   * @param {Object} p - { influenceRadius?: number(m), damageMaxRadius?: number(m) }
+   * 设置波场可达半径（保留接口）：influenceRadius 由 setInfluenceRadiusAuto 按岩体
+   * 几何尺度一次性确定；此处仅同步到本地模拟器。损伤半径不再受人工上限约束——
+   * 由纯物理的 PPV 阈值分区计算得出（见 computeMultiSourcePeakDamageZones）。
+   * @param {Object} p - { influenceRadius?: number(m) }
    */
-  setDamageBoundary({ influenceRadius, damageMaxRadius } = {}) {
+  setDamageBoundary({ influenceRadius } = {}) {
     if (Number.isFinite(Number(influenceRadius)) && Number(influenceRadius) > 0)
       this._vibInfluenceRadius = Number(influenceRadius)
-    if (Number.isFinite(Number(damageMaxRadius)) && Number(damageMaxRadius) > 0)
-      this._vibDamageMaxRadius = Number(damageMaxRadius)
     // 同步本地模拟器（暂停/推流结束后接管热力图的数据源）：门控参数原地更新并
     // 失效逐帧缓存。峰值/等值线缓存按门控指纹自动失效；Worker 按签名变化重配。
     const sim = this._localVibrationSim
     if (sim?.params) {
       sim.params.influenceRadius = this._vibInfluenceRadius
-      sim.params.damageMaxRadius = this._vibDamageMaxRadius
       sim._lastT = -1
       sim._cachedPpv = null
       sim._cachedSigmaVm = null
       this._vibFieldLastUpdate = -1
     }
-    // 立即同步到岩体面场着色（损伤硬上限），并写入 getPpvStreamParams 供 WS start 透传
+    // 立即同步到岩体面场着色，并写入 getPpvStreamParams 供 WS start 透传
     this._pushFieldPhysics()
   }
 
@@ -1563,11 +1584,25 @@ export class BlastingManager {
   }
 
   /**
-   * 当前损伤边界可调参数（供 buildWsStartPayload 透传到后端 start 指令）
-   * @returns {{influenceRadius:number, damageMaxRadius:number}}
+   * 当前损伤边界（供 buildWsStartPayload 透传到后端 start 指令）。
+   * 损伤半径由 PPV 阈值纯物理计算，不再下发人工硬上限。
+   * @returns {Object} { influenceRadius:number }
    */
   getDamageBoundary() {
-    return { influenceRadius: this._vibInfluenceRadius, damageMaxRadius: this._vibDamageMaxRadius }
+    return { influenceRadius: this._vibInfluenceRadius }
+  }
+
+  /**
+   * 掌子面自由面反射配置（镜象源法）——仅供后端 WS 推流展开镜象源使用
+   * （buildWsStartPayload 下发）。后端网格（build_ppv_grid / tunnel_void_mask）
+   * 以掌子面为 z=0 平面 → 反射面 value 恒为 0。GPU 岩面着色器的反射面由
+   * _pushFieldPhysics 以 g 系 faceOffset 单独下发（applyFieldPhysics.faceZ），
+   * 两者物理口径一致、坐标系各自正确。
+   * 反射关闭时返回 null（后端不加反射）。
+   */
+  getVibrationReflections() {
+    if (!this._vibReflectOn) return null
+    return { axis: 'z', value: 0, coeff: this._vibReflectCoeff }
   }
 
   /**
@@ -1615,9 +1650,10 @@ export class BlastingManager {
       faceZ: Number(renderer?.faceOffset) || 3,
       reflectOn: this._vibReflectOn,
       reflectCoeff: this._vibReflectCoeff,
-      // P0-1 损伤硬上限（与后端 damageMaxRadius 同口径）。波场可达半径已改由
+      // 波包子波载波频率（Hz，0=纯包络）：控制热力图干涉条纹的空间密度
+      carrierHz: this._vibCarrierHz,
+      // 损伤半径由 PPV 阈值纯物理计算得出（不设人工硬上限）；波场可达半径已改由
       // 渲染侧按岩体几何实测下发（sceneBuilder._syncInfluenceRadius），此处不覆盖。
-      damageMaxRadius: this._vibDamageMaxRadius,
       // 半透明渲染（1=场色上限 0.55 露出岩底）
       translucent: this._vibTranslucent ? 1 : 0,
       // 隧道马蹄形轮廓自由面（SDF 放大）：与 GPU tunnelFaceSdf / CPU tunnelFaceBoostFactor 同口径。
@@ -1675,7 +1711,10 @@ export class BlastingManager {
     const nuDesign = Number(design?.poissonRatio)
     const nuRock = Number(rockParams?.poissonRatio)
     const nu = Number.isFinite(nuDesign) ? nuDesign : Number.isFinite(nuRock) ? nuRock : 0.25
-    const stressFactor = rho * cp * (1 / (1 - Math.max(0, Math.min(0.49, nu))))
+    // 动态泊松比 μ_d=0.8μ（梁瑞 2020 长江科学院院报 37(4):67-72）：
+    // 与后端 stress_field_from_ppv(dynamic_poisson=True) / computeStressFieldFromPpv 同口径
+    const nuDyn = 0.8 * Math.max(0, Math.min(0.49, nu))
+    const stressFactor = rho * cp * (1 / (1 - nuDyn))
     const nfR = nearFieldRadius(Number(params?.chargeKg) || Q)
     this._stressNearFieldR = nfR
     this._stressNearFieldGain = NEAR_FIELD_GAIN
@@ -1788,7 +1827,9 @@ export class BlastingManager {
     const nuDesign = Number(design?.poissonRatio)
     const nuRock = Number(rockParams?.poissonRatio)
     const nu = Number.isFinite(nuDesign) ? nuDesign : Number.isFinite(nuRock) ? nuRock : 0.25
-    const stressFactor = rho * cp * (1 / (1 - Math.max(0.01, Math.min(0.49, nu))))
+    // 动态泊松比 μ_d=0.8μ（梁瑞 2020），与后端/本地模拟器应力反演同口径
+    const nuDyn = 0.8 * Math.max(0.01, Math.min(0.49, nu))
+    const stressFactor = rho * cp * (1 / (1 - nuDyn))
     const vAt4 = K * Math.pow(Math.pow(Q, 1 / 3) / 4.0, alpha) * 0.01
     const stressAt4 = (stressFactor * vAt4) / 1.0e6
     const stressRef = Number(this._lastFieldRefs?.stressRefMPa) || 0
@@ -2047,7 +2088,7 @@ export class BlastingManager {
 
   /**
    * 测点时程曲线计算参数（computeMonitorTimeHistory 的 options）。
-   * 与体积场/热力图同一物理模型口径（K/α/载波/视觉衰减/波速）。
+   * 与体积场/热力图同一物理模型口径（K/α/视觉衰减/波速）。
    */
   _monitorParams(rockParams = {}) {
     return {
@@ -2057,13 +2098,12 @@ export class BlastingManager {
       visualBeta: this._localVibrationSim?.params?.visualBeta ?? 0.8,
       cp: Number(rockParams.pWaveSpeed) || 4500,
       visualCp: 35,
-      minStandoff: 0.5,
-      carrierHz: this._vibCarrierHz || 0
+      minStandoff: 0.5
     }
   }
 
   /**
-   * 重算已放置测点的时程曲线（载波/K/α 等参数变更后调用）。
+   * 重算已放置测点的时程曲线（K/α 等参数变更后调用）。
    * 当前版本未内置测点子系统 → 保留为扩展钩子（no-op）。
    */
   rebuildMonitorHistories() {

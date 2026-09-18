@@ -43,7 +43,7 @@
       </div>
     </div>
 
-    <!-- 场渲染参数：艺术化渲染(载波) / 标尺 / 等值线密度 / 提取诊断 -->
+    <!-- 场渲染参数：标尺 / 等值线密度 / 提取诊断 -->
     <div class="section">
       <div class="section-title">场渲染参数</div>
       <!-- 物理诚实化说明（P1）：当前为解析叠加场，多孔干涉由各炮孔几何位置+微差
@@ -66,51 +66,6 @@
           {{ vectorFieldOn ? '矢量箭头：开' : '矢量箭头：关' }}
         </button>
       </div>
-      <!-- 损伤边界可调参数（P0-1）：工程人员按现场实际炸药量手动收束损伤区，
-          start 指令透传后端，同时即时作用于解析支 -->
-      <div class="slider-row mt-1">
-        <span class="slider-label">损伤半径上限</span>
-        <input
-          class="slider-input"
-          type="range"
-          min="1"
-          max="25"
-          step="0.5"
-          :value="damageMaxRadius"
-          @input="$emit('set-damage-max-radius', Number($event.target.value))"
-        />
-        <span class="slider-value">{{ damageMaxRadius }} m</span>
-      </div>
-      <div class="hint-sm">
-        损伤超『损伤半径上限』一律归为弹性区。波场本身按岩体几何边界自然衰减到零
-        （不反弹、不绕射），无需再设传播范围。
-      </div>
-      <!-- 干涉载波属"艺术化渲染"选项：默认关闭、折叠隐藏。物理干涉由多源矢量叠加
-         （各炮孔延期差+路径差）本身产生，无需该视觉载波伪影。 -->
-      <details class="artistic">
-        <summary>
-          <span class="summary-label">艺术化渲染（默认关闭 · 仅观感）</span>
-          <span v-if="carrierHz > 0" class="summary-flag">载波已开</span>
-        </summary>
-        <div class="slider-row mt-1">
-          <span class="slider-label">干涉载波</span>
-          <input
-            class="slider-input"
-            type="range"
-            min="0"
-            max="48"
-            step="1"
-            :value="carrierHz"
-            @input="$emit('set-carrier-hz', Number($event.target.value))"
-          />
-          <span class="slider-value">{{ carrierHz > 0 ? carrierHz + ' Hz' : '关' }}</span>
-        </div>
-        <div class="hint-sm">
-          物理干涉已由多源矢量叠加（各炮孔延期差 + 路径差 → 相位差）本身产生，不需要载波。 默认关闭
-          → 瞬时振速 v(t) 为平滑衰减包络，等值线平滑渐变不闪烁；开启叠加 cos
-          振荡波纹，仅改变渲染观感，不影响峰值场与点选采样所得 PPV/应力/损伤数值。
-        </div>
-      </details>
       <div class="slider-row mt-1">
         <span class="slider-label">等值线密度</span>
         <input
@@ -123,6 +78,26 @@
           @input="$emit('set-contour-density', Number($event.target.value))"
         />
         <span class="slider-value">{{ contourDensity }} 档</span>
+      </div>
+      <!-- 波包载波频率：控制热力图干涉条纹的空间密度。载波波长 λ=visualCp/f，
+           f 越高条纹越密——正面近距离/掠射角下即使 2Hz 也可能出现规则纹路。
+           默认关闭（0=纯包络）；需要观察行波环时再手动开启。 -->
+      <div class="slider-row mt-1">
+        <span class="slider-label">波包频率</span>
+        <input
+          class="slider-input"
+          type="range"
+          min="0"
+          max="30"
+          step="0.5"
+          :value="carrierHz"
+          @input="$emit('set-carrier-hz', Number($event.target.value))"
+        />
+        <span class="slider-value">{{ carrierHz > 0 ? carrierHz + ' Hz' : '关' }}</span>
+      </div>
+      <div class="hint-sm">
+        控制行波波环的疏密：0 = 关（纯包络云图，最平滑），2 = 单个波环清晰可见，
+        再调高条纹变细、接近噪点。不影响损伤分区与等值线（它们取峰值包络）。
       </div>
       <div class="row mt-1">
         <span class="slider-label">色彩标尺</span>
@@ -249,7 +224,7 @@
       <div class="chart-legend">
         <span class="lg"><i class="c5"></i>仿真（多源叠加·全时程峰值）</span>
         <span class="lg"><i class="c6"></i>萨道夫斯基 K·(Q<sup>1/3</sup>/R)<sup>α</sup></span>
-        <span class="lg-lg">总药量 {{ ppvTotalQ }} kg</span>
+        <span class="lg-lg">最大单响药量 {{ ppvMaxChargePerDelay }} kg（总 {{ ppvTotalQ }} kg）</span>
       </div>
     </div>
 
@@ -399,15 +374,11 @@ const props = defineProps({
   pickedPpv: { type: Object, default: null },
   // 振动场底材"白模"开关（true=白模底，false=保留岩石纹理底）
   whiteModelEnabled: { type: Boolean, default: false },
-  // 等力线（等值线）开关（true=在热力图上叠加等值线，shader 默认开启）
-  isoLineEnabled: { type: Boolean, default: true },
+  // 等力线（等值线）开关（true=在热力图上叠加等值线）；默认关闭，
+  // 避免正面近视角下叠加几何折线形成规则斜纹。
+  isoLineEnabled: { type: Boolean, default: false },
   // 半透明渲染（true=热力场上限 0.55 露出岩底轮廓）
   translucentEnabled: { type: Boolean, default: false },
-  // 干涉载波频率（视觉 Hz，0=关）：渲染层瞬时振速 cos 载波 → 干涉波纹
-  // 默认 0=关闭：真实物理干涉由多源矢量叠加本身产生，载波仅作为艺术化渲染选项
-  carrierHz: { type: Number, default: 0 },
-  // 损伤边界可调参数（P0-1，m）：start 透传后端 + 即时作用解析支
-  damageMaxRadius: { type: Number, default: 7 },
   // 播放帧计数（总帧 = Math.floor(duration/0.05)-1），用于明确当前"瞬时帧"位置
   currentFrame: { type: Number, default: 0 },
   maxFrame: { type: Number, default: 0 },
@@ -415,6 +386,8 @@ const props = defineProps({
   normMode: { type: Number, default: 1 },
   // 等值线密度（色带分档数，条数 = density−1）
   contourDensity: { type: Number, default: 12 },
+  // 波包载波频率（Hz，0=关）：热力图干涉条纹疏密；不影响峰值判据
+  carrierHz: { type: Number, default: 2 },
   // 矢量箭头场开关（P1-6：展示波传播方向）
   vectorFieldOn: { type: Boolean, default: false },
   // 场点拾取全时程曲线数据（computeMonitorTimeHistory 输出，null=无拾取点）
@@ -432,11 +405,10 @@ const emit = defineEmits([
   'toggle-white-model',
   'toggle-iso-line',
   'toggle-translucent',
-  'set-carrier-hz',
   'set-norm-mode',
   'set-contour-density',
-  'toggle-vector-field',
-  'set-damage-max-radius'
+  'set-carrier-hz',
+  'toggle-vector-field'
 ])
 
 // 萨道夫斯基参数本地编辑态（外部 props 变化时同步）
@@ -554,13 +526,8 @@ const modeLabel = computed(() => {
 })
 const lastT = computed(() => props.vibrationFieldInfo?.lastT)
 // 明确时间状态：热力图渲染的是当前模拟时刻 t 的瞬时振速场 v(t)。
-// 载波关闭(=0)时为平滑衰减包络（真实物理干涉由多源矢量叠加产生，推荐）；
-// 载波开启时叠加艺术化 cos 振荡波纹，仅观感、不影响峰值场与采样数值。
-const displayState = computed(() =>
-  props.carrierHz > 0
-    ? `瞬时振荡 v(t)·含艺术化载波(${props.carrierHz}Hz)`
-    : '瞬时振速场 v(t)·平滑衰减包络'
-)
+// 多源矢量叠加（各炮孔延期差+路径差→相位差）本身产生物理干涉，平滑衰减包络显示。
+const displayState = computed(() => '瞬时振速场 v(t) · 多源解析叠加')
 const gridShapeText = computed(() => (props.vibrationFieldInfo?.gridShape || []).join('×') || '-')
 const voxelCountText = computed(() => {
   const v = props.vibrationFieldInfo?.voxelCount
@@ -631,6 +598,11 @@ const pointPpvCmps = computed(() => {
 const ppvTotalQ = computed(() =>
   Number(props.ppvDecayData?.totalQ) > 0 ? Number(props.ppvDecayData.totalQ).toFixed(1) : '—'
 )
+// 理论线口径 = 最大单响药量（同段齐发窗内药量和，微差爆破振动预测规范口径）
+const ppvMaxChargePerDelay = computed(() => {
+  const v = Number(props.ppvDecayData?.maxChargePerDelay)
+  return v > 0 ? v.toFixed(1) : ppvTotalQ.value
+})
 
 let histRaf = 0
 let ro1 = null
@@ -982,41 +954,6 @@ onBeforeUnmount(() => {
   font-size: 11px;
   color: var(--text-muted);
   line-height: 1.6;
-}
-/* 艺术化渲染折叠块：默认折叠隐藏，仅观感选项不入主流程 */
-.artistic {
-  margin-top: 6px;
-  border: 1px dashed rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.02);
-}
-.artistic summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-secondary);
-  user-select: none;
-}
-.artistic summary:hover {
-  color: var(--text-primary);
-}
-.artistic[open] summary {
-  margin-bottom: 6px;
-}
-.summary-label {
-  color: var(--text-secondary);
-}
-.summary-flag {
-  font-size: 11px;
-  color: var(--primary-color);
-  background: rgba(64, 158, 255, 0.12);
-  border: 1px solid rgba(64, 158, 255, 0.25);
-  padding: 1px 6px;
-  border-radius: 999px;
 }
 .damage-legend-grid {
   display: flex;

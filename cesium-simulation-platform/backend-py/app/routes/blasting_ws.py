@@ -27,15 +27,39 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.services.blasting.blast_physics import (
     build_ppv_grid, ppv_field_3d, ppv_field_3d_multi, pack_ppv_binary,
     stress_field_from_ppv, damage_zone_classify, damage_zone_field,
+    damage_zone_radius,
     tunnel_void_mask, peak_ppv_envelope_multi,
     pack_stress_binary, pack_damage_binary,
     make_fdtd_engine, RockMedium,
     compute_near_field_radius,
+    _expand_sources_with_reflections, _radial_energy_envelope,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _parse_face_reflection(reflections):
+    """解析前端 reflections 配置 [{axis,value,coeff}] → (face_z, coeff) | (None, 0.0)。
+
+    仅支持 axis='z' 的掌子面平面（与后端网格 face_axis='z'、隧道空腔掩码一致）。
+    """
+    if not isinstance(reflections, list):
+        return None, 0.0
+    for r in reflections:
+        if not isinstance(r, dict):
+            continue
+        if str(r.get('axis', 'z')).lower() != 'z':
+            continue
+        try:
+            value = float(r.get('value'))
+            coeff = float(r.get('coeff', 0.85))
+        except (TypeError, ValueError):
+            continue
+        if coeff > 0.001:
+            return value, max(0.0, min(1.0, coeff))
+    return None, 0.0
 
 
 def _compute_stream_ppv(state, t: float) -> np.ndarray:
@@ -51,7 +75,6 @@ def _compute_stream_ppv(state, t: float) -> np.ndarray:
         ppv = ppv_field_3d_multi(
             state.grid_xyz, state.multi_sources, t,
             K=state.k, alpha=state.alpha, visual_c_p=35.0,
-            carrier_hz=getattr(state, 'carrier_hz', 0.0),
             influence_radius=getattr(state, 'influence_radius', None),
         )
     else:
@@ -59,7 +82,6 @@ def _compute_stream_ppv(state, t: float) -> np.ndarray:
             state.grid_xyz, state.blast_center, state.charge_kg,
             K=state.k, alpha=state.alpha, t=t,
             visual_c_p=35.0,
-            carrier_hz=getattr(state, 'carrier_hz', 0.0),
             influence_radius=getattr(state, 'influence_radius', None),
         )
     ppv = np.asarray(ppv).reshape(-1)
@@ -145,9 +167,8 @@ class BlastConnectionManager:
                           use_jwl: bool = True,
                           rock_params: Optional[dict] = None,
                           k: float = 30.0, alpha: float = 1.5,
-                          carrier_hz: float = 8.0,
                           influence_radius: float = 15.0,
-                          damage_max_radius: float = 7.0) -> None:
+                          reflections: Optional[list[dict]] = None) -> None:
         """启动（或重启）指定事件的模拟推送循环
 
         async 修正：先 await 旧任务取消完成（含 stopped 广播），再创建新任务，
@@ -191,6 +212,22 @@ class BlastConnectionManager:
         if multi_sources:
             logger.info("[BlastingWS] 多装药源叠加模式启用 event=%s 源数=%d", event_id, len(multi_sources))
 
+        # 自由面（掌子面）镜象反射：与本地模拟/GPU 岩面同一物理口径——源在岩体侧
+        # 时生成同号镜象源（幅值×coeff，仅岩体一侧接收），近掌子面出现反射放大与
+        # 直达/反射干涉。无多源时对单一爆心源同样展开（转走多源路径，保证瞬时场
+        # 与峰值场口径一致）；无 reflections 配置时保持旧行为。
+        face_z, refl_coeff = _parse_face_reflection(reflections)
+        if face_z is not None and not multi_sources and charge_kg > 0:
+            multi_sources = [{
+                'pos': [float(blast_center[0]), float(blast_center[1]), float(blast_center[2])],
+                'charge_kg': float(charge_kg),
+                'delay_s': 0.0,
+            }]
+        if face_z is not None and multi_sources:
+            multi_sources = _expand_sources_with_reflections(multi_sources, face_z, refl_coeff)
+            logger.info("[BlastingWS] 掌子面镜象反射启用 event=%s face_z=%.2f coeff=%.2f 展开后源数=%d",
+                        event_id, face_z, refl_coeff, len(multi_sources))
+
         # 预计算分段起爆事件（按 delayMs 排序）
         blast_events: list[tuple[float, dict]] = []
         if holes:
@@ -216,6 +253,15 @@ class BlastConnectionManager:
             grid_xyz, tunnel_width=tunnel_width, tunnel_height=tunnel_height,
             face_axis='z', face_pos=0.0,
         )
+        # 【损伤范围理论】裂隙区半径（damage_zone_radius，宗琦 1994 / 梁瑞 2020）：
+        # 损伤半径完全由"孔壁初始压力→粉碎区→裂隙区"纯物理推算，不设人工上限
+        # （max_radius 传 None → 取裂隙区理论半径）；min_radius=2×网格分辨率作
+        # 可见性下限（r_t 亚体素时损伤区不至于整体不可见）。此处一次性计算并随 state 下发。
+        _sz = np.asarray(bounds_max, dtype=np.float64) - np.asarray(bounds_min, dtype=np.float64)
+        _sh = np.maximum(np.asarray(grid_shape, dtype=np.float64) - 1.0, 1.0)
+        _grid_h = float(np.max(_sz / _sh))
+        damage_theory = damage_zone_radius()
+        damage_min_radius = 2.0 * _grid_h
 
         # 问题 8：JWL+FDTD 精确模式 — 创建有状态 FDTD 引擎，_stream_loop 每帧增量推进
         fdtd_engine = None
@@ -234,13 +280,14 @@ class BlastConnectionManager:
                     attenuation_s=float(rock_params.get("attenuationS", rock.attenuation_s)),
                 )
             # 多装药源（JWL 模式用）：每个炮孔装药段作为独立 JWL 爆腔源→多应力波叠加
+            # （仅直达源；镜象反射 gate 条目 FDTD 无法表达，不参与）
             fdtd_sources = None
             if multi_sources:
                 fdtd_sources = [
                     {"x": s["pos"][0], "y": s["pos"][1], "z": s["pos"][2],
                      "chargeKg": s["charge_kg"], "delayMs": s["delay_s"] * 1000.0}
-                    for s in multi_sources
-                ]
+                    for s in multi_sources if s.get('gate_z_min') is None
+                ] or None
             try:
                 fdtd_engine = make_fdtd_engine(
                     grid_xyz, grid_shape, bounds_min, bounds_max,
@@ -277,9 +324,7 @@ class BlastConnectionManager:
             n_substeps=n_substeps,
             multi_sources=multi_sources,
             k=k, alpha=alpha,
-            carrier_hz=carrier_hz,
             influence_radius=influence_radius,
-            damage_max_radius=damage_max_radius,
             void_mask=void_mask,
         )
         # 损伤峰值累积缓冲（见 StreamState.peak_ppv 说明）
@@ -300,10 +345,16 @@ class BlastConnectionManager:
                 {'pos': list(np.asarray(blast_center, dtype=np.float64)),
                  'charge_kg': charge_kg, 'delay_s': 0.0}
             ]
-            state.peak_full, state.peak_arrival = peak_ppv_envelope_multi(
+            # 包络拆分缓存：核心峰值场（O(nS·N)，与 influenceRadius 无关）+ dmin
+            # 一次算好；影响半径热更新只做 O(N) 的 peak_core × env(dmin) 重乘
+            state.peak_core, state.peak_arrival, state.peak_dmin = peak_ppv_envelope_multi(
                 grid_xyz, peak_sources,
                 K=k, alpha=alpha,
                 influence_radius=influence_radius,
+                split_envelope=True,
+            )
+            state.peak_full = state.peak_core * _radial_energy_envelope(
+                state.peak_dmin, influence_radius
             )
             if void_mask is not None:
                 state.peak_full = np.where(void_mask, 0.0, state.peak_full)
@@ -446,12 +497,17 @@ class BlastConnectionManager:
                             )
                             await self.broadcast_bytes(event_id, stress_bytes)
                             run_stats["bytes_stress"] += len(stress_bytes)
+                            # 【损伤范围理论】radius_model='theory'：损伤半径=裂隙区理论半径 r_t
+                            # （max_radius=None 不设人工上限），并以 2×网格分辨率为
+                            # 可见性下限（见 damage_zone_field）
                             zones = damage_zone_field(
                                 state.grid_xyz, state.peak_ppv,
                                 sources=(state.multi_sources or None),
                                 blast_center=tuple(state.blast_center),
-                                max_radius=getattr(state, 'damage_max_radius', 7.0),
+                                max_radius=None,
                                 void_mask=state.void_mask,
+                                radius_model='theory',
+                                min_radius=getattr(state, 'damage_min_radius', 0.0),
                             )
                             damage_bytes = pack_damage_binary(
                                 frame, t, state.grid_shape,
@@ -491,7 +547,6 @@ class BlastConnectionManager:
                             ppv = ppv_field_3d_multi(
                                 state.grid_xyz, state.multi_sources,
                                 t, K=state.k, alpha=state.alpha, visual_c_p=35.0,
-                                carrier_hz=getattr(state, 'carrier_hz', 0.0),
                                 influence_radius=getattr(state, 'influence_radius', None),
                             )
                         else:
@@ -499,7 +554,6 @@ class BlastConnectionManager:
                                 state.grid_xyz, state.blast_center,
                                 state.charge_kg, K=state.k, alpha=state.alpha, t=t,
                                 visual_c_p=35.0,
-                                carrier_hz=getattr(state, 'carrier_hz', 0.0),
                                 influence_radius=getattr(state, 'influence_radius', None),
                             )
                     # 统一展平为 (N,)，再对隧道空腔（已开挖洞身/自由面）内无岩体的
@@ -555,15 +609,17 @@ class BlastConnectionManager:
                     )
                     await self.broadcast_bytes(event_id, stress_bytes)
                     run_stats["bytes_stress"] += len(stress_bytes)
-                    # 【P0-1/P0-2】带空间约束的损伤分区：提高的 Persson 阈值 +
-                    # 距爆源最大半径深度衰减 + 隧道空腔掩码，使损伤只沿隧道临空面
-                    # 向外发展 5~10m，而非等向铺满整个计算域的无边红圆。
+                    # 【P0-1/P0-2 + 损伤范围理论】Persson 阈值 + 裂隙区半径硬上限
+                    #（theory：min(UI 上限, r_t)，min_radius=2×网格分辨率可见性下限）
+                    # + 隧道空腔掩码，使损伤收束在炮孔群裂隙区范围内，而非等向红圆。
                     zones = damage_zone_field(
                         state.grid_xyz, state.peak_ppv,
                         sources=(state.multi_sources or None),
                         blast_center=tuple(state.blast_center),
-                        max_radius=getattr(state, 'damage_max_radius', 7.0),
+                        max_radius=None,
                         void_mask=state.void_mask,
+                        radius_model='theory',
+                        min_radius=getattr(state, 'damage_min_radius', 0.0),
                     )
                     damage_bytes = pack_damage_binary(
                         frame, t, state.grid_shape,
@@ -612,9 +668,10 @@ class StreamState:
                  "charge_kg", "blast_center", "grid_xyz", "grid_shape",
                  "bounds_min", "bounds_max",
                  "use_jwl", "explosive_type", "fdtd_engine", "n_substeps",
-                 "multi_sources", "k", "alpha", "carrier_hz", "peak_ppv",
-                 "peak_full", "peak_arrival", "grid_r", "near_field_radius",
-                 "influence_radius", "damage_max_radius", "void_mask",
+                 "multi_sources", "k", "alpha", "peak_ppv",
+                 "peak_full", "peak_arrival", "peak_core", "peak_dmin",
+                 "grid_r", "near_field_radius",
+                 "influence_radius", "void_mask",
                  "seek_frame", "current_frame")
 
     def __init__(self, duration: float, timestep: float,
@@ -626,9 +683,7 @@ class StreamState:
                  fdtd_engine=None, n_substeps: int = 0,
                  multi_sources: Optional[list] = None,
                  k: float = 30.0, alpha: float = 1.5,
-                 carrier_hz: float = 8.0,
                  influence_radius: float = 15.0,
-                 damage_max_radius: float = 7.0,
                  void_mask: Optional[np.ndarray] = None):
         self.duration = duration
         self.timestep = timestep
@@ -649,11 +704,9 @@ class StreamState:
         self.multi_sources = multi_sources or []
         self.k = k                      # 萨道夫斯基场地常数
         self.alpha = alpha              # 萨道夫斯基衰减指数
-        # 干涉子波载波频率（Hz，0=关）：萨道夫斯基场叠加含振荡相位，多孔干涉显形
-        self.carrier_hz = carrier_hz
-        # 【P0-2】爆源影响半径（解析场能量包络，米）与损伤区最大计算半径（米）
+        # 【P0-2】爆源影响半径（解析场能量包络，米）。损伤半径由 PPV 阈值纯理论
+        # 计算（damage_zone_field max_radius=None → 裂隙区理论半径），不设人工上限。
         self.influence_radius = influence_radius
-        self.damage_max_radius = damage_max_radius
         # 【P0-2】隧道空腔掩码（(N,) bool）：已开挖洞身内无岩体→场值/损伤归零
         self.void_mask = void_mask
         # 损伤持久性：各网格点经历过的最大 PPV（损伤不可逆，不随波峰后的时变
@@ -666,6 +719,10 @@ class StreamState:
         # 任意 t 的峰值 = peak_full × 1[t ≥ peak_arrival] —— 正放/回拉/seek 全一致
         self.peak_full = None
         self.peak_arrival = None
+        # 包络拆分缓存（start_stream 解析路径预计算）：核心峰值场与 dmin，
+        # 影响半径热更新只做 O(N) 重乘
+        self.peak_core = None
+        self.peak_dmin = None
         # 应力近场几何修正（start_stream 预计算）：各点到爆心距离 (N,) 与交叉半径
         self.grid_r = None
         self.near_field_radius = 0.0
@@ -743,13 +800,11 @@ async def blasting_stream(ws: WebSocket, event_id: str):
                 # 萨道夫斯基 K/α 参数（客户端可调，未提供时默认 K=30、α=1.5）
                 k = float(msg.get("k", 30.0))
                 alpha = float(msg.get("alpha", 1.5))
-                # 干涉子波载波频率（客户端可调，未提供时默认 8Hz 开启干涉）
-                carrier_hz = float(msg.get("carrierHz", 8.0))
-                # 【P0-2】爆源影响半径 & 损伤区最大计算半径（米）
-                # 包络默认 30m（与 BLAST_INFLUENCE_RADIUS / blast_start 签名一致）：
-                # 14+tau=17m 会把中远场梯度拦腰截断，热力图渲染范围/强度明显偏弱
+                # 【P0-2】爆源影响半径（解析场能量包络，米）
                 influence_radius = float(msg.get("influenceRadius", 15.0))
-                damage_max_radius = float(msg.get("damageMaxRadius", 7.0))
+                # 自由面（掌子面）镜象反射配置 [{axis:'z', value: faceZ, coeff}]（可选，
+                # 与本地模拟 sim.params.reflections 同源；未提供时后端不加反射）
+                reflections = msg.get("reflections")
                 # start_stream 改为 async：先 await 旧任务取消完成（含 stopped 广播），再创建新任务
                 await mgr.start_stream(
                     event_id, duration, timestep, holes,
@@ -762,9 +817,8 @@ async def blasting_stream(ws: WebSocket, event_id: str):
                     rock_params=rock_params,
                     sources=sources,
                     k=k, alpha=alpha,
-                    carrier_hz=carrier_hz,
                     influence_radius=influence_radius,
-                    damage_max_radius=damage_max_radius,
+                    reflections=reflections,
                 )
             elif ctype == "stop":
                 mgr.stop_stream(event_id)
@@ -779,48 +833,32 @@ async def blasting_stream(ws: WebSocket, event_id: str):
                 else:
                     await ws.send_text(json.dumps({"type": "error", "message": "seek: stream not running"}))
             elif ctype == "setFieldParams":
-                # 【实时生效】推流中热更新损伤/包络半径（滑块拖动即时生效，
-                # 无需重启后端/重开推流）：influence_radius 参与确定性峰值包络，
-                # 须重算 peak_full/peak_arrival；damage_max_radius 只影响分区判据。
+                # 【实时生效】推流中热更新包络半径：influence_radius 参与确定性峰值
+                # 包络，变更时重算 peak_full/peak_arrival 并重推校正帧。
                 st = mgr._streams.get(event_id)
                 if st is None:
                     await ws.send_text(json.dumps({"type": "error", "message": "setFieldParams: stream not running"}))
                 else:
                     new_inf = float(msg.get("influenceRadius", st.influence_radius) or st.influence_radius)
-                    new_dmg = float(msg.get("damageMaxRadius", st.damage_max_radius) or st.damage_max_radius)
-                    # 载波频率 0 是合法值（关闭干涉），不能用 `or` 兜底——用 get 默认仅在键缺失时生效
-                    new_carrier = float(msg.get("carrierHz", st.carrier_hz))
                     inf_changed = abs(new_inf - st.influence_radius) > 1e-6
-                    dmg_changed = abs(new_dmg - st.damage_max_radius) > 1e-6
-                    carrier_changed = abs(new_carrier - st.carrier_hz) > 1e-6
-                    if inf_changed or dmg_changed or carrier_changed:
+                    if inf_changed:
                         st.influence_radius = new_inf
-                        st.damage_max_radius = new_dmg
-                        st.carrier_hz = new_carrier
-                        # 仅 influence_radius 参与确定性峰值包络 → 只在包络半径变更时重算
-                        if inf_changed and st.peak_full is not None:
-                            peak_sources = st.multi_sources or [
-                                {'pos': list(np.asarray(st.blast_center, dtype=np.float64)),
-                                 'charge_kg': st.charge_kg, 'delay_s': 0.0}
-                            ]
-                            st.peak_full, st.peak_arrival = peak_ppv_envelope_multi(
-                                st.grid_xyz, peak_sources,
-                                K=st.k, alpha=st.alpha,
-                                influence_radius=st.influence_radius,
+                        if st.peak_core is not None:
+                            # O(N) 重乘包络即可（核心峰值场与 influence_radius 无关）
+                            st.peak_full = st.peak_core * _radial_energy_envelope(
+                                st.peak_dmin, new_inf
                             )
                             if st.void_mask is not None:
                                 st.peak_full = np.where(st.void_mask, 0.0, st.peak_full)
                         # 立即按当前游标重推校正帧（否则要等下一常规帧）
                         st.seek_frame = st.current_frame
                         logger.info(
-                            "[BlastingWS][FIELD-PARAMS] event=%s influence_radius=%.1f damage_max_radius=%.1f carrier_hz=%.1f (实时热更新)",
-                            event_id, new_inf, new_dmg, new_carrier,
+                            "[BlastingWS][FIELD-PARAMS] event=%s influence_radius=%.1f (实时热更新)",
+                            event_id, new_inf,
                         )
                         await ws.send_text(json.dumps({
                             "type": "fieldParamsApplied",
                             "influenceRadius": new_inf,
-                            "damageMaxRadius": new_dmg,
-                            "carrierHz": new_carrier,
                         }))
             else:
                 await ws.send_text(json.dumps({"type": "error", "message": f"unknown type: {ctype}"}))

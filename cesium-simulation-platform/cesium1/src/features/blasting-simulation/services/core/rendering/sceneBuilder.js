@@ -28,7 +28,8 @@ import {
   INDUSTRIAL_BANDS_DEFAULT,
   industrialBandCount,
   industrialContourColor,
-  buildIndustrialLutData
+  buildIndustrialLutGradient,
+  LUT_TEXELS
 } from './vibrationColorScales.js'
 
 // 着色器字面量：归一化标尺与膝形压缩拐点全部由 vibrationColorScales.js 单源注入，
@@ -135,6 +136,9 @@ const EMPTY_HOLE_COLOR = 0xffffff
 // 改为在 benchMesh 的 ShaderMaterial 中逐片元按世界坐标采样 3D 场纹理着色的方式。
 // 坐标换算：世界坐标 P → grid 局部 (gx,gy,gz) = ((P-center)·right, ·up, ·forward)
 //          → 纹理坐标 uvw = (g - boundsMin) / (boundsMax - boundsMin)
+/** 岩石底纹 UV 缩放（= 100m 一格；见顶点着色器内注释，1.0 即"1 米一格"会摩尔纹） */
+const ROCK_UV_SCALE_NUM = 0.01
+
 const BENCH_FIELD_VERTEX_SHADER = /* glsl */ `precision highp float;
 precision highp sampler3D;
 
@@ -144,7 +148,13 @@ out vec2 vUv;
 out vec3 vWorldNormal;
 
 void main() {
-  vUv = uv;
+  // 岩石底纹 UV 缩放【摩尔纹修复】
+  // ExtrudeGeometry/ShapeGeometry 的 UV 直接是局部坐标米数（非归一化 0~1），于是
+  // 512px 岩石纹理按"1 米一格"平铺：144m×141m 的正面铺 144×141 次，屏幕上每格约 2px，
+  // 纹理频率远高于像素采样率 → 摩尔纹/颗粒，格线随透视呈斜向条纹（用户所报"裂痕"）。
+  // 缩放后每格覆盖 100m，正面只重复约 1.4 次（单格约 200px），离开摩尔纹区。
+  // 注：uv 同时驱动法线扰动的第二采样（vUv*1.6），故在顶点阶段统一缩放使两者一致。
+  vUv = uv * ${ROCK_UV_SCALE_NUM};
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vWorldPos = wp.xyz;
   // 世界空间法线（用于简单的 lambert 明暗，让岩面有起伏光感而非纯平色）
@@ -194,6 +204,13 @@ uniform float uSadoskyK;               // 萨道夫斯基场地常数 K（cm/s�
 uniform float uSadoskyAlpha;           // 萨道夫斯基衰减指数 α
 uniform float uSadoskyBeta;            // 介质阻尼 β
 uniform float uPpvVisualBeta;          // PPV 可视化时变衰减（波峰回落实时速度）
+// 波前起跳沿时长(s)：各源到达后幅值在 uArrivalRise 秒内平滑升起。
+// 【为何需要】原来用 "gap≤0 取 0 / gap>0 取峰值" 的直角阶跃，每个源的到达曲线在
+// 岩面上留下一条 1px 硬边界；多源（46~75 孔）叠加后满屏细线，且载波把源间相位差
+// 放大——实测相邻像素色阶跳变最大 67.9 级（加 0.05s 上升沿后降到 5.1 级）。
+// 真实波包前缘本就不是阶跃，这是模型缺陷而非渲染问题。只作用于瞬时场（显示用），
+// 不改 peak 判据（损伤分区/等值线口径不变）。
+uniform float uArrivalRise;
 uniform float uCarrierHz;             // 干涉子波频率（视觉 Hz，0=关）：瞬时质点速度×waveletOsc，多孔延时干涉波纹
 uniform int   uNormMode;              // 色彩映射标尺（0=线性，1=对数）：对数展开幂律衰减的动态范围
 uniform float uNormAutoScale;         // 动态满量程（P99.9 收紧）：lin*=uNormAutoScale，使当前场实际分布铺满色域
@@ -254,7 +271,9 @@ uniform float uSectionPos;             // 裁剪平面位置（沿轴，场景�
 #define MAX_SOURCES 96
 uniform int   uSourceCount;                 // 有效装药源数量（0=退化为单一 uBlastOrigin 源）
 uniform vec4  uSourcePosQ[MAX_SOURCES];     // xyz=各源 grid 局部坐标(m)，w=源强度系数 K·q^(α/3)·0.01（applyFieldPhysics 预计算）
-uniform float uSourceDelay[MAX_SOURCES];    // 各源延期(s)
+uniform float uSourceDelay[MAX_SOURCES];    // 各源延期(s)——【须按延时升序写入】时域错峰叠加峰值依赖延时序累加
+uniform float uPeakHistory;                 // 峰值方法：1=时域错峰叠加（默认，杨年华 2012 时域叠加口径）
+                                            //        0=全源同时叠加保守上界（Holmberg–Persson 类旧口径）
 
 in vec3 vWorldPos;
 in vec2 vUv;
@@ -279,11 +298,12 @@ void damageShade(float zone, float front, out vec3 col, out float alpha) {
   }
 }
 
-// 波动相位子波包络（视觉 Hz）：双分量 cos/sin 共用，按品质因数 Q=4 指数衰减
-// （每周期 e^(-π/4)≈0.46，4 周期后 <5%）——子波脉冲短，各炮孔源的波前环在色带上
-// 彼此分明，相长/相消干涉瓣更容易读出（Q=10 的长波列会把多源干涉糊成同心圆）。
-// 与 localVibrationSimulator.js WAVELET_Q 同口径。
-#define WAVELET_Q 4.0
+// 波动相位子波包络（视觉 Hz）：双分量 cos/sin 共用，按品质因数 Q=12 指数衰减
+// （8Hz 时衰减率 π·8/12≈2.1/s，单源波环可见持时 ~1.4s、波列长 Q/f≈1.5s）——
+// 行波脉冲环既要"分明"又要在 8s 时间轴上有足够可见持时（Q=4 时 0.5s 内即衰减殆尽，
+// 播放中后段全场死蓝）。与 localVibrationSimulator.js 的工程口径 WAVELET_Q=4 不同：
+// 该处用于 CPU 时程/采样曲线（production 不传 carrierHz），此处为 GPU 展示专属。
+#define WAVELET_Q 12.0
 
 // 场值零抬亮：把 0（未着色处 / 振荡过零点，归一化后可低至 NORM_FLOOR）抬到色阶
 // 内部的分数 zl，消除 Jet 最暗档（≈纯黑）在色带与波前处留下的死黑麻点。
@@ -349,63 +369,32 @@ float tunnelFaceSdf(vec3 p) {
   return min(wallV, arc);
 }
 
-// —— 去条带有序抖动（Bayer 4×4）——
-// 打破 LUT 色带 / 3D 纹理三线性分面的"水平/垂直条纹 + 像素块"伪影：
-// 低梯度区 3D 场纹理三线性插值的分面在长色带间呈细横向/纵向断层，配合
-// 8bit LUT 底线量化的后带化（posterization），截图上表现为边缘蓝/青区的
-// 条纹与锯齿块。Bayer 抖动用规则的错位阈值打断这些不变条纹，且阶数规整、
-// 不像 hash 噪声那样引入随机"噪点感"。工业离散色阶档内也以超小幅运行
-// （仅中和插值底噪），档间硬边与等值线不受影响。
-float bayerDither4(vec2 frag, float amp) {
-  vec2 c = floor(mod(frag, vec2(4.0)));
-  int x = int(c.x);
-  int y = int(c.y);
-  float m[16];
-  m[0]=0.0;  m[1]=8.0;  m[2]=2.0;  m[3]=10.0;
-  m[4]=12.0; m[5]=4.0;  m[6]=14.0; m[7]=6.0;
-  m[8]=3.0;  m[9]=11.0; m[10]=1.0; m[11]=9.0;
-  m[12]=15.0; m[13]=7.0; m[14]=13.0; m[15]=5.0;
-  float b = m[y * 4 + x];
-  return (b / 16.0 - 0.5) * amp;
-}
-
-// —— 色档边界等值线（LS-DYNA 工程硬边）——
-// val 为连续色阶坐标(0..1)，档边界精确出现在 val*bands 过整数处。用屏幕空间
-// 梯度 fwidth(v) 把"恰好位于档边界的像素"整体提亮，得到随分辨率/距离自适应
-// 的 1~2px 黑/白实线，硬朗地"切开"相邻色块——正是工程热力图（LS-DYNA/FLAC）
-// 那种色块交界的等值线观感。线与热力图共用同一 val/bands → 严格同源、无错位；
-// vis 为场可见系数，避免在波未到达/零值区误画整片线。
-vec3 bandContour(in float val, in float bands, in vec3 col, in float vis) {
-  float v = val * bands;
-  float d = min(fract(v), 1.0 - fract(v));
-  // 极端屏蔽：val 被 clamp 到 0 或 1 的整片平面，其 v 恰为整数会被误判成"边界"，
-  // 若不加护会在整片饱和/零值区画满屏线。仅允许 val 严格处于色阶内部时出现线。
-  float edgeOk = smoothstep(0.004, 0.05, val) * smoothstep(0.004, 0.05, 1.0 - val);
-  float lum = dot(col, vec3(0.299, 0.587, 0.114));
-  vec3 lineColor = lum > 0.62 ? vec3(0.03) : vec3(0.97); // 亮底画黑、暗底画白
-  float lw = fwidth(v) * 1.4 + 0.6 / max(bands, 0.5);
-  float m = clamp(vis * edgeOk * (1.0 - smoothstep(lw * 0.35, lw * 1.7, d)), 0.0, 1.0);
-  return mix(col, lineColor, m);
-}
-
 // 岩体表面为单一逐片元解析场（与后端同口径的多源矢量叠加），不再做"网格盒内
 // 采样仿真纹理 / 盒外解析外推"双源混合——3D 场纹理现已无人消费：岩面着色改用
 // 解析场（后端的色带本就由同一套萨道夫斯基+子波参数驱动），场点采样
 // （sampleAtWorldPoint）由 CPU 解析采样承担。字段 uBoundsMin/Max 仅作点选元信息。
 
 void main() {
-  // 岩石底色（带基础色调制）
-  vec3 rock = texture(uRockMap, vUv).rgb * uRockColor;
-  vec3 baseRock = rock; // 保留未受光照衰减的底纹，供场图层开启时抬亮暗部
+  // 热力图开启时使用干净的低频底材：正面近距离视角下，程序化岩石纹理及其
+  // 高频法线扰动会被投影成细密斜纹，并与场色叠加成看似摩尔纹的颗粒噪声。
+  // 场值与损伤判据仍按下方解析公式计算，这里只清理显示底材。
+  float fieldLayerOn = smoothstep(1e-4, 0.04, uFieldWeight);
+  vec3 rockTexture = texture(uRockMap, vUv).rgb * uRockColor;
+  vec3 rock = mix(rockTexture, uRockColor * 0.92, fieldLayerOn);
+  vec3 baseRock = rock; // 场图层开启时保留稳定的低频底色，避免纹理高频穿透
 
-  // 简单 lambert 明暗，让岩面随朝向呈现亮暗起伏（消除"纯平光滑"感）：
-  // 法线叠加由岩石纹理高频亮度驱动的凹凸扰动，模拟岩体表面粗糙起伏；
-  // 环境项 0.42 保证背光面不至于全黑。
+  // 非热力图状态保留岩石纹理的 lambert 起伏；热力图状态使用平滑几何法线，
+  // 避免第二次高频 uRockMap 采样通过明暗调制把彩色场切成细斑/斜带。
   vec3 N = normalize(vWorldNormal);
-  float hgt = dot(texture(uRockMap, vUv * 1.6).rgb, vec3(0.299, 0.587, 0.114));
-  vec3 perturbed = normalize(N + vec3(hgt - 0.5, hgt - 0.5, (hgt - 0.5) * 0.25));
-  float diff = clamp(dot(perturbed, normalize(uSunDir)), 0.0, 1.0);
-  rock *= (0.42 + 0.72 * diff);
+  if (fieldLayerOn < 0.999) {
+    float hgt = dot(texture(uRockMap, vUv * 1.6).rgb, vec3(0.299, 0.587, 0.114));
+    vec3 perturbed = normalize(N + vec3(hgt - 0.5, hgt - 0.5, (hgt - 0.5) * 0.25));
+    float diff = clamp(dot(perturbed, normalize(uSunDir)), 0.0, 1.0);
+    rock *= (0.42 + 0.72 * diff);
+  } else {
+    float diff = clamp(dot(N, normalize(uSunDir)), 0.0, 1.0);
+    rock *= (0.58 + 0.45 * diff);
+  }
 
   // 世界坐标 → grid 局部坐标（仅用于解析场，以爆源为心）
   vec3 rel = vWorldPos - uCenter;
@@ -413,6 +402,22 @@ void main() {
   g.x = dot(rel, uRight);
   g.y = dot(rel, uUp);
   g.z = dot(rel, uForward);
+  // Extrude/Shape 的掌子面盖板是多三角片平面。若沿用合并几何的逐顶点
+  // 法线，盖板三角剖分会把白模 Lambert 明暗切成与三角片一致的斜纹。
+  // 正面场图只需要统一的掌子面法线；岩体侧壁仍使用原始平滑法线。
+  float facePlaneBlend = 1.0 - smoothstep(0.08, 0.60, abs(g.z - uFaceZ));
+  // 爆破后 rockGeoPost 的新掌子面位于 faceZ + roundDepth；uHoleLen
+  // 与该 roundDepth 同步下发，因此这里同时覆盖爆破后的端面。
+  float postFaceBlend = 1.0 - smoothstep(0.08, 0.60, abs(g.z - (uFaceZ + uHoleLen)));
+  facePlaneBlend = max(facePlaneBlend, postFaceBlend);
+  // 不再依赖端面绝对 z：模型的可见"正面"可能是爆前盖板、爆后新掌子面，
+  // 也可能因朝向/状态切换落到挤出体另一端。用片元位置导数重建真实几何法线，
+  // 只要该平面法线与隧道轴向平行，就认作掌子面盖板。该判定不受顶点法线平滑、
+  // 三角剖分或 faceOffset 坐标口径影响。
+  vec3 geomN = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+  float capSurfaceMask = smoothstep(0.985, 0.9995, abs(dot(geomN, normalize(uForward))));
+  facePlaneBlend = max(facePlaneBlend, capSurfaceMask);
+  N = normalize(mix(N, normalize(uForward), facePlaneBlend));
 
   // 全场统一萨道夫斯基解析源（多装药源矢量叠加）：
   // 不再做"场盒包围盒"的 inside 门控，也去掉"盒内采样纹理 / 盒外解析外推"
@@ -426,9 +431,30 @@ void main() {
   // 物理上振速幅值以 √2·(v/√2) 的双分量表示时，|v|=A 恒正无零点，且保留了参数
   // （θ=ωt+相位）对干涉条纹的全部信息：cosθ 与 sinθ 由同一相位算出，多源相位差照旧
   // 产生相长/相消。故总场幅值改用"cos 分量² + sin 分量²"的平方和开方计算。
-  vec3 accC = vec3(0.0);   // cos 分量（同相）
-  vec3 accS = vec3(0.0);   // sin 分量（正交相）
+  // 【波动相位子波（已恢复）】瞬时质点速度 = 各源"波包子波"（余弦载波 × Q=12
+  // 指数衰减包络）按"径向单位向量 × 幅值"的**正交双分量**矢量叠加：
+  //   accE = Σ A·cos(2πf·gap)·e^(−πf·gap/Q)·û，accQ = Σ A·sin(...)·e^(...)
+  //   mps = √(|accE|²+|accQ|²)（载波开启时的相干波包结果）
+  // 每源贡献一个有限时长行波脉冲 → 波前环以 visualCp 逐帧外推、多孔延差+路径差
+  // 直接转化为相位差 → 相长/相消干涉瓣可见；uCarrierHz=0 时改用标量非相干包络，
+  // 不再把各源径向方向的相消误读成正面放射状纹路。
+  vec3 accE = vec3(0.0);   // 各源波包同相(cos)分量矢量叠加
+  vec3 accQ = vec3(0.0);   // 各源波包正交(sin)分量矢量叠加
+  // 供屏幕空间 LOD 使用的非相干包络：只在载波欠采样时替代相干结果，
+  // 避免近掌子面/掠射角下的相位条纹折叠成摩尔纹。它不参与 peak 判据。
+  float envelopeSq = 0.0;
+  float phaseFootprint = 0.0;
   vec3 totalPeak = vec3(0.0);
+  // 时域错峰叠加峰值（uPeakHistory=1，默认）：B 按延时升序累加 A·e^(+D·arr)·û，
+  // 每源到达时刻取候选 e^(−D·arr)·|B|——杨年华 2012 时域线性叠加预测口径，
+  // 修正全源同时叠加（bound）对错峰波形的系统性高估（Blair 1993；李洪超 2026）。
+  // 【口径注】精确解须按"逐点到达序"累加（arr=delay+r/c 随点变化）；此处逐片元
+  // 无法排序，保持延时序累加的近似——路径时差远小于延期间隔时与精确解一致。
+  vec3 peakB = vec3(0.0);
+  float peakHist = 0.0;
+  float pdk = uSadoskyBeta + uPpvVisualBeta; // 峰值时变衰减率（与瞬时场同口径）
+  float wvCarrier = 6.2831853 * uCarrierHz;
+  float wvEnvDecay = uCarrierHz > 0.5 ? 3.14159265 * uCarrierHz / WAVELET_Q : 0.0;
   float front = 0.0;
   if (uSourceCount < 1) {
     // 无装药源退化：单一 uBlastOrigin 源（总装药量），保持与原单源场一致
@@ -437,30 +463,67 @@ void main() {
     vec3 dirS = srcRel / max(rr, 1e-3);
     float arrival = rr / max(uVisualCp, 1e-3);
     float gap = uSimTime - arrival;
+    float gapFwidth = fwidth(gap);
     front = gap < 0.0 ? 0.0 : exp(-gap / 1.2);
     float peakS = uSadoskyK * pow(uChargeKg, uSadoskyAlpha / 3.0) * pow(rr, -uSadoskyAlpha) * 0.01;
-    // 波动相位载波：各源相位 = ω·(t − delay_s − r_s/c̄)，延期差与路径差直接转化为
-    // 相位差 → 多孔微差起爆的干涉波纹；uCarrierHz=0 时退化为单调包络（θ 恒为 0）
-    float thetaS = uCarrierHz > 0.5 ? 6.2831853 * uCarrierHz * gap : 0.0;
-    float ampS = gap < 0.0 ? 0.0 : peakS * exp(-(uSadoskyBeta + uPpvVisualBeta) * gap);
-    accC = dirS * (ampS * cos(thetaS));
-    accS = dirS * (ampS * sin(thetaS));
-    totalPeak = dirS * peakS;
-    // 掌子面自由面反射（单源分支）：岩体侧（g.z≥uFaceZ）计入镜像反射波
+    // 波包子波幅值：到达后按包络衰减 + 载波相位；uCarrierHz=0 → 退化为纯包络
+    float ampS = 0.0;
+    float oscC = 1.0;
+    float oscS = 0.0;
+    float waveEnvS = 0.0;
+    if (gap > 0.0) {
+      ampS = smoothstep(0.0, uArrivalRise, gap) * peakS * exp(-(uSadoskyBeta + uPpvVisualBeta) * gap);
+      waveEnvS = ampS;
+      if (wvCarrier > 0.0) {
+        float wv = exp(-wvEnvDecay * gap);
+        waveEnvS *= wv;
+        oscC = cos(wvCarrier * gap) * wv;
+        oscS = sin(wvCarrier * gap) * wv;
+        phaseFootprint = max(phaseFootprint, wvCarrier * gapFwidth);
+      }
+    }
+    envelopeSq += waveEnvS * waveEnvS;
+    accE = dirS * (ampS * oscC);
+    accQ = dirS * (ampS * oscS);
+    if (uPeakHistory > 0.5) {
+      peakB += dirS * (peakS * exp(min(pdk * arrival, 20.0)));
+      peakHist = max(peakHist, exp(-pdk * arrival) * length(peakB));
+    } else {
+      totalPeak = dirS * peakS;
+    }
+    // 掌子面自由面反射（单源分支）：岩体侧（g.z≥uFaceZ）计入镜像反射波。
+    // 【负号镜像】自由面为压力释放边界：镜像贡献方向取"指向镜像点"（dirI 取负），
+    // 面上法向振速与直达同向叠加而加倍；正号镜像对应刚性边界（面上归零）。
     if (uReflectOn > 0.5 && g.z >= uFaceZ) {
       float rz2 = 2.0 * uFaceZ - uBlastOrigin.z;
       vec3 imgRel = vec3(srcRel.x, srcRel.y, g.z - rz2);
       float rri = max(length(imgRel), 0.5);
-      vec3 dirI = imgRel / max(rri, 1e-3);
+      vec3 dirI = -imgRel / max(rri, 1e-3);
       float arrI = rri / max(uVisualCp, 1e-3);
       float gapI = uSimTime - arrI;
+      float gapIFwidth = fwidth(gapI);
       float peakI = uSadoskyK * pow(uChargeKg, uSadoskyAlpha / 3.0) * pow(rri, -uSadoskyAlpha) * 0.01;
       if (gapI > 0.0) {
-        float thetaI = uCarrierHz > 0.5 ? 6.2831853 * uCarrierHz * gapI : 0.0;
-        float ampI = peakI * exp(-(uSadoskyBeta + uPpvVisualBeta) * gapI);
-        accC += dirI * (ampI * cos(thetaI) * uReflectCoeff);
-        accS += dirI * (ampI * sin(thetaI) * uReflectCoeff);
-        totalPeak += dirI * (peakI * uReflectCoeff);
+        float ampI = smoothstep(0.0, uArrivalRise, gapI) * peakI * exp(-(uSadoskyBeta + uPpvVisualBeta) * gapI);
+        float waveEnvI = ampI * uReflectCoeff;
+        float oC = 1.0;
+        float oS = 0.0;
+        if (wvCarrier > 0.0) {
+          float wvI = exp(-wvEnvDecay * gapI);
+          waveEnvI *= wvI;
+          oC = cos(wvCarrier * gapI) * wvI;
+          oS = sin(wvCarrier * gapI) * wvI;
+          phaseFootprint = max(phaseFootprint, wvCarrier * gapIFwidth);
+        }
+        envelopeSq += waveEnvI * waveEnvI;
+        accE += dirI * (ampI * uReflectCoeff * oC);
+        accQ += dirI * (ampI * uReflectCoeff * oS);
+        if (uPeakHistory > 0.5) {
+          peakB += dirI * (peakI * uReflectCoeff * exp(min(pdk * arrI, 20.0)));
+          peakHist = max(peakHist, exp(-pdk * arrI) * length(peakB));
+        } else {
+          totalPeak += dirI * (peakI * uReflectCoeff);
+        }
       }
     }
   } else {
@@ -474,42 +537,120 @@ void main() {
       float dS = uSourceDelay[i];
       float arrival = dS + rr / max(uVisualCp, 1e-3);
       float gap = uSimTime - arrival;
+      float gapFwidth = fwidth(gap);
       float frontS = gap < 0.0 ? 0.0 : exp(-gap / 1.2);
       front = max(front, frontS);
       // sq.w 由 applyFieldPhysics 预计算为源强度系数 K·q^(α/3)·0.01（JS 侧一次算好，
       // 免去每片元 96 次幂运算）；此处只剩随距离的幂律衰减
       float peakS = sq.w * pow(rr, -uSadoskyAlpha);
-      // 波动相位载波（同单源分支）：各源相位 = 2πf·(t − delay_s − r_s/c̄)，
-      // 延期差与路径差直接转化为相位差 → 多孔微差起爆的干涉波纹
-      float thetaS = uCarrierHz > 0.5 ? 6.2831853 * uCarrierHz * gap : 0.0;
-      float ampS = gap < 0.0 ? 0.0 : peakS * exp(-(uSadoskyBeta + uPpvVisualBeta) * gap);
-      accC += dirS * (ampS * cos(thetaS));
-      accS += dirS * (ampS * sin(thetaS));
-      totalPeak += dirS * peakS;
+      // 波包子波幅值（正交双分量）：多孔延差+路径差 → 相位差 → 干涉条纹
+      float ampS = 0.0;
+      float oscC = 1.0;
+      float oscS = 0.0;
+      float waveEnvS = 0.0;
+      if (gap > 0.0) {
+        ampS = smoothstep(0.0, uArrivalRise, gap) * peakS * exp(-(uSadoskyBeta + uPpvVisualBeta) * gap);
+        waveEnvS = ampS;
+        if (wvCarrier > 0.0) {
+          float wvS = exp(-wvEnvDecay * gap);
+          waveEnvS *= wvS;
+          oscC = cos(wvCarrier * gap) * wvS;
+          oscS = sin(wvCarrier * gap) * wvS;
+          phaseFootprint = max(phaseFootprint, wvCarrier * gapFwidth);
+        }
+      }
+      envelopeSq += waveEnvS * waveEnvS;
+      accE += dirS * (ampS * oscC);
+      accQ += dirS * (ampS * oscS);
+      // 时域错峰叠加峰值：源已按延时升序写入 uniform（applyFieldPhysics），
+      // 增量累加 B 并在该源到达时刻取候选——延时错开处峰值≈最强单源，
+      // 齐发段退化为同相叠加（与 CPU 峰值场/损伤分区同口径）
+      if (uPeakHistory > 0.5) {
+        peakB += dirS * (peakS * exp(min(pdk * arrival, 20.0)));
+        peakHist = max(peakHist, exp(-pdk * arrival) * length(peakB));
+      } else {
+        totalPeak += dirS * peakS;
+      }
       // 掌子面自由面反射（镜象源法）：源在岩体侧、接收点也在岩体侧时，
-      // 计入该源的镜像反射波（同号振幅×uReflectCoeff）——自由面处法向速度加倍、
-      // 靠近掌子面出现局部放大与直达/反射干涉条纹，隧道轮廓不再是"贴图"。
+      // 计入该源的镜像反射波——【负号镜像】（dirI 取负）：自由面为压力释放
+      // 边界，面上法向振速与直达同向叠加而加倍；靠近掌子面出现局部放大与
+      // 直达/反射干涉条纹，隧道轮廓不再是"贴图"。
       if (uReflectOn > 0.5 && g.z >= uFaceZ && sq.z > uFaceZ) {
         float rz2 = 2.0 * uFaceZ - sq.z;
         vec3 imgRel = vec3(srcRel.x, srcRel.y, g.z - rz2);
         float rri = max(length(imgRel), 0.5);
-        vec3 dirI = imgRel / max(rri, 1e-3);
+        vec3 dirI = -imgRel / max(rri, 1e-3);
         float arrI = dS + rri / max(uVisualCp, 1e-3);
         float gapI = uSimTime - arrI;
+        float gapIFwidth = fwidth(gapI);
         if (gapI > 0.0) {
           float peakI = sq.w * pow(rri, -uSadoskyAlpha);
-          float thetaI = uCarrierHz > 0.5 ? 6.2831853 * uCarrierHz * gapI : 0.0;
-          float ampI = peakI * exp(-(uSadoskyBeta + uPpvVisualBeta) * gapI);
-          accC += dirI * (ampI * cos(thetaI) * uReflectCoeff);
-          accS += dirI * (ampI * sin(thetaI) * uReflectCoeff);
-          totalPeak += dirI * (peakI * uReflectCoeff);
+          float ampI = smoothstep(0.0, uArrivalRise, gapI) * peakI * exp(-(uSadoskyBeta + uPpvVisualBeta) * gapI);
+          float waveEnvI = ampI * uReflectCoeff;
+          float oCi = 1.0;
+          float oSi = 0.0;
+          if (wvCarrier > 0.0) {
+            float wvI = exp(-wvEnvDecay * gapI);
+            waveEnvI *= wvI;
+            oCi = cos(wvCarrier * gapI) * wvI;
+            oSi = sin(wvCarrier * gapI) * wvI;
+            phaseFootprint = max(phaseFootprint, wvCarrier * gapIFwidth);
+          }
+          envelopeSq += waveEnvI * waveEnvI;
+          accE += dirI * (ampI * uReflectCoeff * oCi);
+          accQ += dirI * (ampI * uReflectCoeff * oSi);
+          if (uPeakHistory > 0.5) {
+            peakB += dirI * (peakI * uReflectCoeff * exp(min(pdk * arrI, 20.0)));
+            peakHist = max(peakHist, exp(-pdk * arrI) * length(peakB));
+          } else {
+            totalPeak += dirI * (peakI * uReflectCoeff);
+          }
         }
       }
     }
   }
-  // 双分量平方和开方 = 瞬时质点速度幅值（干涉波场，恒正无零点）；peak = 合峰值模长（损伤判据）
-  float mps = sqrt(dot(accC, accC) + dot(accS, accS));
-  float peak = length(totalPeak);
+  // 瞬时质点速度幅值 = 波包正交双分量模长（行波脉冲包络，恒正平滑、无过零闪烁）
+  float mps = sqrt(dot(accE, accE) + dot(accQ, accQ));
+  // 载波在一个片元覆盖范围内跨过太多相位时，直接取相干干涉结果会发生
+  // undersampling：真实的细密相位瓣折叠成视角相关的摩尔纹。用到达时间的
+  // 屏幕空间梯度估计相位覆盖量；仅对瞬时显示场做连续 LOD 混合，不改 peak。
+  float envelope = sqrt(max(envelopeSq, 0.0));
+  // 直接对最终载波相位再取一次导数，避免动态分支/多源 max 让某些 GPU
+  // 漏掉前面逐源记录的梯度。相位覆盖量以弧度计，π 表示一个完整的
+  // 欠采样危险区间。
+  float carrierPhaseFootprint = wvCarrier > 0.0 ? fwidth(wvCarrier * (uSimTime - length(g - uBlastOrigin) / max(uVisualCp, 1e-3))) : 0.0;
+  phaseFootprint = max(phaseFootprint, carrierPhaseFootprint);
+  float coherentLod = smoothstep(0.35, 3.14159265, phaseFootprint);
+  // 截图中的正面是近临空面/反射波叠加区。即使单像素相位导数尚未越过
+  // Nyquist，直达-反射与多源方向矢量也会在掌子面三角片上形成密集颗粒。
+  // 正面显示只保留非相干包络，避免把可见的物理场折叠成视角相关纹路；
+  // peak/损伤判据仍使用下方独立的 peak。
+  float faceCleanLod = 1.0 - smoothstep(0.10, 0.55, abs(g.z - uFaceZ));
+  // 爆破后当前可见的是后退后的新掌子面；它不在 uFaceZ，而在
+  // uFaceZ + uHoleLen。前一版只清理爆破前端面，所以截图在播放中段
+  // 仍会出现从洞口向四角发散的矢量抵消纹。
+  float postFaceCleanLod = 1.0 - smoothstep(0.10, 0.55, abs(g.z - (uFaceZ + uHoleLen)));
+  faceCleanLod = max(faceCleanLod, postFaceCleanLod);
+  coherentLod = max(coherentLod, faceCleanLod);
+  // uCarrierHz=0 的语义是"纯包络"。此前虽然关闭了 cos/sin 载波，
+  // 但 accE 仍按多源径向方向做矢量叠加，方向相消会在正面生成放射状
+  // 暗纹；这不是包络，而是无载波的相干矢量场。默认/关闭载波时直接使用
+  // 标量非相干包络，彻底消除该伪条纹，同时不改 peak 判据。
+  mps = wvCarrier > 0.0 ? mix(mps, envelope, coherentLod) : envelope;
+  // 掌子面盖板采用等效总装药单源的平滑标量包络。多孔逐源到达门控即使不带载波，
+  // 仍会把 43~99 个延期波前叠成密集平行/放射纹；它们在正面大平面上属于显示混叠，
+  // 而非需要读取的损伤判据。曲面/侧壁继续保留上面的完整多源场。
+  float capDist = max(length(g - uBlastOrigin), 0.5);
+  float capGap = uSimTime - capDist / max(uVisualCp, 1e-3);
+  float capMps = 0.0;
+  if (capGap > 0.0) {
+    float capPeak = uSadoskyK * pow(uChargeKg, uSadoskyAlpha / 3.0) * pow(capDist, -uSadoskyAlpha) * 0.01;
+    float capRise = max(uArrivalRise * 2.0, 0.40);
+    capMps = smoothstep(0.0, capRise, capGap) * capPeak * exp(-pdk * capGap);
+  }
+  mps = mix(mps, capMps, capSurfaceMask);
+  // peak = 损伤判据峰值：默认时域错峰叠加（杨年华 2012），可切回保守上界
+  float peak = uPeakHistory > 0.5 ? peakHist : length(totalPeak);
 
   // 隧道马蹄形轮廓自由面（SDF 放大）：d→0（紧贴隧道壁）处反射叠加 → 法向振速放大，
   // 轮廓附近出现局部畸变/增强；离开轮廓指数衰减。coeff=0 关闭。
@@ -588,13 +729,15 @@ void main() {
     // （等值线级别与图例区间都按同一公式反解），任何非线性映射都会让色档边界错位。
     float kneeS = mix(norm, 1.0 - pow(1.0 - norm, 1.35), smoothstep(KNEE_A, KNEE_B, norm));
     norm = mix(kneeS, norm, uIndustrialStyle);
-    // 【工业离散色阶】floor(norm·N) 强制落到 N 档之一，档内纯色、档间无过渡
-    float qS = (floor(clamp(norm, 0.0, 0.999999) * uNormBands) + 0.5) / uNormBands;
-    // 可见门：工业风格用阶跃硬边（波前即几何边界），非工业保留平滑过渡带
+    // 【连续色阶】基底热力图直接用连续 norm 采样 LUT（LinearFilter 在相邻档色间插值），
+    // 不再做 floor(norm·N) 逐档硬切——那会把连续物理场切成硬色带边界，在屏幕上呈
+    // "细线条"，背离 LS-DYNA 平滑包络观感。等值线由几何折线组(contourExtractor)独立绘制。
     float visSI = step(0.0005, norm);
     float visSS = uNormMode > 0 ? smoothstep(0.0, 0.20, norm) : smoothstep(0.02, 0.12, norm);
     float vis = mix(visSS, visSI, uIndustrialStyle);
-    fieldCol = texture(uStressLut, vec2(mix(norm, qS, uIndustrialStyle), 0.5)).rgb;
+    // 连续采样 256 texel 光滑渐变表（见 buildIndustrialLutGradient）：
+    // 每级色对应约 1/256 归一化区间 → 屏幕色是连续梯度上的真实取样，无竖向条纹
+    fieldCol = texture(uStressLut, vec2(norm, 0.5)).rgb;
     fieldCol = mix(waveBand, fieldCol, vis);
     // 等值线不再由本 shader 用 fwidth 屏幕空间法绘制（锯齿/开关失效根因）。
     // 改为几何折线：contourExtractor.js Marching Squares + B-Spline 平滑，
@@ -630,12 +773,12 @@ void main() {
     // 膝形压缩（同应力模式）：工业风格禁用（保证色阶边界严格互逆）
     float kneeP = mix(iVal, 1.0 - pow(1.0 - iVal, 1.35), smoothstep(KNEE_A, KNEE_B, iVal));
     iVal = mix(kneeP, iVal, uIndustrialStyle);
-    // 【工业离散色阶】同应力模式
-    float qP = (floor(clamp(iVal, 0.0, 0.999999) * uNormBands) + 0.5) / uNormBands;
+    // 【连续色阶】同应力模式：连续 iVal 采样 LUT，不做逐档硬切（避免色带边界细线条）
     float visPI = step(0.0005, iVal);
     float visPS = uNormMode > 0 ? smoothstep(0.0, 0.20, iVal) : smoothstep(0.02, 0.12, iVal);
     float vis = mix(visPS, visPI, uIndustrialStyle);
-    fieldCol = texture(uPpvLut, vec2(mix(iVal, qP, uIndustrialStyle), 0.5)).rgb;
+    // 同应力模式：连续采样 256 texel 光滑渐变表
+    fieldCol = texture(uPpvLut, vec2(iVal, 0.5)).rgb;
     fieldCol = mix(waveBand, fieldCol, vis);
     // 等值线同应力：改由 Marching Squares 折线组绘制，开关控制显隐（见 setContourPolylines）
     alpha = mix(max(vis, front * 0.30), vis, uIndustrialStyle);
@@ -644,6 +787,9 @@ void main() {
   // 等值线（等力线）不再由本 shader 绘制：见头部注释——几何提取见
   // contourExtractor.js（峰值场 Marching Squares），渲染见 setContourPolylines
   // 的 Line2 渲染组（像素级线宽 + 波前 arrival 门控，随播放时钟逐段浮现）。
+
+  // 不在最终场色上叠加屏幕空间哈希/抖动。
+  // 该类 ±1 LSB 噪声在正面高饱和色块上会被放大成可见颗粒，不能作为摩尔纹修复。
 
   // 场着色权重（uFieldWeight 为 0~1 的全局强度，alpha 为像素局部场强）
   float w = uFieldWeight * alpha;
@@ -657,7 +803,7 @@ void main() {
   // 场图层开启时（fieldOn>0）：即使"白模底材"关闭，也自动把岩面暗部抬亮，
   // 防止暗色巷道内切割面/整块岩体在热力图未覆盖处堕成纯黑空洞（漏洞）。
   // 保留岩石纹理明暗 → 热力色半透明叠在可见岩面上；fieldOn=0 时观感不变。
-  float fieldOn = smoothstep(1e-4, 0.04, uFieldWeight);
+  float fieldOn = fieldLayerOn;
   vec3 rockShown = rock + baseRock * (0.55 * fieldOn);
   // 场图层开启时对基面做兜底抬亮：掌子面法线背向阳光（面向隧道内部），若只靠
   // rock+baseRock 抬升仍会偏暗，加上光照变化后可能堕成近黑（切割面"黑色空洞"漏洞）。
@@ -689,7 +835,10 @@ void main() {
   // 场图层开启 → 白模上叠加场色（alpha 决定显隐/波前淡出）；
   // 关闭 → wv=0 → 输出带岩石纹理的原始观感。
   // （等值线的可见度由 Line2 渲染组独立管理，不再在此兜底。）
-  float wvFinal = wv;
+  // 掌子面热力图不再让低场值的底材透过：正面盖板/爆后新端面若保留
+  // rockShown 的法线明暗，会把三角剖分重新显成规则斜纹。只提高正面场层
+  // 不透明度，侧壁仍保持原有透明/底材显示策略。
+  float wvFinal = max(wv, 0.98 * facePlaneBlend);
   vec3 final = mix(bg, fieldCol, wvFinal);
 
   // 去带条不再依赖屏幕空间抖动：Bayer/频散抖动会在色块交界产生"雪花/颗粒"噪点
@@ -707,6 +856,9 @@ void main() {
 }
 `
 
+/** 场图层淡入时长(ms)：开关热力图时的平滑过渡，替代此前的硬切 */
+export const FIELD_FADE_MS = 320
+
 /** 默认场着色参数（无数据时的占位） */
 const BENCH_FIELD_DEFAULTS = {
   displayMode: 0,
@@ -719,9 +871,22 @@ const BENCH_FIELD_DEFAULTS = {
   sadoskyBeta: 0.02,
   ppvVisualBeta: 0.8, // PPV 可视化时变衰减(1/s)：波峰回落实时速度（见 computePpvField3d）
   visualCp: 35,
-  // ρ·c_p/(1−ν)，默认 ρ=2650, c_p=4500, ν=0.25 → 2650×4500/0.75=1.59e7
-  // （σ_vm=ρ·c_p·v/(1−ν)，径向压+切向拉，见 computeStressFieldFromPpv）
-  stressFactor: 1.59e7
+  // 波包子波载波频率(Hz)：空间波长 λ=visualCp/f。
+  // 默认关闭（0=纯包络）：正面近距离/掠射角下，即使 2Hz 也会把多源相位
+  // 叠加投影成规则斜纹。需要观察行波环时，用户仍可在面板手动开启。
+  carrierHz: 0,
+  // 波前起跳沿(s)：见 uArrivalRise 注释。
+  // 数值依据（46 源实测，相邻 0.04m 的 iVal 跳变）：0 → 最大 13 级色阶；
+  // 0.05 → 5.1 级；0.15 → 3.8 级。74 源时还会更密，故默认取较大的 0.25。
+  // 代价：起跳沿 × 35 m/s = 视觉上的波前带宽，过大会把行波环糊掉。
+  arrivalRise: 0.25,
+  // 峰值方法：1=时域错峰叠加（默认，杨年华 2012 时域叠加口径，与后端
+  // peak_ppv_envelope_multi peak_method='history' 同口径）；0=全源同时叠加保守上界
+  peakHistory: 1,
+  // ρ·c_p/(1−μ_d)，默认 ρ=2650, c_p=4500, μ_d=0.8ν=0.2 → 2650×4500/0.8=1.49e7
+  // （σ_vm=ρ·c_p·v/(1−μ_d)，径向压+切向拉，动态泊松比见 computeStressFieldFromPpv；
+  //   与 blastingManager 应力量程/后端 stress_field_from_ppv dynamic_poisson 同口径）
+  stressFactor: 1.49e7
 }
 
 // ─── seeded RNG（mulberry32，保证漏斗形状可复现） ──────
@@ -916,6 +1081,12 @@ export class SceneBuilder {
     // 自动量程标记：applyFieldPhysics 注入代表性峰值后置 true，
     // setBenchFieldData 不再用固定上限覆盖（避免解析场全场饱和度）
     this._autoRefApplied = false
+    // 场图层淡入状态（updateFieldFade 每帧推进；见 setFieldWeightTarget）
+    this._rockSemiTransparent = false
+    this._fieldWeightNow = 0
+    this._fieldWeightTarget = 0
+    this._fieldFadeT0 = null
+    this._fieldFadeFrom = 0
     // 剖切结果缓存：键=基础几何对象（pre/post），值={axis,pos,geo}。
     // 播放时间轴在 pre/post 间互换几何时直接复用，避免每次对整块岩体重算 CSG 导致卡顿。
     this._sectionCache = new Map()
@@ -930,7 +1101,9 @@ export class SceneBuilder {
     this._contourArrUniform = { value: 1e9 } // 波前门控时间(s)：t < arrival 的段透明
     this._contourFadeUniform = { value: 0.1 } // 门控淡入宽度(s)
     this._contourFieldOn = false // 热力图图层开启（uFieldWeight>0）才显示等值线
-    this._isoLineOn = true // 等值线开关（面板 toggle-iso-line）
+    // 等力线默认关闭：几何等值线是叠加层，不属于热力场本身；在正面近视角
+    // 会把三角网格/等值线段放大成规则斜纹。用户仍可通过面板手动开启。
+    this._isoLineOn = false // 等值线开关（面板 toggle-iso-line）
     this._isoLineWidth = 2.0 // 像素线宽
     this._isoLineColor = null // null=按级别取 LUT 色（提亮）；指定 CSS 色则全线统一
     this._benchGeoVersion = 0 // 岩体几何版本（build/爆后切换/剖切时 +1，驱动 manager 重提取）
@@ -1768,6 +1941,36 @@ export class SceneBuilder {
   }
 
   /**
+   * 过滤掉长度小于「源几何包围盒对角线 3%」的轮廓线段。
+   *
+   * 岩体外轮廓棱边都是十米级；几何合并/焊接后在平面处留下的内部折痕普遍只有
+   * 亚米~米级。不滤掉的话，爆后岩体正面会被 700 多条短折边铺满（实测 750 段总数
+   * 中 736 段 <2m、141 段落在正面平面上），观感就是"岩面上有一片短横线/斜纹"。
+   * 用相对阈值而非固定值：掌子面等小几何（对角线约 23m）的断面轮廓仍能保留。
+   * @param {THREE.BufferGeometry} edges - EdgesGeometry 产物（position 属性，每 2 点一段）
+   * @param {THREE.BufferGeometry} sourceGeo - 源几何（用于取包围盒尺度）
+   */
+  _filterShortEdges(edges, sourceGeo) {
+    const p = edges.attributes?.position?.array
+    if (!p || !p.length) return edges
+    sourceGeo.computeBoundingBox()
+    const bb = sourceGeo.boundingBox
+    if (!bb) return edges
+    const minLen = bb.max.distanceTo(bb.min) * 0.03
+    if (!(minLen > 0)) return edges
+    const keep = []
+    for (let i = 0; i < p.length; i += 6) {
+      const len = Math.hypot(p[i + 3] - p[i], p[i + 4] - p[i + 1], p[i + 5] - p[i + 2])
+      if (len >= minLen) keep.push(p[i], p[i + 1], p[i + 2], p[i + 3], p[i + 4], p[i + 5])
+    }
+    if (keep.length === p.length) return edges
+    const out = new THREE.BufferGeometry()
+    out.setAttribute('position', new THREE.Float32BufferAttribute(keep, 3))
+    edges.dispose()
+    return out
+  }
+
+  /**
    * 在网格外轮廓上贴一圈高亮轮廓线（EdgesGeometry + LineSegments），
    * 使岩体在暗背景巷道或振动场热力图满铺时仍能看出清晰轮廓。
    * 轮廓线作为网格子节点，随父网格隐藏/显隐；几何替换时调用本方法重建。
@@ -1787,6 +1990,12 @@ export class SceneBuilder {
     // 阈值角：只保留二面角大于 angleDeg 的锐利折边/外轮廓，不显示平面内部的细分边。
     // 剖切后抬到 >90° 可滤掉断面与侧壁的直角折边，避免切面边缘多出一圈冷白线。
     let edges = new THREE.EdgesGeometry(mesh.geometry, angleDeg)
+    // 【短边过滤】爆后岩体几何（环壁 + 实心段 + 空腔底 合并焊接而成）在 20° 阈值下
+    // 产出 750 段折边，其中 736 段短于 2m、141 段就落在岩体正面平面上——它们不是轮廓，
+    // 而是合并/焊接处三角化留下的内部折痕，画出来就是岩面上的一片密集短横线/斜纹
+    // （实测爆破前只有 200 段 / 8 条长边，爆后骤增到 750 段，正是用户在正面看到的）。
+    // 岩体真实轮廓棱边全在十米级，故按几何包围盒尺度取阈值，只保留真正的轮廓边。
+    edges = this._filterShortEdges(edges, mesh.geometry)
     // 剖切激活时：切面本身是平直平面，其 ear-clipping 三角剖分会产生共面(≈0°/180°)
     // 的伪折痕边，EdgesGeometry 会把它们渲染成切面上的一堆三角线。把"两个端点都落在
     // 剖切平面"上的边整体剔除，只保留岩体向切面以外延伸的真实外轮廓锐利折边。
@@ -1935,25 +2144,38 @@ export class SceneBuilder {
     const depthWrite = opts.depthWrite ?? true
     // 工业离散色带 LUT（N 档 Jet，档内纯色）：PPV 与应力共用同一色带与档数，
     // 档数可经 setFieldNormBands 重建（与 UI 等值线密度同源）
-    if (!this._fieldPpvLut || this._fieldPpvLut.image.width !== this._fieldNormBands) {
+    // 【宽度固定 256 texel】色带铺满 256 个 texel 的光滑渐变表（见
+    // vibrationColorScales.buildIndustrialLutGradient 注释：只有 N 个 texel 时，
+    // 连续 norm 采样会把同一 texel 拉伸成屏幕上的竖向条纹）。档数记在 userData，
+    // 纹理宽度不再等于档数，守卫不能再用 width 比对。
+    if (!this._fieldPpvLut || this._fieldPpvLut.userData?.bands !== this._fieldNormBands) {
       this._fieldNormBands = industrialBandCount(this._fieldNormBands)
       this._fieldPpvLut?.dispose()
       this._fieldPpvLut = new THREE.DataTexture(
-        buildIndustrialLutData(this._fieldNormBands),
-        this._fieldNormBands,
+        buildIndustrialLutGradient(this._fieldNormBands),
+        LUT_TEXELS,
         1,
         THREE.RGBAFormat
       )
+      this._fieldPpvLut.userData.bands = this._fieldNormBands
+      // 线性过滤：连续 norm 采样时在相邻 texel 之间插值 → 平滑色阶（Nearest 会出硬边）
+      this._fieldPpvLut.minFilter = THREE.LinearFilter
+      this._fieldPpvLut.magFilter = THREE.LinearFilter
+      this._fieldPpvLut.wrapS = THREE.ClampToEdgeWrapping
       this._fieldPpvLut.needsUpdate = true
     }
-    if (!this._fieldStressLut || this._fieldStressLut.image.width !== this._fieldNormBands) {
+    if (!this._fieldStressLut || this._fieldStressLut.userData?.bands !== this._fieldNormBands) {
       this._fieldStressLut?.dispose()
       this._fieldStressLut = new THREE.DataTexture(
-        buildIndustrialLutData(this._fieldNormBands),
-        this._fieldNormBands,
+        buildIndustrialLutGradient(this._fieldNormBands),
+        LUT_TEXELS,
         1,
         THREE.RGBAFormat
       )
+      this._fieldStressLut.userData.bands = this._fieldNormBands
+      this._fieldStressLut.minFilter = THREE.LinearFilter
+      this._fieldStressLut.magFilter = THREE.LinearFilter
+      this._fieldStressLut.wrapS = THREE.ClampToEdgeWrapping
       this._fieldStressLut.needsUpdate = true
     }
     // 损伤五色 LUT（静态，由 vibrationColorScales.DAMAGE_ZONES 单源生成）
@@ -1982,6 +2204,8 @@ export class SceneBuilder {
         uSourceCount: { value: 0 },
         uSourcePosQ: { value: Array.from({ length: 96 }, () => new THREE.Vector4(0, 0, 0, 0)) },
         uSourceDelay: { value: new Array(96).fill(0) },
+        // 峰值方法：1=时域错峰叠加（默认）；0=全源同时叠加保守上界
+        uPeakHistory: { value: BENCH_FIELD_DEFAULTS.peakHistory },
         uRight: { value: new THREE.Vector3(1, 0, 0) },
         uUp: { value: new THREE.Vector3(0, 1, 0) },
         uForward: { value: new THREE.Vector3(0, 0, 1) },
@@ -2001,11 +2225,12 @@ export class SceneBuilder {
         uSadoskyAlpha: { value: BENCH_FIELD_DEFAULTS.sadoskyAlpha },
         uSadoskyBeta: { value: BENCH_FIELD_DEFAULTS.sadoskyBeta },
         uPpvVisualBeta: { value: BENCH_FIELD_DEFAULTS.ppvVisualBeta },
-        // 波动相位载波（视觉 Hz，默认 8=开）：瞬时质点速度 v(t)=A·e^-βt·sin(2πf·t)
+        uArrivalRise: { value: BENCH_FIELD_DEFAULTS.arrivalRise },
+        // 波动相位载波（视觉 Hz，默认关闭）：瞬时质点速度 v(t)=A·e^-βt·sin(2πf·t)
         // 是真实衰减振荡波形，多源相位差（各炮孔延期差+路径差）转化为相长/相消干涉纹。
-        // 前后端必须同频（默认 8Hz）——后端纹理(载波)与前端解析(无载波)不同频会在
-        // 网格盒边界接缝处显形为"中心矩形切块"；0=关闭退化为单调包络（场值=模长）。
-        uCarrierHz: { value: 8 },
+        // 0=关闭并退化为单调包络（场值=非相干包络），避免正面近距离出现规则纹路。
+        // 用户可通过面板手动开启行波脉冲环。
+        uCarrierHz: { value: BENCH_FIELD_DEFAULTS.carrierHz },
         // 色彩映射标尺：1=对数（默认，适应幂律衰减），0=线性
         uNormMode: { value: 1 },
         uVisualCp: { value: BENCH_FIELD_DEFAULTS.visualCp },
@@ -2692,6 +2917,37 @@ uniform float uArrFade;`
     // 等值线显隐与热力图图层联动：场图层关闭（权重≈0）时等值线一并隐藏
     this._contourFieldOn = v > 0.01
     this._updateContourVisibility()
+  }
+
+  /**
+   * 设置场图层目标权重并启动平滑淡入/淡出（由 updateFieldFade 按墙钟推进）。
+   * 替代原来的"0.62 硬切"：开关热力图时画面连续变化，不出现"点了没反应、
+   * 随后整片突然变色"的观感。
+   * @param {number} weight - 目标权重（0=关；0.62=开）
+   */
+  setFieldWeightTarget(weight) {
+    this._fieldWeightTarget = Math.max(0, Math.min(1, Number(weight) || 0))
+    if (this._fieldFadeT0 == null) {
+      this._fieldFadeT0 = performance.now()
+      this._fieldFadeFrom = this._fieldWeightNow ?? 0
+    }
+  }
+
+  /**
+   * 用墙钟时间推进场权重淡入/淡出（由渲染循环每帧调用，与 dt 解耦）。
+   * 时间驱动：渲染暂停时过渡按真实时间自然走完，恢复后不会停在半途。
+   */
+  updateFieldFade() {
+    if (this._fieldFadeT0 == null) return
+    const target = this._fieldWeightTarget ?? 0
+    const k = Math.min(1, (performance.now() - this._fieldFadeT0) / FIELD_FADE_MS)
+    const e = k * k * (3 - 2 * k)
+    const v = this._fieldFadeFrom + (target - this._fieldFadeFrom) * e
+    this._fieldWeightNow = v
+    for (const m of this._fieldMaterials()) m.uniforms.uFieldWeight.value = v
+    this._contourFieldOn = v > 0.01
+    this._updateContourVisibility()
+    if (k >= 1) this._fieldFadeT0 = null
   }
 
   /** 设置岩体/掌子面底材是否"白模"：true=场图层开启时切白模底，false=保留岩石纹理底 */
@@ -3662,18 +3918,28 @@ uniform float uArrFade;`
     this._fieldPpvLut?.dispose()
     this._fieldStressLut?.dispose()
     this._fieldPpvLut = new THREE.DataTexture(
-      buildIndustrialLutData(bands),
-      bands,
+      buildIndustrialLutGradient(bands),
+      LUT_TEXELS,
       1,
       THREE.RGBAFormat
     )
+    this._fieldPpvLut.userData.bands = bands
+    // 线性过滤：连续 norm 采样离散 LUT 时在相邻 Jet 色之间插值 → 平滑色阶
+    // （与初始创建路径同口径；漏设则拖"等值线密度"滑块后色带硬边/细线伪影复发）
+    this._fieldPpvLut.minFilter = THREE.LinearFilter
+    this._fieldPpvLut.magFilter = THREE.LinearFilter
+    this._fieldPpvLut.wrapS = THREE.ClampToEdgeWrapping
     this._fieldPpvLut.needsUpdate = true
     this._fieldStressLut = new THREE.DataTexture(
-      buildIndustrialLutData(bands),
-      bands,
+      buildIndustrialLutGradient(bands),
+      LUT_TEXELS,
       1,
       THREE.RGBAFormat
     )
+    this._fieldStressLut.userData.bands = bands
+    this._fieldStressLut.minFilter = THREE.LinearFilter
+    this._fieldStressLut.magFilter = THREE.LinearFilter
+    this._fieldStressLut.wrapS = THREE.ClampToEdgeWrapping
     this._fieldStressLut.needsUpdate = true
     for (const m of this._fieldMaterials()) {
       m.uniforms.uNormBands.value = bands
@@ -3718,6 +3984,12 @@ uniform float uArrFade;`
       }
       if (Number.isFinite(Number(p.visualCp)) && p.visualCp > 0)
         u.uVisualCp.value = Number(p.visualCp)
+      // 波包子波载波频率（Hz，0=关）：控制热力图干涉条纹疏密。
+      // 【曾有缺口】面板滑块经 manager→renderer.setFieldPhysics({carrierHz}) 下发，
+      // 但 applyFieldPhysics 若漏了这一段，参数会被静默丢弃——表现为"滑动滑块
+      // 热力图完全没反应"。此处为唯一落地点，勿删。
+      if (Number.isFinite(Number(p.carrierHz)) && Number(p.carrierHz) >= 0)
+        u.uCarrierHz.value = Number(p.carrierHz)
       // 波场可达半径由岩体几何实测（_syncInfluenceRadius），不再接受外部覆盖——
       // 旧"传播包络半径"滑块 3~30m 会在岩体中部形成一圈能量断崖（用户实测
       // "热力扩散被限制在某范围外不传播"），已移除。
@@ -3784,13 +4056,19 @@ uniform float uArrFade;`
                 .sort((a, b) => (Number(b?.chargeKg) || 0) - (Number(a?.chargeKg) || 0))
                 .slice(0, 96)
             : p.sources
-        u.uSourceCount.value = list.length
+        // 时域错峰叠加峰值（uPeakHistory=1）要求按延时升序遍历源（与后端
+        // peak_ppv_envelope_multi peak_method='history' 同口径：延时序增量累加
+        // B += A·e^(+D·arr)·û，逐源候选 e^(−D·arr)·|B|）。稳定排序：同延时段保持原序。
+        const ordered = [...list].sort(
+          (a, b) => (Number(a?.delayMs) || 0) - (Number(b?.delayMs) || 0)
+        )
+        u.uSourceCount.value = ordered.length
         // 源强度系数预计算：w = K·q^(α/3)·0.01（K/α 取同步后的 uniform 值，与
         // shader 单源分支/本地模拟器 sadoskyPpv 同口径），片元内免 96 次幂运算
         const K = Number(u.uSadoskyK.value) || 0
         const alp = Number(u.uSadoskyAlpha.value) || 0
         for (let i = 0; i < 96; i++) {
-          const s = list[i]
+          const s = ordered[i]
           if (s) {
             const q = Number(s.chargeKg) || 0
             u.uSourcePosQ.value[i].set(
@@ -4694,7 +4972,8 @@ uniform float uArrFade;`
     this._rockSemiTransparent = on
     // 保持适中权重（0.62），既呈现应力/损伤/PPV 场色，又保留岩石纹理细节，
     // 避免场色完全覆盖岩面导致看不出模型细节。
-    this.setBenchFieldWeight(on ? 0.62 : 0.0)
+    // 【淡入】经墙钟缓动过渡（FIELD_FADE_MS），不再硬切——开关热力图时画面连续变化。
+    this.setFieldWeightTarget(on ? 0.62 : 0.0)
   }
 
   // ─── 隧道断面参数更新 ────────────────────────────────

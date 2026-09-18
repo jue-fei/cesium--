@@ -146,6 +146,10 @@ export class ThreeBlastingRenderer {
     // 对 WS 场帧时间的"只进不退"信任（旧时间轴尾帧 t 仍超前新 simTime，会把
     // uSimTime 顶在未来并永久卡住——回跳 seek 后解析外推波前/波环与热力图脱节的根因）
     this._fieldTimeLocked = false
+    // 本地场时钟最后活跃时刻（ms）：update() 每帧刷新；_advanceFieldSimTime 据此在
+    // 活动播放期间忽略 WS 场帧的超前时间推进（防波前横跳），被动大屏仍由 WS 驱动
+    this._lastLocalFieldClockMs = null
+    this._wsAheadWarned = false
     // 爆破触发标志（掌子面损伤演化：爆破前掌子面完整，触发后碎石化飞出）
     this.blastTriggered = false
     this.blastTriggerTime = 0.1 // 起爆时刻（秒）
@@ -1745,13 +1749,17 @@ export class ThreeBlastingRenderer {
 
   /**
    * 根据振动场图层的开关状态，联动岩体表面场着色强度。
-   * 开启且已有场数据时 → 岩体表面按场数据着色；
-   * 关闭或数据被清空 → 岩体恢复岩石本色。
+   *
+   * 【不再以 hasAnyField 为门控】场着色是逐片元解析计算，不依赖任何场数据或
+   * 场纹理即可出图（数据只用于点选查询与等值线）。此前要求"已收到首帧场数据"
+   * 才切权重，导致开关滞后到数据到达才生效——观感即"打开热力图不是直接渲染，
+   * 而是要加载一段时间"。改为按图层开关直接切目标权重（内部走 FIELD_FADE_MS
+   * 缓动淡入），数据到达时自然接上，无跳变。
    */
   _applyVibrationOcclusion() {
-    const on =
-      this.layerVisibility?.vibrationField !== false && !!this._vibrationFieldRenderer?.hasAnyField
+    const on = this.layerVisibility?.vibrationField !== false
     this._sceneBuilder?.setRockSemiTransparent?.(on)
+    this._sceneBuilder?.updateFieldFade?.()
   }
 
   /**
@@ -1784,6 +1792,29 @@ export class ThreeBlastingRenderer {
    */
   _advanceFieldSimTime(t) {
     if (this._fieldTimeLocked) return
+    // 【场时钟统一】本地播放时钟活跃期间（RAF update 正常推进，见 update() 内
+    // _lastLocalFieldClockMs 戳记），忽略 WS 场帧的时间推进：
+    // 后端按墙钟 0.05s/帧匀速推流，本地 RAF 时钟受渲染负载抖动/追帧步进影响，
+    // WS 一旦超前就会把 uSimTime 拽到"未来"——解析波前从掌子面瞬移到岩体深处，
+    // 下一帧 update() 又拉回本地时钟，反复横跳。视觉上即"首轮播放热力图从岩体
+    // 后面开始传播"（WS 推流仅首轮存在；第二遍 WS 已 COMPLETED、纯本地时钟故
+    // 正常）。被动大屏（本地时钟停更 >250ms、无 RAF update）仍由 WS 帧驱动，
+    // 保持原行为。
+    const nowMs = performance.now()
+    if (this._lastLocalFieldClockMs != null && nowMs - this._lastLocalFieldClockMs < 250) {
+      if (t > this.simTime + 0.25 && !this._wsAheadWarned) {
+        this._wsAheadWarned = true
+        console.warn(
+          '[FieldClock] 活动播放期间忽略 WS 场帧时间超前推进（WS 与本地时钟软同步偏差）',
+          {
+            wsT: Number(t.toFixed(3)),
+            localT: Number(this.simTime.toFixed(3)),
+            超前s: Number((t - this.simTime).toFixed(3))
+          }
+        )
+      }
+      return
+    }
     if (t > this.simTime) this._sceneBuilder?.setFieldSimTime?.(t)
   }
 
@@ -1858,14 +1889,6 @@ export class ThreeBlastingRenderer {
   /** 设置等值线样式（线宽 px / 统一颜色；color=null 恢复按级别取色） */
   setIsoLineStyle({ width, color } = {}) {
     this._sceneBuilder?.setIsoLine?.({ width, color })
-  }
-
-  /**
-   * 设置干涉载波频率（视觉 Hz）：瞬时质点速度 × cos(2πf·gap) 形成多孔延时
-   * 干涉波纹。0=关闭（单调包络叠加）。范围 0~48 Hz。
-   */
-  setCarrierHz(hz) {
-    this._sceneBuilder?.setCarrierHz?.(hz)
   }
 
   /** 设置色彩映射标尺：0=线性，1=对数（默认；适应 PPV/应力幂律衰减） */

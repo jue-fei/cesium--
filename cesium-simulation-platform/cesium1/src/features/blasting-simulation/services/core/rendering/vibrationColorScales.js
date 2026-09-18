@@ -197,6 +197,42 @@ export function buildIndustrialLutData(bands = INDUSTRIAL_BANDS_DEFAULT) {
   return data
 }
 
+/** 工业色带显示纹理宽度（texel 数） */
+export const LUT_TEXELS = 256
+
+/**
+ * 工业色带 LUT（LUT_TEXELS×1 RGBA，线性色空间）——**光滑渐变表**。
+ *
+ * 与 buildIndustrialLutData 的区别决定了屏幕上有无竖向条纹：
+ * 前者只有 N（12~16）个 texel，shader 用连续 norm 直接采样时，同一个 texel 会被
+ * 拉伸映射到屏幕上一大片区域——相邻像素落在 texel 边界两侧即出现竖向条纹；
+ * 本函数把整条色带铺满 256 个 texel（档色之间线性插值），每级色对应约
+ * 1/256 的归一化区间，屏幕色成为连续梯度上的真实取样，条纹消失。
+ *
+ * 各档**纯色**仍精确落在 texel 中心 ((i+0.5)/N)·(LUT_TEXELS−1) 上，档边界
+ * （等值线级别、图例色块）与工业分档口径一致，不破坏"色阶边界 ↔ 归一化值互逆"。
+ */
+export function buildIndustrialLutGradient(bands = INDUSTRIAL_BANDS_DEFAULT) {
+  const n = industrialBandCount(bands)
+  const data = new Uint8Array(LUT_TEXELS * 4)
+  for (let i = 0; i < LUT_TEXELS; i++) {
+    const u = i / (LUT_TEXELS - 1)
+    const x = u * (n - 1)
+    const bi = Math.min(n - 2, Math.floor(x))
+    const f = x - bi
+    const a = industrialBandSrgb(bi, n)
+    const b = industrialBandSrgb(bi + 1, n)
+    const r = _srgbToLinear(a[0] + (b[0] - a[0]) * f)
+    const g = _srgbToLinear(a[1] + (b[1] - a[1]) * f)
+    const bl = _srgbToLinear(a[2] + (b[2] - a[2]) * f)
+    data[i * 4] = Math.round(r * 255)
+    data[i * 4 + 1] = Math.round(g * 255)
+    data[i * 4 + 2] = Math.round(bl * 255)
+    data[i * 4 + 3] = 255
+  }
+  return data
+}
+
 /** N 档 CSS 颜色列表（sRGB），供图例色块与等值线取色 */
 export function industrialBandCssList(bands = INDUSTRIAL_BANDS_DEFAULT) {
   const n = industrialBandCount(bands)

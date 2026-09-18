@@ -256,7 +256,7 @@ export class BlastVibrationFieldRenderer {
       tex.minFilter = THREE.LinearMipmapLinearFilter
       // 各向异性过滤：3D 场纹理在倾斜/斜视角岩面上若用正方形 mip 主干会被拉到
       // 低分辨率 → 整片"糊"。设 anisotropy 让斜向采样走各向异性 mip，近处细节
-      // （载波干涉纹波峰/波谷）在斜视下仍保持锐利（three 仅硬件支持时启用，无害）。
+      // （多源干涉峰值/梯度）在斜视下仍保持锐利（three 仅硬件支持时启用，无害）。
       tex.anisotropy = 8
       tex.needsUpdate = true
       return tex
@@ -331,8 +331,8 @@ export class BlastVibrationFieldRenderer {
    * 设置 PPV/应力连续场的数据层高斯平滑强度（体素单位，0=关闭）。
    * 用于替代屏幕空间抖动：在数据写入 3D 纹理前磨掉粗网格阶梯，使色带自然均匀，
    * 不引入任何"雪花/颗粒"噪声。
-   * 默认 σ=0.4 体素（抹平相邻体素阶跃防马赛克，同时保留 8Hz 载波产生的细密
-   * 干涉纹波峰/波谷；过高 σ 会把这些细节糊成一团）。
+   * 默认 σ=0.4 体素（抹平相邻体素阶跃防马赛克，保留多源干涉的包络梯度；
+   * 过高 σ 会把这些细节糊成一团）。
    * @param {number} sigma
    */
   setFieldBlurSigma(sigma) {

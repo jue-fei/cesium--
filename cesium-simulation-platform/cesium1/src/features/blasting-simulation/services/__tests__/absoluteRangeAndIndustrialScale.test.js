@@ -50,7 +50,8 @@ describe('绝对量程（无 EMA 自愈）', () => {
     // PPV 满刻度 = rRef=4m 代表值（解析扫描，无实测叠加）
     expect(p.ppvRefMps).toBeCloseTo(K * Math.pow(q / 4, alpha) * 0.01, 6)
     // 应力满刻度 = 场最大值（standoff=0.5m）× 近场项 F(0.5)
-    const stressFactor = (2650 * 4500) / 0.75
+    // （动态泊松比 μ_d=0.8ν=0.2 → 1/(1−μ_d)=1/0.8，与 blastingManager 同口径）
+    const stressFactor = (2650 * 4500) / 0.8
     const vNear = K * Math.pow(q / 0.5, alpha) * 0.01
     const rb = Math.cbrt((3 * (84 / 1250)) / (4 * Math.PI))
     const rnf = Math.min(4, Math.max(0.5, 2 * rb))

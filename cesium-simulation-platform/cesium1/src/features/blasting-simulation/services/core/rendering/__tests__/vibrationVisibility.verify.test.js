@@ -5,11 +5,11 @@
  * SceneBuilder 实例，断言应力/损伤场体积渲染链路与岩体场着色联动
  * （`setRockSemiTransparent` → `uFieldWeight` 切换）及状态守卫行为正确。
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import * as THREE from 'three'
 import { BlastVibrationFieldRenderer } from '../blastVibrationFieldRenderer.js'
 import { LocalVibrationSimulator } from '../../computation/localVibrationSimulator.js'
-import { SceneBuilder } from '../sceneBuilder.js'
+import { SceneBuilder, FIELD_FADE_MS } from '../sceneBuilder.js'
 
 describe('振动场体积渲染可见性验证', () => {
   it('本地模拟器生成的应力/损伤场超过可见阈值', () => {
@@ -128,7 +128,7 @@ describe('振动场体积渲染可见性验证', () => {
     expect(renderer.hasField).toBe(true)
   })
 
-  it('SceneBuilder.setRockSemiTransparent 正确切换场着色权重且有状态守卫', () => {
+  it('SceneBuilder.setRockSemiTransparent 切换场着色权重：墙钟缓动淡入 + 状态守卫', () => {
     const scene = new THREE.Scene()
     const builder = new SceneBuilder(scene, {
       center: new THREE.Vector3(0, 0, 0),
@@ -141,30 +141,51 @@ describe('振动场体积渲染可见性验证', () => {
       benchLength: 80,
       tunnelSection: { width: 18, wallHeight: 6, archRadius: 4.5, shape: 'horseshoe' }
     })
-    // 手动挂载 field 材质（setBenchFieldWeight 作用于 _benchFieldMaterial/_faceFieldMaterial）
+    // 手动挂载 field 材质（场权重作用于 _benchFieldMaterial/_faceFieldMaterial）
     const mk = () => new THREE.ShaderMaterial({ uniforms: { uFieldWeight: { value: 0 } } })
     builder._benchFieldMaterial = mk()
     builder._faceFieldMaterial = mk()
     const fieldMats = [builder._benchFieldMaterial, builder._faceFieldMaterial]
+    const weights = () => fieldMats.map(m => m.uniforms.uFieldWeight.value)
 
-    // 初始：fieldWeight = 0
-    expect(builder._rockSemiTransparent).toBeUndefined()
+    // 初始：无场着色
+    expect(builder._rockSemiTransparent).toBe(false)
+    expect(weights()).toEqual([0, 0])
 
+    // 打开 → 启动淡入；第一帧仍在起点，不是硬切
+    const t0 = performance.now()
+    let nowSpy = vi.spyOn(performance, 'now').mockReturnValue(t0)
     builder.setRockSemiTransparent(true)
     expect(builder._rockSemiTransparent).toBe(true)
-    for (const m of fieldMats) {
-      expect(m.uniforms.uFieldWeight.value).toBe(0.62)
-    }
-    // 状态守卫：重复调用 true 不改变
-    builder.setRockSemiTransparent(true)
-    for (const m of fieldMats) {
-      expect(m.uniforms.uFieldWeight.value).toBe(0.62)
-    }
+    builder.updateFieldFade()
+    expect(weights()).toEqual([0, 0])
 
+    // 过渡中途：权重严格介于两端之间（连续，无跳变）
+    nowSpy.mockReturnValue(t0 + FIELD_FADE_MS / 2)
+    builder.updateFieldFade()
+    const [mid, midFace] = weights()
+    expect(mid).toBeGreaterThan(0)
+    expect(mid).toBeLessThan(0.62)
+    expect(midFace).toBe(mid)
+
+    // 时长到 → 收敛到目标权重
+    nowSpy.mockReturnValue(t0 + FIELD_FADE_MS * 2)
+    builder.updateFieldFade()
+    expect(weights()).toEqual([0.62, 0.62])
+
+    // 状态守卫 + 过渡结束：重复调用不再改动权重
+    nowSpy.mockReturnValue(t0 + FIELD_FADE_MS * 3)
+    builder.setRockSemiTransparent(true)
+    builder.updateFieldFade()
+    expect(weights()).toEqual([0.62, 0.62])
+
+    // 关闭 → 同样走淡出并收敛到 0
+    nowSpy.mockReturnValue(t0 + FIELD_FADE_MS * 3.1)
     builder.setRockSemiTransparent(false)
     expect(builder._rockSemiTransparent).toBe(false)
-    for (const m of fieldMats) {
-      expect(m.uniforms.uFieldWeight.value).toBe(0)
-    }
+    nowSpy.mockReturnValue(t0 + FIELD_FADE_MS * 5)
+    builder.updateFieldFade()
+    expect(weights()).toEqual([0, 0])
+    nowSpy.mockRestore()
   })
 })

@@ -9,17 +9,17 @@ import {
 } from '../localVibrationSimulator.js'
 
 /**
- * 回归：本地模拟器（暂停/推流结束后接管热力图的数据源）缺 influenceRadius /
- * damageMaxRadius 口径，与后端 WS 推流场不一致：
+ * 回归：本地模拟器（暂停/推流结束后接管热力图的数据源）缺 influenceRadius
+ * 口径，与后端 WS 推流场不一致：
  *  - 后端 ppv_field_3d_multi / peak_ppv_envelope_multi 均施加径向能量包络
- *    env(r) = clip((R+tau−r)/tau, 0, 1)（tau=3m，r=到最近真实装药源距离）；
- *  - 后端 damage_zone_field 施加损伤深度衰减 atten(r) = clip((Rmax−r)/1.5, 0, 1)。
- * 本地模拟器两样都没有 → 同一时刻 WS 模式与本地模式画面跳变（拖动进度条时
+ *    env(r) = clip((R+tau−r)/tau, 0, 1)（tau=3m，r=到最近真实装药源距离）。
+ * 本地模拟器没有 → 同一时刻 WS 模式与本地模式画面跳变（拖动进度条时
  * 后端推 seek 帧 + 本地帧交替写纹理，看起来"Seek 后场值不对"）。
  *
  * 口径契约（与 backend-py/app/services/blasting/blast_physics.py 逐项对齐）：
  *   PPV/峰值：field × env(influenceRadius, tau=3)
- *   损伤分区：digitize(peak × env × atten(damageMaxRadius, tau=1.5))
+ *   损伤分区：digitize(peak × env) —— 损伤半径完全由 PPV 阈值纯物理计算，
+ *   不施加人工 atten(damageMaxRadius) 上限（damageMaxRadius 已废弃）。
  * 未传参（0/null）时门控关闭，保持向后兼容。
  */
 
@@ -67,17 +67,18 @@ describe('computePpvField3d 单源包络（与多源同口径）', () => {
   })
 })
 
-describe('computeMultiSourcePeakDamageZones 损伤门控（env × atten，与后端同口径）', () => {
+describe('computeMultiSourcePeakDamageZones 损伤门控（env，与后端同口径）', () => {
   // K=90、q=84：r=8 处峰值 ≈ 90·(4.38/8)^1.58·0.01 ≈ 0.30 m/s = 30 cm/s → zone1
   const gridFar = new Float32Array([8, 0, 0])
-  it('damageMaxRadius 超程 → 分区归 0（即使峰值超阈值）', () => {
-    const noCap = computeMultiSourcePeakDamageZones(gridFar, 1.0, OPTS)
-    expect(noCap[0]).toBeGreaterThanOrEqual(1) // 无上限：30cm/s → zone1
-    const capped = computeMultiSourcePeakDamageZones(gridFar, 1.0, {
+  it('损伤半径由 PPV 阈值纯物理计算（无人工上限）', () => {
+    const z = computeMultiSourcePeakDamageZones(gridFar, 1.0, OPTS)
+    expect(z[0]).toBeGreaterThanOrEqual(1) // 30cm/s → zone1
+    // 即使显式传 damageMaxRadius（已废弃参数）也不应改变分区——不再做人工收束
+    const zCap = computeMultiSourcePeakDamageZones(gridFar, 1.0, {
       ...OPTS,
       damageMaxRadius: 6
     })
-    expect(capped[0]).toBe(0) // r=8 ≥ 6：超程一律 elastic
+    expect(zCap[0]).toBeGreaterThanOrEqual(1)
   })
 
   it('influenceRadius 超程 → 分区归 0', () => {
@@ -88,24 +89,7 @@ describe('computeMultiSourcePeakDamageZones 损伤门控（env × atten，与后
     expect(capped[0]).toBe(0) // r=8 ≥ 6+3：包络归零
   })
 
-  it('峰值缓存按门控参数失效：damageMaxRadius 变化后分区必须变化', () => {
-    // r=8 峰值 ≈ 35cm/s → zone1；同一 grid 引用共享峰值缓存槽，
-    // 窄上限（6m）下 r=8 超程归 0。若缓存未按门控参数失效，第二次调用
-    // 会直接返回第一次的缓存分区（滑块拖动"无效"的根因）。
-    const grid = new Float32Array([8, 0, 0])
-    const zWide = computeMultiSourcePeakDamageZones(grid, 1.0, {
-      ...OPTS,
-      damageMaxRadius: 20
-    })
-    expect(zWide[0]).toBe(1)
-    const zNarrow = computeMultiSourcePeakDamageZones(grid, 1.0, {
-      ...OPTS,
-      damageMaxRadius: 6
-    })
-    expect(zNarrow[0]).toBe(0)
-  })
-
-  it('influenceRadius 变化同样使峰值缓存失效', () => {
+  it('峰值缓存按门控参数失效：influenceRadius 变化后分区必须变化', () => {
     // r=8 峰值 ≈ 35cm/s：宽包络（30m）→ zone1；窄包络（6m）→ env=(9−8)/3=1/3，
     // 峰值 ×1/3 ≈ 12cm/s < 20 → zone0。回宽后必须恢复。
     const grid = new Float32Array([8, 0, 0])
@@ -127,17 +111,15 @@ describe('computeMultiSourcePeakDamageZones 损伤门控（env × atten，与后
   })
 })
 
-describe('computePeakDamageZones 单源损伤门控', () => {
-  it('damageMaxRadius 超程 → 分区归 0', () => {
+describe('computePeakDamageZones 单源损伤门控（env）', () => {
+  it('损伤分区由 PPV 阈值决定，不设人工上限', () => {
     const grid = new Float32Array([8, 0, 0])
     const opts = { K: 90, alpha: 1.58, chargeKg: 84 }
-    const noCap = computePeakDamageZones(grid, 84, 1.0, opts)
-    expect(noCap[0]).toBeGreaterThanOrEqual(1)
-    const capped = computePeakDamageZones(grid, 84, 1.0, {
-      ...opts,
-      damageMaxRadius: 6
-    })
-    expect(capped[0]).toBe(0)
+    const z = computePeakDamageZones(grid, 84, 1.0, opts)
+    expect(z[0]).toBeGreaterThanOrEqual(1)
+    // 显式传已废弃的 damageMaxRadius 不影响分区（纯 PPV 阈值计算）
+    const zCap = computePeakDamageZones(grid, 84, 1.0, { ...opts, damageMaxRadius: 6 })
+    expect(zCap[0]).toBeGreaterThanOrEqual(1)
   })
 })
 
@@ -167,18 +149,15 @@ describe('VibrationComputeClient._signature 纳入门控参数（滑块变化触
       beta: 0.02,
       visualBeta: 0.8,
       visualCp: 35,
-      carrierHz: 0,
       sources: null,
       reflections: null,
       ...p
     }
   })
-  it('influenceRadius / damageMaxRadius 变化 → 签名变化', () => {
+  it('influenceRadius 变化 → 签名变化', () => {
     const client = new VibrationComputeClient()
-    const base = client._signature(makeSim({ influenceRadius: 30, damageMaxRadius: 7 }))
-    const changedInf = client._signature(makeSim({ influenceRadius: 14, damageMaxRadius: 7 }))
-    const changedDmg = client._signature(makeSim({ influenceRadius: 30, damageMaxRadius: 5 }))
+    const base = client._signature(makeSim({ influenceRadius: 30 }))
+    const changedInf = client._signature(makeSim({ influenceRadius: 14 }))
     expect(changedInf).not.toBe(base)
-    expect(changedDmg).not.toBe(base)
   })
 })

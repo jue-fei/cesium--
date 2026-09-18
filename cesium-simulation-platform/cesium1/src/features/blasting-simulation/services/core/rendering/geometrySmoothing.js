@@ -548,4 +548,246 @@ export function sealPlaneOpenBoundaries(geometry, axis, planeValue, tol = 0.05) 
   return out
 }
 
-export default { weldPositions, creaseNormals, removeTrianglesOnPlane, sealPlaneOpenBoundaries }
+/**
+ * 锐边提取（按"位置焊接"判共享边）——替代 THREE.EdgesGeometry 用于轮廓线。
+ *
+ * EdgesGeometry 按顶点索引判边：岩体几何经 weld/crease/孔洞桥接后存在大量
+ * "坐标重合但索引不共享"的 T 形单面边，会被当成边界边**全部画出**——掌子面
+ * （带洞端面）满屏细线、而侧面（干净侧壁）无线的直接原因。
+ * 本实现按量化坐标判边共享：仅输出"恰好被两个面共享且二面角 > angleDeg"的边，
+ * 单面边（T 形缝/剖切遗痕）与非流形边（>2 面）一律不画。保留真实锐利折边
+ * （岩块外棱、隧道口沿等）。
+ * @param {THREE.BufferGeometry} geometry 索引几何
+ * @param {number} [angleDeg=20] 二面角阈值（度）
+ * @param {number} [posDecimals=4] 位置量化精度（1e-4m）
+ * @returns {THREE.BufferGeometry} LineSegments 几何（position, 2 点/段）
+ */
+export function buildSharpEdgesGeometry(geometry, angleDeg = 20, posDecimals = 4) {
+  const posAttr = geometry.attributes.position
+  const idxAttr = geometry.index
+  if (!posAttr || !idxAttr) return new THREE.BufferGeometry()
+  const pa = posAttr.array
+  const ia = idxAttr.array
+  const vmap = new Map() // 量化键 → 原始坐标 [x,y,z]
+  const key = i => {
+    const k = Math.pow(10, posDecimals)
+    const s = `${Math.round(pa[i * 3] * k)}|${Math.round(pa[i * 3 + 1] * k)}|${Math.round(pa[i * 3 + 2] * k)}`
+    if (!vmap.has(s)) vmap.set(s, [pa[i * 3], pa[i * 3 + 1], pa[i * 3 + 2]])
+    return s
+  }
+  const faceNormal = (a, b, c) => {
+    const ux = pa[b * 3] - pa[a * 3], uy = pa[b * 3 + 1] - pa[a * 3 + 1], uz = pa[b * 3 + 2] - pa[a * 3 + 2]
+    const vx = pa[c * 3] - pa[a * 3], vy = pa[c * 3 + 1] - pa[a * 3 + 1], vz = pa[c * 3 + 2] - pa[a * 3 + 2]
+    let nx = uy * vz - uz * vy
+    let ny = uz * vx - ux * vz
+    let nz = ux * vy - uy * vx
+    const l = Math.hypot(nx, ny, nz) || 1
+    return [nx / l, ny / l, nz / l]
+  }
+  const cosThreshold = Math.cos((angleDeg * Math.PI) / 180)
+  // 边 → { ka, kb, normals[] }（按面收集；位置键共享即同一逻辑边）
+  const edgeMap = new Map()
+  const nT = ia.length / 3
+  for (let t = 0; t < nT; t++) {
+    const i0 = ia[t * 3], i1 = ia[t * 3 + 1], i2 = ia[t * 3 + 2]
+    const n = faceNormal(i0, i1, i2)
+    const ks = [key(i0), key(i1), key(i2)]
+    for (let e = 0; e < 3; e++) {
+      const ka = ks[e]
+      const kb = ks[(e + 1) % 3]
+      if (ka === kb) continue
+      const ek = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`
+      let rec = edgeMap.get(ek)
+      if (!rec) {
+        rec = ka < kb ? { ka, kb, normals: [] } : { ka: kb, kb: ka, normals: [] }
+        edgeMap.set(ek, rec)
+      }
+      rec.normals.push(n)
+    }
+  }
+  const out = []
+  for (const rec of edgeMap.values()) {
+    if (rec.normals.length !== 2) continue // 单面边(缝)/非流形边：不画
+    const d =
+      rec.normals[0][0] * rec.normals[1][0] +
+      rec.normals[0][1] * rec.normals[1][1] +
+      rec.normals[0][2] * rec.normals[1][2]
+    if (d > cosThreshold) continue // 共面/近共面：不画
+    const p1 = vmap.get(rec.ka)
+    const p2 = vmap.get(rec.kb)
+    out.push(p1[0], p1[1], p1[2], p2[0], p2[1], p2[2])
+  }
+  const outGeo = new THREE.BufferGeometry()
+  outGeo.setAttribute('position', new THREE.Float32BufferAttribute(out, 3))
+  if (out.length) outGeo.computeBoundingSphere()
+  return outGeo
+}
+
+export default {
+  weldPositions,
+  creaseNormals,
+  removeTrianglesOnPlane,
+  removeSliverTriangles,
+  buildSharpEdgesGeometry,
+  sealPlaneOpenBoundaries
+}
+
+/**
+ * 剔除"细长/退化"三角形（长短边比超过 maxRatio 者），并对剔除暴露的内部缝
+ * 做扇形补面（以环首顶点为扇心，不新增顶点）—— 返回新几何（保持水密：每条边仍恰被两面共享）。
+ *
+ * 背景：马蹄形断面（R≈W/2 的墙-拱交接）+ 近距孔洞（爆破漏斗口 97% 断面）的
+ * Shape/Extrude 端面三角化会产出连接孔洞与远端外边界的扇形细长三角
+ * （实测 608 个、长短边比达 708）：
+ *   - 填充渲染时跨距数十米的插值/深度竞争 → 热力图横跨整面的细线/条纹伪影；
+ *   - 轮廓提取把退化边全部画成线（正面满屏细线的直接来源）。
+ * 单纯剔除会打开 T 形缝 → 剖切露洞（rockBodySectionCut.test.js 拦截）；本实现
+ * 在剔除的同时，对"原为内部缝、剔除后单面开放"的边追踪成环，逐环以质心扇形
+ * 补面（重用环上顶点）——覆盖恢复、
+ * 水密保持，且不引入新顶点（剖切封口行走器按原顶点邻接正常工作）。
+ *
+ * @param {THREE.BufferGeometry} geometry 索引几何（非索引则原样返回）
+ * @param {number} [maxRatio=40] 最长边/最短边比阈值
+ * @param {number} [capAxisTol=0.02] "端面"判定：三顶点 z 坐标极差 ≤ 该值才剔除。
+ *   挤出侧壁（含拱弧曲面段）的长面板长短边比同样超标但是**真实壁面**且不贴
+ *   z=常平面——剔除它们会让侧壁被巨扇补面替换、X/Y 剖切水密性破坏；仅剔除
+ *   掌子面端面（z=const 平面）上的扇形细长条。挤出轴为 z（与 build_ppv_grid 一致）。
+ * @returns {THREE.BufferGeometry} userData.sliversRemoved = 剔除数，patchTris = 补面数
+ */
+export function removeSliverTriangles(geometry, maxRatio = 40, capAxisTol = 0.02) {
+  const idxAttr = geometry.index
+  const posAttr = geometry.attributes.position
+  if (!idxAttr || !posAttr) return geometry
+  const pa = posAttr.array
+  const ia = idxAttr.array
+  const nT = ia.length / 3
+  const d2i = (i, j) => {
+    const dx = pa[i * 3] - pa[j * 3]
+    const dy = pa[i * 3 + 1] - pa[j * 3 + 1]
+    const dz = pa[i * 3 + 2] - pa[j * 3 + 2]
+    return dx * dx + dy * dy + dz * dz
+  }
+  // ── 1. 分类 keep / removed ──
+  const isKept = new Array(nT)
+  let keptTris = 0
+  for (let t = 0; t < nT; t++) {
+    const a = ia[t * 3], b = ia[t * 3 + 1], c = ia[t * 3 + 2]
+    const e0 = d2i(a, b), e1 = d2i(b, c), e2 = d2i(c, a)
+    const mn = Math.min(e0, e1, e2)
+    const mx = Math.max(e0, e1, e2)
+    let sliver = mn > 1e-12 && Math.sqrt(mx / mn) > maxRatio
+    if (sliver) {
+      // 端面判定：三顶点 z 极差 ≤ tol（贴 z=常平面）。侧壁面板 z 向跨度大 → 保留。
+      const za = pa[a * 3 + 2], zb = pa[b * 3 + 2], zc = pa[c * 3 + 2]
+      if (Math.max(za, zb, zc) - Math.min(za, zb, zc) > capAxisTol) sliver = false
+    }
+    isKept[t] = !sliver
+    if (isKept[t]) keptTris++
+  }
+  // ── 2. 边统计（位置键判共享；kept/removed 分开计数）──
+  const kq = Math.pow(10, 4)
+  const vidx = new Map() // 位置键 -> 原顶点索引（首次出现）
+  const vmap = new Map() // 位置键 -> 原始坐标
+  const vk = i => {
+    const s = `${Math.round(pa[i * 3] * kq)}|${Math.round(pa[i * 3 + 1] * kq)}|${Math.round(pa[i * 3 + 2] * kq)}`
+    if (!vidx.has(s)) {
+      vidx.set(s, i)
+      vmap.set(s, [pa[i * 3], pa[i * 3 + 1], pa[i * 3 + 2]])
+    }
+    return s
+  }
+  const edgeMap = new Map() // ek -> { ka, kb, kept, removed }
+  for (let t = 0; t < nT; t++) {
+    const ks = [vk(ia[t * 3]), vk(ia[t * 3 + 1]), vk(ia[t * 3 + 2])]
+    for (let e = 0; e < 3; e++) {
+      const ka = ks[e], kb = ks[(e + 1) % 3]
+      if (ka === kb) continue
+      const ek = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`
+      let rec = edgeMap.get(ek)
+      if (!rec) {
+        rec = ka < kb ? { ka, kb, kept: 0, removed: 0 } : { ka: kb, kb: ka, kept: 0, removed: 0 }
+        edgeMap.set(ek, rec)
+      }
+      if (isKept[t]) rec.kept++
+      else rec.removed++
+    }
+  }
+  // ── 3. 洞边 = "原为内部缝、剔除后单面开放"（removed>=1 且 kept===1）──
+  // （removed>=1 且 kept===0 的边是剔除区域内部/原本就开放的边界，不补）
+  const holeEdges = []
+  const holeAdj = new Map()
+  for (const rec of edgeMap.values()) {
+    if (rec.removed >= 1 && rec.kept === 1) {
+      holeEdges.push(rec)
+      for (const end of [rec.ka, rec.kb]) {
+        let l = holeAdj.get(end)
+        if (!l) { l = []; holeAdj.set(end, l) }
+        l.push(rec)
+      }
+    }
+  }
+  // ── 4. 沿洞边贪心走环 ──
+  const used = new Set()
+  const loops = [] // 每环 = 位置键数组
+  for (const start of holeEdges) {
+    if (used.has(start)) continue
+    used.add(start)
+    const loop = [start.ka, start.kb]
+    let tail = start.kb
+    let guard = holeEdges.length + 2
+    while (guard-- > 0) {
+      if (tail === loop[0]) break
+      const next = (holeAdj.get(tail) || []).find(e2 => !used.has(e2))
+      if (!next) break
+      used.add(next)
+      tail = next.ka === tail ? next.kb : next.ka
+      if (tail === loop[0]) break
+      loop.push(tail)
+    }
+    if (loop.length >= 3) loops.push(loop)
+  }
+  // ── 5. 输出：保留三角 + 逐环扇形补面（以环首顶点为扇心，不新增顶点）──
+  const extraIdx = []
+  let patchTris = 0
+  for (const loop of loops) {
+    // Newell 法线 + 质心
+    let nx = 0, ny = 0, nz = 0
+    let cx = 0, cy = 0, cz = 0
+    for (let i = 0; i < loop.length; i++) {
+      const p = vmap.get(loop[i])
+      const q = vmap.get(loop[(i + 1) % loop.length])
+      nx += (p[1] - q[1]) * (p[2] + q[2])
+      ny += (p[2] - q[2]) * (p[0] + q[0])
+      nz += (p[0] - q[0]) * (p[1] + q[1])
+      cx += p[0]; cy += p[1]; cz += p[2]
+    }
+    const nl = Math.hypot(nx, ny, nz)
+    if (nl < 1e-9) continue // 退化环：不补（罕见），接受该处开缝
+    nx /= nl; ny /= nl; nz /= nl
+    // 扇形补面以**环首顶点**为扇心（不新增顶点）：新增质心点是仅被补面面片
+    // 共享的新高阶点，剖切封口行走器在其上无既有邻接信息，Y 轴剖切实测留 5 条
+    // 开边；用既有顶点则剖切按原顶点的邻接表正常行走。
+    const m = loop.length
+    if (m < 3) continue
+    const apex = vidx.get(loop[0])
+    for (let i = 1; i < m - 1; i++) {
+      const ia1 = vidx.get(loop[i])
+      const ia2 = vidx.get(loop[i + 1])
+      extraIdx.push(apex, ia1, ia2)
+      patchTris++
+    }
+  }
+  const keep = new Uint32Array(keptTris * 3 + extraIdx.length)
+  let k = 0
+  for (let t = 0; t < nT; t++) {
+    if (!isKept[t]) continue
+    keep[k++] = ia[t * 3]
+    keep[k++] = ia[t * 3 + 1]
+    keep[k++] = ia[t * 3 + 2]
+  }
+  for (let i = 0; i < extraIdx.length; i++) keep[k++] = extraIdx[i]
+  const out = geometry.clone()
+  out.setIndex(new THREE.BufferAttribute(keep, 1))
+  out.userData = { ...(geometry.userData || {}), sliversRemoved: nT - keptTris, patchTris }
+  return out
+}

@@ -422,19 +422,22 @@ export default function useBlasting() {
       kcoParams.value?.explosiveType || ds?.event?.explosiveType || 'emulsion'
     // 多装药源（各炮孔装药段位置/药量/延时）：后端据此计算多应力波矢量叠加，
     // 非单一同心圆波场，符合真实掏槽微差起爆的波场干涉效果。
-    ppvParams.sources = blastingManager?._computeBlastSources?.() || null
+    // 【坐标系】getStreamBlastSources 已把源 z 平移到后端"掌子面 z=0"网格系
+    // （与 ppvParams.blastCenter 同口径），GPU/本地模拟仍用 g 系源不受影响。
+    ppvParams.sources = blastingManager?.getStreamBlastSources?.() || null
     // JWL+FDTD 在 build_ppv_grid 的 1.5m 分辨率网格上无法解析爆腔（R0≈0.28m < 1 格），
     // 实测 PPV 输出 ~1e-11 m/s（低于前端可见阈值 8 个数量级），三场（PPV/应力/损伤）
     // 全部不可见。降级萨道夫斯基近似（与本地模拟器同物理模型，量级正常），
     // 待后端 FDTD 支持亚格子源或自适应加密后再启用。
     ppvParams.useJwl = false
-    // 损伤边界可调参数（P0-1）：透传到后端 start 指令，工程现场按装药量手动
-    // 收束损伤边界（influenceRadius=波场可达半径，已按岩体几何自动取；
-    // damageMaxRadius=损伤硬上限）
+    // 损伤半径由 PPV 阈值纯物理计算得出（见 computeMultiSourcePeakDamageZones），
+    // 不设人工硬上限。influenceRadius=波场可达半径，已按岩体几何自动取。
     const bd = blastingManager?.getDamageBoundary?.() || {}
     ppvParams.influenceRadius =
       Number(bd.influenceRadius) > 0 ? bd.influenceRadius : blastingManager?.getInfluenceRadius?.() || 60
-    ppvParams.damageMaxRadius = Number(bd.damageMaxRadius) > 0 ? bd.damageMaxRadius : 7
+    // 掌子面自由面反射（镜象源法）：与本地模拟/GPU 岩面同一物理口径——后端展开
+    // 镜象源后，WS 场与本地兜底场在近掌子面处一致（反射放大 + 直达/反射干涉）
+    ppvParams.reflections = blastingManager?.getVibrationReflections?.() || null
     if (ds?.event?.rockParams) {
       ppvParams.rockParams = ds.event.rockParams
     }
@@ -1099,51 +1102,26 @@ export default function useBlasting() {
     return blastingManager?.getFieldRange?.() ?? null
   })
 
-  // 等力线（等值线）叠加显示开关（shader 默认开启，场景重建后保持用户设置）
-  const isoLineEnabled = ref(true)
+  // 等力线（等值线）叠加显示开关：默认关闭，避免正面近视角下
+  // 几何折线叠加成规则斜纹；需要时仍可从面板手动开启。
+  const isoLineEnabled = ref(false)
   const setIsoLineEnabled = enabled => {
     isoLineEnabled.value = enabled === undefined ? !isoLineEnabled.value : !!enabled
     blastingManager?.setIsoLineEnabled?.(isoLineEnabled.value)
   }
 
-  // 干涉载波频率（视觉 Hz，0=关）：GPU 场着色器对瞬时质点速度施加 v(t)=A·e^-βt·sin(2πf·t)
-  // 衰减载波振荡（真实爆破振动波形），多孔延期差 + 路径差 → 相位差 → 相长/相消干涉纹。
-  // 仅影响渲染观感，CPU 侧峰值场/点选采样不受载波影响（工程 PPV 语义恒为峰值）。
-  // 默认 8Hz：43 孔微差起爆的多孔干涉叠加可见。前后端必须同频——后端纹理(载波)与前端
-  // 解析(无载波)不同频会在网格盒边界接缝显形为"中心矩形切块"；0=关退回单调包络。
-  const carrierHz = ref(8)
-  const setVibrationCarrierHz = hz => {
-    const v = Math.max(0, Math.min(48, Number(hz) || 0))
-    carrierHz.value = v
-    blastingManager?.setVibrationCarrierHz?.(v)
-    // 推流中热更新后端载波，保证前后端同频（拖载波滑块时后端纹理同步振荡相位）
-    pushLiveFieldParams()
-  }
-
-  // ─── 损伤边界可调参数（P0-1，start 指令下发后端）────────────
-  // influenceRadius：波场可达半径(m)——语义为"波传播到该半径外即衰减消失"。
-  //   由岩体几何实测决定（manager.getInfluenceRadius()，见
-  //   sceneBuilder._syncInfluenceRadius），不再是 UI 可调项：旧滑块 3~30m 会在
-  //   岩体中部形成能量断崖（用户实测"热力扩散被限制在某范围内不传播"）。
-  //   这里只在发包时向 manager 取当前实测值，保证后端包络与渲染同口径。
-  // damageMaxRadius：损伤区硬上限半径(m)，超程一律归为弹性区 → 工程人员按现场
-  //   实际炸药量与装药量手动收束损伤边界（在 UI 直接调滑块，不用改代码/重启后端）
+  // ─── 损伤边界（P0-1）────────────
+  // 损伤半径由 PPV 阈值纯物理计算得出（见 computeMultiSourcePeakDamageZones），
+  // 不设人工硬上限。influenceRadius：波场可达半径(m)——语义为"波传播到该半径外即衰减消失"，
+  // 由岩体几何实测决定（manager.getInfluenceRadius()，见 sceneBuilder._syncInfluenceRadius），
+  // 不再是 UI 可调项。这里只在发包时向 manager 取当前实测值，保证后端包络与渲染同口径。
   // 【实时生效】WS 推流中热更新后端场参数：后端重算包络/空腔掩码并推送校正帧，
   // 无需重启后端或重开推流
   const pushLiveFieldParams = () => {
     if (!(wsConnected.value && wsVibrationStarted && blastingWs)) return
     blastingWs.updateFieldParams?.({
-      influenceRadius: blastingManager?.getInfluenceRadius?.() ?? 60,
-      damageMaxRadius: damageMaxRadius.value,
-      carrierHz: carrierHz.value
+      influenceRadius: blastingManager?.getInfluenceRadius?.() ?? 60
     })
-  }
-  const damageMaxRadius = ref(7)
-  const setDamageMaxRadius = v => {
-    const n = Math.max(1, Math.min(25, Number(v) || 7))
-    damageMaxRadius.value = n
-    blastingManager?.setDamageBoundary?.({ damageMaxRadius: n })
-    pushLiveFieldParams()
   }
 
   // ─── 矢量箭头场（P1-6） ─────
@@ -1214,6 +1192,16 @@ export default function useBlasting() {
     normMode.value = v
     blastingManager?.setVibrationNormMode?.(v)
     refreshContourStatsSoon()
+  }
+
+  // 波包载波频率（Hz，0=关）：只改变热力图瞬时场的空间频率（干涉条纹疏密），
+  // 不影响损伤分区/等值线的峰值判据。默认关闭，直接使用纯包络云图，
+  // 避免正面近距离/掠射角下的相位条纹投影成规则纹路；需要行波环时可手动开启。
+  const carrierHz = ref(0)
+  const setVibrationCarrierHz = hz => {
+    const v = Math.max(0, Math.min(30, Number(hz) || 0))
+    carrierHz.value = v
+    blastingManager?.setVibrationCarrierHz?.(v)
   }
 
   // 等值线密度（色带分档数，等值线条数 = density−1），变更后触发重提取
@@ -1321,9 +1309,10 @@ export default function useBlasting() {
     blastingManager?.setWhiteModelEnabled?.(whiteModelEnabled.value)
     // 等力线开关在场景重建后保持用户设置
     blastingManager?.setIsoLineEnabled?.(isoLineEnabled.value)
-    // 载波/标尺在材质重建（uniform 回默认值）后同样保持用户设置
-    blastingManager?.setVibrationCarrierHz?.(carrierHz.value)
+    // 标尺在材质重建（uniform 回默认值）后同样保持用户设置
     blastingManager?.setVibrationNormMode?.(normMode.value)
+    // 载波频率同属材质 uniform，重建后一并重放
+    blastingManager?.setVibrationCarrierHz?.(carrierHz.value)
     blastingManager?.setVibrationVectorField?.(vectorFieldOn.value)
     blastingManager?.setVibrationTranslucent?.(translucentEnabled.value)
     // 场景(重)建后：保持雷管误差设置、并同步监测点列表（与重建后的管理器状态一致）
@@ -1396,20 +1385,17 @@ export default function useBlasting() {
     setTranslucentEnabled,
     isoLineEnabled,
     setIsoLineEnabled,
-    // 干涉载波 / 色彩标尺 / 等值线密度 / 提取诊断
-    carrierHz,
-    setVibrationCarrierHz,
+    // 色彩标尺 / 等值线密度 / 提取诊断
     normMode,
     setVibrationNormMode,
+    carrierHz,
+    setVibrationCarrierHz,
     contourDensity,
     setVibrationContourDensity,
     contourStats,
     // 矢量箭头场（P1-6）
     vectorFieldOn,
     setVectorFieldOn,
-    // 损伤边界可调参数（P0-1，UI 滑块 → setDamageBoundary → shader/后端）
-    damageMaxRadius,
-    setDamageMaxRadius,
     // 仿真 PPV 衰减 vs 萨道夫斯基对比曲线（P2-8 验证）
     ppvDecayData,
     // 场点拾取全时程曲线（P1-6 点击出时程）
