@@ -4,14 +4,38 @@
     <div class="section">
       <div class="section-title">KCO 模型输出</div>
       <div class="kco-grid">
-        <div class="kco-stat"><span class="kco-stat-label">口径</span><span class="kco-stat-val">{{ kcoSourceLabel }}</span></div>
-        <div class="kco-stat"><span class="kco-stat-label">岩石因子 A</span><span class="kco-stat-val">{{ rockFactorA.toFixed(3) }}</span></div>
-        <div class="kco-stat"><span class="kco-stat-label">x50 中位块度</span><span class="kco-stat-val">{{ kcoX50.toFixed(3) }} m</span></div>
-        <div class="kco-stat"><span class="kco-stat-label">x80 通过块度</span><span class="kco-stat-val">{{ kcoX80.toFixed(3) }} m</span></div>
-        <div class="kco-stat"><span class="kco-stat-label">xmax 最大块度</span><span class="kco-stat-val">{{ kcoXmax.toFixed(3) }} m</span></div>
-        <div class="kco-stat"><span class="kco-stat-label">均匀性 n</span><span class="kco-stat-val">{{ kcoN.toFixed(3) }}</span></div>
-        <div class="kco-stat"><span class="kco-stat-label">爆破方量</span><span class="kco-stat-val">{{ brokenVolume.toFixed(2) }} m³</span></div>
-        <div class="kco-stat"><span class="kco-stat-label">预计碎片数</span><span class="kco-stat-val">~{{ fragmentCountEst }}</span></div>
+        <div class="kco-stat">
+          <span class="kco-stat-label">口径</span
+          ><span class="kco-stat-val">{{ kcoSourceLabel }}</span>
+        </div>
+        <div class="kco-stat">
+          <span class="kco-stat-label">岩石因子 A</span
+          ><span class="kco-stat-val">{{ rockFactorA.toFixed(3) }}</span>
+        </div>
+        <div class="kco-stat">
+          <span class="kco-stat-label">x50 中位块度</span
+          ><span class="kco-stat-val">{{ kcoX50.toFixed(3) }} m</span>
+        </div>
+        <div class="kco-stat">
+          <span class="kco-stat-label">x80 通过块度</span
+          ><span class="kco-stat-val">{{ kcoX80.toFixed(3) }} m</span>
+        </div>
+        <div class="kco-stat">
+          <span class="kco-stat-label">xmax 最大块度</span
+          ><span class="kco-stat-val">{{ kcoXmax.toFixed(3) }} m</span>
+        </div>
+        <div class="kco-stat">
+          <span class="kco-stat-label">均匀性 n</span
+          ><span class="kco-stat-val">{{ kcoN.toFixed(3) }}</span>
+        </div>
+        <div class="kco-stat">
+          <span class="kco-stat-label">爆破方量</span
+          ><span class="kco-stat-val">{{ brokenVolume.toFixed(2) }} m³</span>
+        </div>
+        <div class="kco-stat">
+          <span class="kco-stat-label">预计碎片数</span
+          ><span class="kco-stat-val">~{{ fragmentCountEst }}</span>
+        </div>
       </div>
     </div>
 
@@ -19,7 +43,12 @@
     <div v-if="trendCards.length" class="section">
       <div class="section-title">趋势摘要</div>
       <div class="snapshot-list">
-        <div v-for="card in trendCards" :key="card.title" class="snapshot-row dense" :class="card.tone">
+        <div
+          v-for="card in trendCards"
+          :key="card.title"
+          class="snapshot-row dense"
+          :class="card.tone"
+        >
           <div class="snapshot-row-top">
             <span class="snapshot-label">{{ card.title }}</span>
             <span class="snapshot-extra" :class="card.tone">{{ card.extra }}</span>
@@ -34,7 +63,11 @@
 
     <!-- 操作 -->
     <div class="row">
-      <button class="btn primary" :disabled="!dataset || kcoReplaying" @click="$emit('apply-replay')">
+      <button
+        class="btn primary"
+        :disabled="!dataset || kcoReplaying"
+        @click="$emit('apply-replay')"
+      >
         {{ kcoReplaying ? '预览中…' : '立即重播' }}
       </button>
       <button class="btn" :disabled="kcoReplaying" @click="$emit('reset-kco')">恢复默认</button>
@@ -46,18 +79,33 @@
     <div class="section">
       <div class="section-title">方案保存与加载</div>
       <div class="row">
-        <input :value="presetName" class="input" style="flex:1;min-width:120px" placeholder="方案名称" @input="onPresetNameInput" />
+        <input
+          :value="presetName"
+          class="input"
+          style="flex: 1; min-width: 120px"
+          placeholder="方案名称"
+          @input="onPresetNameInput"
+        />
         <button class="btn primary" @click="$emit('save-preset')">保存</button>
       </div>
       <div class="row mt-1">
-        <select :value="selectedPresetId" class="sel" style="flex:1;min-width:120px" @change="onPresetChange">
+        <select
+          :value="selectedPresetId"
+          class="sel"
+          style="flex: 1; min-width: 120px"
+          @change="onPresetChange"
+        >
           <option value="">-- 选择已保存方案 --</option>
           <option v-for="preset in presetList" :key="preset.id" :value="preset.id">
             {{ preset.name }}（{{ preset.savedAt }}）
           </option>
         </select>
-        <button class="btn" :disabled="!selectedPresetId" @click="$emit('load-preset')">加载</button>
-        <button class="btn danger" :disabled="!selectedPresetId" @click="$emit('delete-preset')">删除</button>
+        <button class="btn" :disabled="!selectedPresetId" @click="$emit('load-preset')">
+          加载
+        </button>
+        <button class="btn danger" :disabled="!selectedPresetId" @click="$emit('delete-preset')">
+          删除
+        </button>
       </div>
       <div v-if="presetList.length === 0" class="hint-sm">暂无已保存方案</div>
     </div>
@@ -87,17 +135,25 @@ const props = defineProps({
 })
 
 const emit = defineEmits([
-  'apply-replay', 'reset-kco',
-  'update:preset-name', 'update:selected-preset-id',
-  'save-preset', 'load-preset', 'delete-preset'
+  'apply-replay',
+  'reset-kco',
+  'update:preset-name',
+  'update:selected-preset-id',
+  'save-preset',
+  'load-preset',
+  'delete-preset'
 ])
 
 const rockFactorA = computed(
   () => 0.06 * ((props.kcoParams.RMD || 0) + (props.kcoParams.RDI || 0) + (props.kcoParams.HF || 0))
 )
 
-function onPresetNameInput(event) { emit('update:preset-name', event?.target?.value || '') }
-function onPresetChange(event) { emit('update:selected-preset-id', event?.target?.value || '') }
+function onPresetNameInput(event) {
+  emit('update:preset-name', event?.target?.value || '')
+}
+function onPresetChange(event) {
+  emit('update:selected-preset-id', event?.target?.value || '')
+}
 </script>
 
 <style scoped>
@@ -112,8 +168,8 @@ function onPresetChange(event) { emit('update:selected-preset-id', event?.target
   gap: 2px;
   padding: 8px 10px;
   border-radius: 6px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 .kco-stat-label {
   font-size: 11px;

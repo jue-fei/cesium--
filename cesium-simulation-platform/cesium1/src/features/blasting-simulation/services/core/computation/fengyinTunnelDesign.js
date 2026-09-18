@@ -27,8 +27,14 @@ export const FENGYIN_SECTION = {
 const HOLE_DEPTH = 3.0 // 掏槽孔深 3.0m
 const Y_CUT = 1.6 // 掏槽核心线高度（掌子面中下）
 // 双楔形掏槽：内排(段1, 0ms) + 外排(段2, 100ms)，[孔口横向展布, 距核心线竖向Δy, 倾角°]
-const WEDGE_INNER = [[0.35, 0.3, 18], [0.7, 0.65, 28]] // 段1：第一级掏槽
-const WEDGE_OUTER = [[1.1, 0.35, 20], [1.5, 0.8, 30]] // 段2：第二级掏槽
+const WEDGE_INNER = [
+  [0.35, 0.3, 18],
+  [0.7, 0.65, 28]
+] // 段1：第一级掏槽
+const WEDGE_OUTER = [
+  [1.1, 0.35, 20],
+  [1.5, 0.8, 30]
+] // 段2：第二级掏槽
 const WEDGE_INNER_CHARGE = 0.9 // 第一级掏槽单孔装药量 (kg)
 const WEDGE_OUTER_CHARGE = 1.5 // 第二级掏槽单孔装药量 (kg)
 const AUX1_CHARGE = 1.5 // 第一级辅助眼
@@ -71,37 +77,90 @@ export function buildFengyinTunnelDesign(opt = {}) {
 
   // ── ① 中心空孔（自由面，段 1，0ms）────────
   push({
-    posX: 0, posY: _r1(Y_CUT), holeType: 'cut', isEmptyHole: true,
-    depth, inclinationAngle: 0, inclinationAzimuth: 0,
-    chargeKg: 0, chargeLength: 0, explosiveType: 'emulsion',
-    detonatorSeries: 1, delayMs: 0, id: `${id}-E`
+    posX: 0,
+    posY: _r1(Y_CUT),
+    holeType: 'cut',
+    isEmptyHole: true,
+    depth,
+    inclinationAngle: 0,
+    inclinationAzimuth: 0,
+    chargeKg: 0,
+    chargeLength: 0,
+    explosiveType: 'emulsion',
+    detonatorSeries: 1,
+    delayMs: 0,
+    id: `${id}-E`
   })
 
   // ── ② 第一级掏槽（双楔形内排 4 孔，段 1，0ms）────
   for (const [dx, dy, inc] of WEDGE_INNER) {
     for (const side of [-1, 1]) {
-      push({ posX: _r1(side * dx), posY: _r1(Y_CUT + dy), holeType: 'cut', isEmptyHole: false,
-        depth, inclinationAngle: inc, inclinationAzimuth: -90,
-        chargeKg: WEDGE_INNER_CHARGE, chargeLength: depth * 0.6, explosiveType: 'emulsion',
-        detonatorSeries: 1, delayMs: 0, id: `${id}-IN${side > 0 ? 'R' : 'L'}${Math.round(dx * 10)}` })
-      push({ posX: _r1(side * dx), posY: _r1(Y_CUT - dy), holeType: 'cut', isEmptyHole: false,
-        depth, inclinationAngle: inc, inclinationAzimuth: 90,
-        chargeKg: WEDGE_INNER_CHARGE, chargeLength: depth * 0.6, explosiveType: 'emulsion',
-        detonatorSeries: 1, delayMs: 0, id: `${id}-IN${side > 0 ? 'R' : 'L'}${Math.round(dx * 10)}b` })
+      push({
+        posX: _r1(side * dx),
+        posY: _r1(Y_CUT + dy),
+        holeType: 'cut',
+        isEmptyHole: false,
+        depth,
+        inclinationAngle: inc,
+        inclinationAzimuth: -90,
+        chargeKg: WEDGE_INNER_CHARGE,
+        chargeLength: depth * 0.6,
+        explosiveType: 'emulsion',
+        detonatorSeries: 1,
+        delayMs: 0,
+        id: `${id}-IN${side > 0 ? 'R' : 'L'}${Math.round(dx * 10)}`
+      })
+      push({
+        posX: _r1(side * dx),
+        posY: _r1(Y_CUT - dy),
+        holeType: 'cut',
+        isEmptyHole: false,
+        depth,
+        inclinationAngle: inc,
+        inclinationAzimuth: 90,
+        chargeKg: WEDGE_INNER_CHARGE,
+        chargeLength: depth * 0.6,
+        explosiveType: 'emulsion',
+        detonatorSeries: 1,
+        delayMs: 0,
+        id: `${id}-IN${side > 0 ? 'R' : 'L'}${Math.round(dx * 10)}b`
+      })
     }
   }
 
   // ── ③ 第二级掏槽（双楔形外排 4 孔，段 2，100ms）────
   for (const [dx, dy, inc] of WEDGE_OUTER) {
     for (const side of [-1, 1]) {
-      push({ posX: _r1(side * dx), posY: _r1(Y_CUT + dy), holeType: 'cut', isEmptyHole: false,
-        depth, inclinationAngle: inc, inclinationAzimuth: -90,
-        chargeKg: WEDGE_OUTER_CHARGE, chargeLength: depth * 0.7, explosiveType: 'emulsion',
-        detonatorSeries: 2, delayMs: 100, id: `${id}-OUT${side > 0 ? 'R' : 'L'}${Math.round(dx * 10)}` })
-      push({ posX: _r1(side * dx), posY: _r1(Y_CUT - dy), holeType: 'cut', isEmptyHole: false,
-        depth, inclinationAngle: inc, inclinationAzimuth: 90,
-        chargeKg: WEDGE_OUTER_CHARGE, chargeLength: depth * 0.7, explosiveType: 'emulsion',
-        detonatorSeries: 2, delayMs: 100, id: `${id}-OUT${side > 0 ? 'R' : 'L'}${Math.round(dx * 10)}b` })
+      push({
+        posX: _r1(side * dx),
+        posY: _r1(Y_CUT + dy),
+        holeType: 'cut',
+        isEmptyHole: false,
+        depth,
+        inclinationAngle: inc,
+        inclinationAzimuth: -90,
+        chargeKg: WEDGE_OUTER_CHARGE,
+        chargeLength: depth * 0.7,
+        explosiveType: 'emulsion',
+        detonatorSeries: 2,
+        delayMs: 100,
+        id: `${id}-OUT${side > 0 ? 'R' : 'L'}${Math.round(dx * 10)}`
+      })
+      push({
+        posX: _r1(side * dx),
+        posY: _r1(Y_CUT - dy),
+        holeType: 'cut',
+        isEmptyHole: false,
+        depth,
+        inclinationAngle: inc,
+        inclinationAzimuth: 90,
+        chargeKg: WEDGE_OUTER_CHARGE,
+        chargeLength: depth * 0.7,
+        explosiveType: 'emulsion',
+        detonatorSeries: 2,
+        delayMs: 100,
+        id: `${id}-OUT${side > 0 ? 'R' : 'L'}${Math.round(dx * 10)}b`
+      })
     }
   }
 
@@ -118,10 +177,21 @@ export function buildFengyinTunnelDesign(opt = {}) {
       const y = Y_CUT + Math.sin(a) * r
       if (!_insideSection(x, y, sec, 0.15)) continue
       const azi = _r1(_degrees(Math.atan2(Math.cos(a) * r, Math.sin(a) * r)))
-      push({ posX: _r1(x), posY: _r1(y), holeType: 'auxiliary', isEmptyHole: false,
-        depth, inclinationAngle: 4, inclinationAzimuth: azi,
-        chargeKg: chg, chargeLength: depth * 0.6, explosiveType: 'emulsion',
-        detonatorSeries: seg, delayMs: (seg - 1) * 100, id: `${id}-AUX${seg}-${i + 1}` })
+      push({
+        posX: _r1(x),
+        posY: _r1(y),
+        holeType: 'auxiliary',
+        isEmptyHole: false,
+        depth,
+        inclinationAngle: 4,
+        inclinationAzimuth: azi,
+        chargeKg: chg,
+        chargeLength: depth * 0.6,
+        explosiveType: 'emulsion',
+        detonatorSeries: seg,
+        delayMs: (seg - 1) * 100,
+        id: `${id}-AUX${seg}-${i + 1}`
+      })
     }
   }
 
@@ -129,19 +199,41 @@ export function buildFengyinTunnelDesign(opt = {}) {
   const wallX = sec.width / 2 - 0.25
   for (const side of [-1, 1]) {
     for (const wyR of [0.4, 0.8]) {
-      push({ posX: side * wallX, posY: _r1(Hw * wyR), holeType: 'perimeter', isEmptyHole: false,
-        depth, inclinationAngle: 3, inclinationAzimuth: side > 0 ? 90 : -90,
-        chargeKg: WALL_CHARGE, chargeLength: depth * 0.55, explosiveType: 'emulsion',
-        detonatorSeries: 5, delayMs: 400, id: `${id}-W${side > 0 ? 'R' : 'L'}${Math.round(wyR * 100)}` })
+      push({
+        posX: side * wallX,
+        posY: _r1(Hw * wyR),
+        holeType: 'perimeter',
+        isEmptyHole: false,
+        depth,
+        inclinationAngle: 3,
+        inclinationAzimuth: side > 0 ? 90 : -90,
+        chargeKg: WALL_CHARGE,
+        chargeLength: depth * 0.55,
+        explosiveType: 'emulsion',
+        detonatorSeries: 5,
+        delayMs: 400,
+        id: `${id}-W${side > 0 ? 'R' : 'L'}${Math.round(wyR * 100)}`
+      })
     }
   }
 
   // ── ⑥ 底眼（段 6，500ms）────
   for (const fx of [-1.2, -0.6, 0, 0.6, 1.2]) {
-    push({ posX: _r1(fx), posY: _r1(0.4), holeType: 'perimeter', isEmptyHole: false,
-      depth, inclinationAngle: 6, inclinationAzimuth: 0,
-      chargeKg: FLOOR_CHARGE, chargeLength: depth * 0.7, explosiveType: 'emulsion',
-      detonatorSeries: 6, delayMs: 500, id: `${id}-F${Math.round((fx + 1.2) * 10)}` })
+    push({
+      posX: _r1(fx),
+      posY: _r1(0.4),
+      holeType: 'perimeter',
+      isEmptyHole: false,
+      depth,
+      inclinationAngle: 6,
+      inclinationAzimuth: 0,
+      chargeKg: FLOOR_CHARGE,
+      chargeLength: depth * 0.7,
+      explosiveType: 'emulsion',
+      detonatorSeries: 6,
+      delayMs: 500,
+      id: `${id}-F${Math.round((fx + 1.2) * 10)}`
+    })
   }
 
   // ── ⑦ 顶眼（拱顶，段 7，600ms）────
@@ -152,10 +244,21 @@ export function buildFengyinTunnelDesign(opt = {}) {
     const x = Math.cos(a) * archR
     const y = Hw + Math.sin(a) * archR
     const azi = _r1(_degrees(Math.atan2(x, y - Hw)))
-    push({ posX: _r1(x), posY: _r1(y), holeType: 'perimeter', isEmptyHole: false,
-      depth, inclinationAngle: 3, inclinationAzimuth: azi,
-      chargeKg: TOP_CHARGE, chargeLength: depth * 0.5, explosiveType: 'emulsion',
-      detonatorSeries: 7, delayMs: 600, id: `${id}-T${i + 1}` })
+    push({
+      posX: _r1(x),
+      posY: _r1(y),
+      holeType: 'perimeter',
+      isEmptyHole: false,
+      depth,
+      inclinationAngle: 3,
+      inclinationAzimuth: azi,
+      chargeKg: TOP_CHARGE,
+      chargeLength: depth * 0.5,
+      explosiveType: 'emulsion',
+      detonatorSeries: 7,
+      delayMs: 600,
+      id: `${id}-T${i + 1}`
+    })
   }
 
   return { section: sec, holes }

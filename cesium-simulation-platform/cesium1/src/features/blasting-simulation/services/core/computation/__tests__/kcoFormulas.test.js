@@ -9,7 +9,10 @@ import { swebrecCdf, swebrecInverse, solveX80, cunninghamN } from '../kcoFormula
 // 任一端公式改动而不同步基线文件/对端实现，对应测试即失败，避免"共享 golden 常量"
 // 下两端同步改坏而不被察觉。前端负责"计算值 == 基线"，后端负责"实现 == 基线"。
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const BASELINE_PATH = path.resolve(__dirname, '../../../../../../../../shared-consistency-baseline.json')
+const BASELINE_PATH = path.resolve(
+  __dirname,
+  '../../../../../../../../shared-consistency-baseline.json'
+)
 const BASELINE = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'))
 
 // swebrecCdf(0.5, 0.3, 2.0, 1.2, 2.0)

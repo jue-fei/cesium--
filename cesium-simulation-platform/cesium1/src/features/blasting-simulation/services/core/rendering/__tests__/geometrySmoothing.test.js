@@ -2,63 +2,10 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import * as THREE from 'three'
 import { SceneBuilder } from '../sceneBuilder.js'
 import { weldPositions, creaseNormals, removeTrianglesOnPlane } from '../geometrySmoothing.js'
+// canvas stub 单源：./helpers/canvasStub.js
+import { installCanvasStub } from './helpers/canvasStub.js'
 
 // SceneBuilder 依赖浏览器 canvas（createRockTexture/文字 Sprite 用），注入最小 stub
-function makeCtxStub() {
-  return {
-    fillStyle: '',
-    strokeStyle: '',
-    lineWidth: 1,
-    textBaseline: 'alphabetic',
-    font: '',
-    fillRect() {},
-    strokeRect() {},
-    beginPath() {},
-    arc() {},
-    fill() {},
-    moveTo() {},
-    lineTo() {},
-    stroke() {},
-    measureText(text) {
-      return { width: String(text || '').length * 12 }
-    },
-    fillText() {},
-    scale() {},
-    translate() {},
-    rotate() {},
-    setTransform() {},
-    save() {},
-    restore() {},
-    clearRect() {},
-    createRadialGradient() {
-      return { addColorStop() {} }
-    },
-    createLinearGradient() {
-      return { addColorStop() {} }
-    },
-    createImageData(w, h) {
-      return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }
-    },
-    putImageData() {},
-    getImageData() {
-      return { data: [] }
-    }
-  }
-}
-function makeCanvasStub() {
-  return {
-    width: 0,
-    height: 0,
-    getContext() {
-      return makeCtxStub()
-    }
-  }
-}
-beforeAll(() => {
-  if (typeof globalThis.document === 'undefined') {
-    globalThis.document = { createElement: () => makeCanvasStub() }
-  }
-})
 
 function allFinite(geo) {
   const pos = geo.attributes.position
@@ -99,6 +46,8 @@ function roundedNormalSet(geo) {
   }
   return s
 }
+
+beforeAll(installCanvasStub)
 
 describe('weldPositions 位置级焊接', () => {
   it('把无索引重复顶点焊成带索引几何', () => {

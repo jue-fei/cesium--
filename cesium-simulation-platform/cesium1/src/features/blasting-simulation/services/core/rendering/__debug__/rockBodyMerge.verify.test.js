@@ -1,52 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import * as THREE from 'three'
 import { SceneBuilder } from '../sceneBuilder.js'
-
-// createRockTexture() 依赖浏览器 canvas（document.createElement + 2D ctx），
-// 测试环境无 document。此处注入最小 2D canvas/ctx 桩，仅用于几何校验（不实际渲染，
-// THREE.CanvasTexture 只持有引用、测试中不会被上传到 GPU）。
-function makeCtxStub() {
-  return {
-    fillStyle: '',
-    strokeStyle: '',
-    lineWidth: 1,
-    textBaseline: 'alphabetic',
-    font: '',
-    fillRect() {},
-    strokeRect() {},
-    beginPath() {},
-    arc() {},
-    fill() {},
-    moveTo() {},
-    lineTo() {},
-    stroke() {},
-    measureText(text) {
-      return { width: String(text || '').length * 12 }
-    },
-    fillText() {},
-    scale() {},
-    translate() {},
-    rotate() {},
-    setTransform() {},
-    save() {},
-    restore() {},
-    clearRect() {}
-  }
-}
-function makeCanvasStub() {
-  return {
-    width: 0,
-    height: 0,
-    getContext() {
-      return makeCtxStub()
-    }
-  }
-}
-beforeAll(() => {
-  if (typeof globalThis.document === 'undefined') {
-    globalThis.document = { createElement: () => makeCanvasStub() }
-  }
-})
+// canvas stub 单源：../__tests__/helpers/canvasStub.js
+import { installCanvasStub } from '../__tests__/helpers/canvasStub.js'
 
 function allFinite(geo) {
   const pos = geo.attributes.position
@@ -78,6 +34,8 @@ function buildBuilder() {
   sb.buildBenchGeometry()
   return sb
 }
+
+beforeAll(installCanvasStub)
 
 describe('岩体单一连续实心体（rockBody 合并重构）', () => {
   it('爆破前为整段连续实心，爆破后退到新掌子面，且断面一致、无 NaN', () => {

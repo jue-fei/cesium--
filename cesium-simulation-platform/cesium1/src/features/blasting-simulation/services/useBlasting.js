@@ -1,4 +1,4 @@
-import { computed, ref, watch, onScopeDispose } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { BlastingManager } from './blastingManager.js'
 import {
   fetchBlastingEvents,
@@ -12,6 +12,13 @@ import {
 } from './blastingApi.js'
 import { DEFAULT_KCO_PARAMS } from './core/computation/kcoModelCore.js'
 import { DEFAULT_FRAGMENT_RENDER_LIMIT } from './core/blastDefaults.js'
+import {
+  LOCAL_SIM_DEFAULT_K,
+  LOCAL_SIM_DEFAULT_ALPHA,
+  SADOVSKY_DEFAULT_K,
+  SADOVSKY_DEFAULT_ALPHA
+} from './core/vibrationDefaults.js'
+import { matchLiteratureEvent } from './core/literatureEvents.js'
 import { BlastingWsConnector, FrameType } from './core/realtime/blastingWsConnector.js'
 import useMessage from '@/composables/useMessage.js'
 import { blastingSceneTools } from '@/services/fusion/blastingSceneTools.js'
@@ -98,6 +105,47 @@ const dbEvents = ref([])
 const dbLoading = ref(false)
 const currentEventId = ref(null)
 
+// ─── 单例可变状态（全部收拢到模块级）─────────────────────
+// useBlasting() 会被多处调用（App.vue、面板控制器），此前部分状态定义在函数内，
+// 每次调用各建一份（定时器/watch 重复注册、累加器不同步）。现统一为模块级单例，
+// 与下方响应式状态共享同一生命周期（应用级，不随组件卸载销毁）。
+// 运行时统计可追溯的随机种子（当前渲染器未注入种子，仅作为本次运行的种子标识供未来复现）
+const randomSeed = ref(42 + Math.floor(Math.random() * 1000))
+// RAF 播放累加器：每帧积累真实时间，超过有效帧间隔时推进一帧。
+// 速度切换时无需重启定时器，下一帧自然按新间隔计算，无中断。
+let _playbackAccumulator = 0
+let _playbackLastTime = 0
+// 预计算完成轮询定时器
+let precomputePollTimer = null
+// 重播请求序号：丢弃过期的并发请求结果
+let replaySeq = 0
+// 爆堆轮廓测量轮询定时器
+let muckPollTimer = null
+// 爆堆轮廓（三维包络 + 安息角标注）开关：用于论文图3-4"碎片落地堆积形成的爆堆"，
+// 绘制爆堆半透明包络面、屋脊线、底部足迹框与安息角坡线。默认关闭，由预览面板按钮手动开启。
+const muckPileOutlineEnabled = ref(false)
+// 爆堆测量值（安息角 φ/堆高/堆宽/堆长），由渲染器节流更新
+const muckPileMeasure = ref(null)
+// 爆堆轮廓开启期间持续回读测量值：渲染器在暂停/播放任意状态下都按帧重建
+// measure（renderFrame 内 _muckPileOutline.update() 每帧调用），UI 需独立轮询
+// 才能拿到最新数据，否则暂停后碎片已落地堆成、面板仍显示"等待落地堆积"。
+// 模块级单例仅注册一次；定时器由 enabled 状态收敛（关闭即清除）。
+watch(
+  muckPileOutlineEnabled,
+  enabled => {
+    if (enabled) {
+      muckPileMeasure.value = blastingManager?.getMuckPileMeasure?.() ?? null
+      muckPollTimer = setInterval(() => {
+        muckPileMeasure.value = blastingManager?.getMuckPileMeasure?.() ?? null
+      }, 500)
+    } else if (muckPollTimer) {
+      clearInterval(muckPollTimer)
+      muckPollTimer = null
+    }
+  },
+  { immediate: true }
+)
+
 // KCO 模型参数（碎块尺寸分布）
 // fragmentCountRenderLimit 为碎片渲染上限（UI 可调，40-20000），默认 3000
 const kcoParams = ref({
@@ -150,11 +198,16 @@ async function fetchKcoFromBackend(params) {
   return null
 }
 
+/**
+ * 爆破板块组合式状态（应用级单例）
+ *
+ * 关键可变句柄与定时器等单例状态收拢在模块作用域（见上方"单例可变状态"块）：
+ * 多次调用本函数返回同一份共享状态（App.vue 与面板控制器共享 dataset/播放状态），
+ * 调用方无需（也不得）假设独立实例。组件卸载不清理播放定时器——
+ * 面板收起后动画持续运行是有意行为。
+ */
 export default function useBlasting() {
   const { showMessage } = useMessage()
-
-  // 运行时统计可追溯的随机种子（当前渲染器未注入种子，仅作为本次运行的种子标识供未来复现）
-  const randomSeed = ref(42 + Math.floor(Math.random() * 1000))
 
   // ─── 时间-based 回放控制 ─────────────────────────────
   // SubTask 6.6：新数据集不再包含 frames 数组，总帧数由
@@ -241,11 +294,6 @@ export default function useBlasting() {
     blastingWs?.stopStream?.()
     blastingManager?.setLocalVibrationEnabled(true)
   }
-
-  // RAF 播放累加器：每帧积累真实时间，超过有效帧间隔时推进一帧。
-  // 速度切换时无需重启定时器，下一帧自然按新间隔计算，无中断。
-  let _playbackAccumulator = 0
-  let _playbackLastTime = 0
 
   // 根据 playbackRate 计算有效帧间隔（ms），rate 越大间隔越短
   // 不设下限，由 RAF 回调节流自然限制（~60fps ≈ 16.7ms/帧）
@@ -434,7 +482,9 @@ export default function useBlasting() {
     // 不设人工硬上限。influenceRadius=波场可达半径，已按岩体几何自动取。
     const bd = blastingManager?.getDamageBoundary?.() || {}
     ppvParams.influenceRadius =
-      Number(bd.influenceRadius) > 0 ? bd.influenceRadius : blastingManager?.getInfluenceRadius?.() || 60
+      Number(bd.influenceRadius) > 0
+        ? bd.influenceRadius
+        : blastingManager?.getInfluenceRadius?.() || 60
     // 掌子面自由面反射（镜象源法）：与本地模拟/GPU 岩面同一物理口径——后端展开
     // 镜象源后，WS 场与本地兜底场在近掌子面处一致（反射放大 + 直达/反射干涉）
     ppvParams.reflections = blastingManager?.getVibrationReflections?.() || null
@@ -592,7 +642,7 @@ export default function useBlasting() {
   // ─── 关键帧回放就绪监听（全速预计算） ──────────────
   // 预计算（Worker 全速烘焙整段物理）完成后轮询置位 replayReady，
   // 期间若用户点了播放则等待完成后自动开始（保证首播即关键帧回放）。
-  let precomputePollTimer = null
+  // precomputePollTimer 为模块级单例（见文件头部"单例可变状态"块）。
 
   const _pollPrecompute = () => {
     if (!blastingManager) return
@@ -738,26 +788,12 @@ export default function useBlasting() {
         }
       }
       // 文献化萨道夫斯基参数注入：按事件下发场地常数，避免同一套参数通用或上一事件残留。
-      //   001 达巴莱：K=150、α=1.7（估算 —— 文献未回归，取中等风化石灰岩典型量级）
-      //   002 南山隧道：K=113.64、α=1.341（汪亚飞博士论文 图5-1/5-2，R²=0.6125）
-      //   003 三棱山隧道：K=19.3、α=1.082（徐言 近场分段拟合精度95%；远场 K≈1.23、α=0.372）
-      //   004 昆阳磷矿：K=90.63、α=1.58（王万禄等，据 M1~M3 三方向合成速度拟合；M4 异常剔除）
-      //   其余事件（005~007 无振动场地回归）→ 重置默认 K=90、α=1.58，避免残留上一事件参数。
-      // 判定按"事件ID 结尾匹配 / 名称含关键词"，保证任何加载路径都能命中，
-      // 并显式同步 ref 与渲染层，避免面板仍显示默认 K=90/α=1.58。
-      const _evId = String(eventId || '')
-      const _evName = String(nextDataset.event?.name || '')
-      if (_evId.endsWith('001') || _evName.includes('达巴莱')) {
-        setSadoskyParams({ k: 150, alpha: 1.7 })
-      } else if (_evId.endsWith('002') || _evName.includes('南山')) {
-        setSadoskyParams({ k: 113.64, alpha: 1.341 })
-      } else if (_evId.endsWith('003') || _evName.includes('三棱山')) {
-        setSadoskyParams({ k: 19.3, alpha: 1.082 })
-      } else if (_evId.endsWith('004') || _evName.includes('昆阳')) {
-        setSadoskyParams({ k: 90.63, alpha: 1.58 })
-      } else {
-        setSadoskyParams({ k: 90, alpha: 1.58 })
-      }
+      // 事件匹配规则与各事件 K/α 见 core/literatureEvents.js（单源，与设计盖章共用同一映射）；
+      // 无文献标定的事件（005~007）重置默认 K/α，避免残留上一事件参数。
+      const litEvent = matchLiteratureEvent(eventId, nextDataset.event?.name)
+      setSadoskyParams(
+        litEvent?.sadosky || { k: SADOVSKY_DEFAULT_K, alpha: SADOVSKY_DEFAULT_ALPHA }
+      )
       applyDataset(nextDataset, { autoPlay })
       currentEventId.value = eventId
       // 建立实时推送通道（WS 不可用时降级到本地 setInterval 播放）
@@ -900,11 +936,7 @@ export default function useBlasting() {
   }
 
   // ─── 爆堆轮廓（三维包络 + 安息角标注） ─────────────────────
-  // 用于论文图3-4"碎片落地堆积形成的爆堆"：绘制爆堆半透明包络面、屋脊线、
-  // 底部足迹框与安息角坡线。默认关闭，由预览面板按钮手动开启。
-  const muckPileOutlineEnabled = ref(false)
-  // 爆堆测量值（安息角 φ/堆高/堆宽/堆长），由渲染器节流更新
-  const muckPileMeasure = ref(null)
+  // 状态 muckPileOutlineEnabled/muckPileMeasure 为模块级单例（见文件头部"单例可变状态"块）
   const toggleMuckPileOutline = () => {
     muckPileOutlineEnabled.value = !muckPileOutlineEnabled.value
     blastingManager?.setMuckPileOutlineEnabled?.(muckPileOutlineEnabled.value)
@@ -925,37 +957,10 @@ export default function useBlasting() {
     }
   }
 
-  // 爆堆轮廓开启期间持续回读测量值：渲染器在暂停/播放任意状态下都按帧重建
-  // measure（renderFrame 内 _muckPileOutline.update() 每帧调用），UI 需独立轮询
-  // 才能拿到最新数据，否则暂停后碎片已落地堆成、面板仍显示"等待落地堆积"。
-  let muckPollTimer = null
-  watch(
-    muckPileOutlineEnabled,
-    enabled => {
-      if (enabled) {
-        muckPileMeasure.value = blastingManager?.getMuckPileMeasure?.() ?? null
-        muckPollTimer = setInterval(() => {
-          muckPileMeasure.value = blastingManager?.getMuckPileMeasure?.() ?? null
-        }, 500)
-      } else if (muckPollTimer) {
-        clearInterval(muckPollTimer)
-        muckPollTimer = null
-      }
-    },
-    { immediate: true }
-  )
-  onScopeDispose(() => {
-    if (muckPollTimer) {
-      clearInterval(muckPollTimer)
-      muckPollTimer = null
-    }
-  })
-
   // 重新触发 three.js 爆破效果
   // kcoOverride：可选，外部传入的 KCO 参数覆盖（用于 UI 实时编辑后重播）
   // KCO 参数（x50/n）已打通后端：由 /validate/kco 计算，后端不可用时回退本地计算。
   // 重播为异步：先请求后端再启动动画，用序号丢弃过期的并发请求结果。
-  let replaySeq = 0
   const replayBlast = async kcoOverride => {
     if (!dataset.value) {
       showMessage('请先加载数据', 'warning')
@@ -1075,7 +1080,8 @@ export default function useBlasting() {
   const vibrationFieldInfo = ref(null)
 
   // 萨道夫斯基场地参数（K/α），可在振动场面板调节，经 WS 透传后端、同步本地模拟器
-  const sadoskyParams = ref({ k: 30, alpha: 1.5 })
+  // 初始值与 LocalVibrationSimulator 默认同源（vibrationDefaults.js）
+  const sadoskyParams = ref({ k: LOCAL_SIM_DEFAULT_K, alpha: LOCAL_SIM_DEFAULT_ALPHA })
 
   // 振动场底材"白模"开关（true=场图层开启时岩体切白模底；false=保留岩石纹理底，
   // 热力色直接叠在岩色上，便于观察岩体纹理细节）。

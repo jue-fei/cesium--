@@ -174,7 +174,9 @@ export function calculateKCOParams(p = {}) {
   if (x50 >= xmax) {
     const fallback = computedX50 < xmax ? computedX50 : xmax * 0.8
     x50 = fallback
-    console.warn(`[KCO] x50(${x50.toFixed(3)}) 必须小于 xmax(${xmax})，已自动修正为 ${fallback.toFixed(3)}`)
+    console.warn(
+      `[KCO] x50(${x50.toFixed(3)}) 必须小于 xmax(${xmax})，已自动修正为 ${fallback.toFixed(3)}`
+    )
   }
 
   const b = clamp(toFiniteNumber(params.b, 2.0), 1.0, 5.0)

@@ -45,72 +45,30 @@ import { REST_SPEED } from '../blastDefaults.js'
  */
 
 import { DEFAULT_RESTITUTION, DEFAULT_FRICTION, DEFAULT_MAX_BOUNCES } from '../blastDefaults.js'
+import {
+  GRAVITY,
+  SETTLE_SPEED,
+  SETTLE_FRAMES,
+  ENERGY_SAMPLE_INTERVAL,
+  AIR_DENSITY,
+  AIR_KINEMATIC_VISC,
+  SPHERE_DRAG_COEFF,
+  FLAG_ALIVE,
+  FLAG_LANDED,
+  computeDragAccel
+} from './physicsConstants.js'
 
 // ─── 物理常量 ──────────────────────────────────────────
-const GRAVITY = 9.8
+// 共享物理常量（GRAVITY/SETTLE_*/ENERGY_SAMPLE_INTERVAL/AIR_*/SPHERE_DRAG_COEFF/
+// FLAG_*/computeDragAccel）单源于 physicsConstants.js，与本文件读者无差。
 
-// 碎片间碰撞参数
+// 碎片间碰撞参数（本引擎专属）
 const SPATIAL_HASH_CELL = 0.6 // 空间散列网格尺寸 ≈ 最大碎片直径
 const RESTITUTION_INTER = 0.1 // 碎片间恢复系数（岩屑近乎非弹性，就地堆积）
 const FRICTION_INTER = 0.75 // 碎片间摩擦系数（高摩擦：碎片落定后不再滚动外滑，坡面更陡更稳定）
 // 安息角：真实爆破岩块（棱角状、10~35mm 级）实测 37°~44°（Singh & Cheung 2017），
 // 取 40° 以兼顾"堆得高"与"不无限陡"。切勿低于 35°，否则爆堆过缓过平。
 const ANGLE_OF_REPOSE = (40 * Math.PI) / 180
-const SETTLE_SPEED = 0.8 // 冻结速度阈值(m/s)（提高以加速堆积冻结）
-const SETTLE_FRAMES = 3 // 持续低速帧数才冻结（降低以加速堆积冻结）
-
-// 能量统计采样间隔（秒）：每 100ms 采样一次动能与堆积质量比，避免数组过大
-const ENERGY_SAMPLE_INTERVAL = 0.1
-
-// 空气动力学常量（原 particleSystemCore.js，内联以解除模块依赖）
-const AIR_DENSITY = 1.225 // ρ_air (kg/m³, 海平面 15℃)
-const AIR_KINEMATIC_VISC = 1.5e-5 // ν_air (m²/s, 运动粘度)
-const SPHERE_DRAG_COEFF = 0.47 // 球体湍流区阻力系数 Cd
-
-/**
- * 计算碎片在空气中受到的阻力加速度（P-01 分段阻力模型）
- * 基于雷诺数自动选择湍流/过渡/层流阻力系数：
- * - Re > 1e4：湍流区，Cd = 0.47（球体常数）
- * - 1 < Re <= 1e4：过渡区，Schiller-Naumann 关联式
- * - Re <= 1：Stokes 区，Cd = 24/Re
- * @param {number} vx - 速度 x 分量 (m/s)
- * @param {number} vy - 速度 y 分量 (m/s)
- * @param {number} vz - 速度 z 分量 (m/s)
- * @param {number} size - 等效直径 (m)
- * @param {number} mass - 质量 (kg)
- * @returns {{ax:number, ay:number, az:number}} 阻力加速度向量（与速度方向相反）
- */
-function computeDragAccel(vx, vy, vz, size, mass) {
-  const v = Math.sqrt(vx * vx + vy * vy + vz * vz)
-  if (v < 1e-6 || mass <= 0) return { ax: 0, ay: 0, az: 0 }
-  const d = Math.max(0.01, size) // 等效直径
-  const Re = (v * d) / AIR_KINEMATIC_VISC
-  // 截面积（按球体）
-  const area = Math.PI * (d / 2) * (d / 2)
-  // 计算阻力系数 Cd
-  let Cd
-  if (Re > 1e4) {
-    Cd = SPHERE_DRAG_COEFF
-  } else if (Re > 1) {
-    // Schiller-Naumann 关联式
-    Cd = (24 / Re) * (1 + 0.15 * Math.pow(Re, 0.687))
-  } else {
-    // Stokes 区：等价 Cd = 24/Re，最终与 Fd = 3π·μ·d·v 一致
-    Cd = 24 / Math.max(1e-3, Re)
-  }
-  // 阻力大小 Fd = ½·Cd·ρ·A·v²
-  const Fd = 0.5 * Cd * AIR_DENSITY * area * v * v
-  // 阻力加速度 a = Fd / m，方向与速度相反
-  const a = Fd / mass
-  const ax = -(a * vx) / v
-  const ay = -(a * vy) / v
-  const az = -(a * vz) / v
-  return { ax, ay, az }
-}
-
-// ─── 身体状态标志位 ───────────────────────────────────
-const FLAG_ALIVE = 0x01
-const FLAG_LANDED = 0x02
 
 /**
  * @typedef {Object} FragmentSpec

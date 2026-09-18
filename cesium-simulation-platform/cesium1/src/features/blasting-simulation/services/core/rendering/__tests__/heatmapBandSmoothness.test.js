@@ -21,7 +21,10 @@ import { dirname, join } from 'node:path'
 const testDir = dirname(fileURLToPath(import.meta.url))
 const sceneBuilderSrc = readFileSync(join(testDir, '..', 'sceneBuilder.js'), 'utf8')
 const useBlastingSrc = readFileSync(join(testDir, '..', '..', '..', 'useBlasting.js'), 'utf8')
-const blastingManagerSrc = readFileSync(join(testDir, '..', '..', '..', 'blastingManager.js'), 'utf8')
+const blastingManagerSrc = readFileSync(
+  join(testDir, '..', '..', '..', 'blastingManager.js'),
+  'utf8'
+)
 const fieldPanelSrc = readFileSync(
   join(testDir, '..', '..', '..', '..', 'components', 'VibrationFieldPanel.vue'),
   'utf8'
@@ -58,19 +61,31 @@ describe('热力图色阶连续化守卫（细线伪影回归）', () => {
     expect(sceneBuilderSrc).toContain('fwidth(gap)')
     expect(sceneBuilderSrc).toContain('fwidth(gapI)')
     expect(sceneBuilderSrc).toContain('fwidth(wvCarrier * (uSimTime - length(g - uBlastOrigin)')
-    expect(sceneBuilderSrc).toContain('float coherentLod = smoothstep(0.35, 3.14159265, phaseFootprint)')
-    expect(sceneBuilderSrc).toContain('float faceCleanLod = 1.0 - smoothstep(0.10, 0.55, abs(g.z - uFaceZ))')
-    expect(sceneBuilderSrc).toContain('float postFaceCleanLod = 1.0 - smoothstep(0.10, 0.55, abs(g.z - (uFaceZ + uHoleLen)))')
+    expect(sceneBuilderSrc).toContain(
+      'float coherentLod = smoothstep(0.35, 3.14159265, phaseFootprint)'
+    )
+    expect(sceneBuilderSrc).toContain(
+      'float faceCleanLod = 1.0 - smoothstep(0.10, 0.55, abs(g.z - uFaceZ))'
+    )
+    expect(sceneBuilderSrc).toContain(
+      'float postFaceCleanLod = 1.0 - smoothstep(0.10, 0.55, abs(g.z - (uFaceZ + uHoleLen)))'
+    )
     expect(sceneBuilderSrc).toContain('faceCleanLod = max(faceCleanLod, postFaceCleanLod)')
-    expect(sceneBuilderSrc).toContain('float postFaceBlend = 1.0 - smoothstep(0.08, 0.60, abs(g.z - (uFaceZ + uHoleLen)))')
+    expect(sceneBuilderSrc).toContain(
+      'float postFaceBlend = 1.0 - smoothstep(0.08, 0.60, abs(g.z - (uFaceZ + uHoleLen)))'
+    )
     expect(sceneBuilderSrc).toContain('facePlaneBlend = max(facePlaneBlend, postFaceBlend)')
-    expect(sceneBuilderSrc).toContain('vec3 geomN = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)))')
+    expect(sceneBuilderSrc).toContain(
+      'vec3 geomN = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)))'
+    )
     expect(sceneBuilderSrc).toContain('float capSurfaceMask = smoothstep(0.985, 0.9995')
     expect(sceneBuilderSrc).toContain('float capDist = max(length(g - uBlastOrigin), 0.5)')
     expect(sceneBuilderSrc).toContain('mps = mix(mps, capMps, capSurfaceMask)')
     expect(sceneBuilderSrc).toContain('coherentLod = max(coherentLod, faceCleanLod)')
     expect(sceneBuilderSrc).toContain('float wvFinal = max(wv, 0.98 * facePlaneBlend)')
-    expect(sceneBuilderSrc).toContain('mps = wvCarrier > 0.0 ? mix(mps, envelope, coherentLod) : envelope')
+    expect(sceneBuilderSrc).toContain(
+      'mps = wvCarrier > 0.0 ? mix(mps, envelope, coherentLod) : envelope'
+    )
     // LOD 只改瞬时 mps；peak 仍在其后按既有口径计算。
     expect(sceneBuilderSrc.indexOf('mps = mix(mps, envelope, coherentLod)')).toBeLessThan(
       sceneBuilderSrc.indexOf('float peak = uPeakHistory')

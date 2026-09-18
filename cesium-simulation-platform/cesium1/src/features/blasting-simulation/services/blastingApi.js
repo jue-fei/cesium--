@@ -233,7 +233,11 @@ export function validateKco(input = {}) {
     W_abs: Number(input.W_abs)
   }
   // x_allow 可选（允许最大块度 m，≤xmax；不传则大块率为 0）
-  if (input.x_allow !== undefined && input.x_allow !== null && Number.isFinite(Number(input.x_allow))) {
+  if (
+    input.x_allow !== undefined &&
+    input.x_allow !== null &&
+    Number.isFinite(Number(input.x_allow))
+  ) {
     payload.x_allow = Number(input.x_allow)
   }
   return request(`${API_BASE}/validate/kco`, {

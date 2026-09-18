@@ -16,7 +16,13 @@
     <div class="section">
       <div class="section-title">视觉图层</div>
       <div class="layer-grid">
-        <label v-for="layer in layerDefs" :key="layer.key" class="tag" :class="{ on: layerVisibility[layer.key] }" @click="onToggle(layer.key)">
+        <label
+          v-for="layer in layerDefs"
+          :key="layer.key"
+          class="tag"
+          :class="{ on: layerVisibility[layer.key] }"
+          @click="onToggle(layer.key)"
+        >
           {{ layer.label }}
         </label>
       </div>
@@ -65,16 +71,36 @@ const snapshotRows = computed(() => {
     rows.push({ label: '已落地', value: s.landed, note: '堆积', tone: 'ok' })
   }
   if (Number.isFinite(s.throwDistancePredictedAvg)) {
-    rows.push({ label: '平均抛距', value: s.throwDistancePredictedAvg.toFixed(1) + ' m', note: '预测', tone: 'info' })
+    rows.push({
+      label: '平均抛距',
+      value: s.throwDistancePredictedAvg.toFixed(1) + ' m',
+      note: '预测',
+      tone: 'info'
+    })
   }
   if (Number.isFinite(s.throwDistancePredictedMax)) {
-    rows.push({ label: '最大抛距', value: s.throwDistancePredictedMax.toFixed(1) + ' m', note: '预测', tone: 'warn' })
+    rows.push({
+      label: '最大抛距',
+      value: s.throwDistancePredictedMax.toFixed(1) + ' m',
+      note: '预测',
+      tone: 'warn'
+    })
   }
   if (s.x50Applied != null) {
-    rows.push({ label: 'x50', value: Number(s.x50Applied).toFixed(3) + ' m', note: '中位粒径', tone: 'info' })
+    rows.push({
+      label: 'x50',
+      value: Number(s.x50Applied).toFixed(3) + ' m',
+      note: '中位粒径',
+      tone: 'info'
+    })
   }
   if (s.x80Applied != null) {
-    rows.push({ label: 'x80', value: Number(s.x80Applied).toFixed(3) + ' m', note: '80% 通过', tone: 'info' })
+    rows.push({
+      label: 'x80',
+      value: Number(s.x80Applied).toFixed(3) + ' m',
+      note: '80% 通过',
+      tone: 'info'
+    })
   }
   return rows
 })

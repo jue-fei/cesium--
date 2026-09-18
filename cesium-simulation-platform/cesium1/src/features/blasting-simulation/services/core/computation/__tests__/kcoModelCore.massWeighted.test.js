@@ -26,18 +26,8 @@ import {
   computeKLDivergence
 } from '../kcoModelCore.js'
 import { swebrecCdf, swebrecInverse } from '../kcoFormulas.js'
-
-// 确定性随机数生成器（mulberry32），避免测试抖动
-function makeSeededRng(seed) {
-  let a = seed >>> 0
-  return function rng() {
-    a |= 0
-    a = (a + 0x6d2b79f5) | 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
+// 确定性随机数生成器（mulberry32）：单源在 utils/rng.js，避免测试抖动
+import { mulberry32 as makeSeededRng } from '../../utils/rng.js'
 
 // 等质量份额通过率：每片承载相等质量份额，故 = 尺寸 ≤ x 的碎块计数占比
 function massPassingRate(sizes, x) {
@@ -61,8 +51,7 @@ function massMedian(sizes) {
 // 按碎片实际体积 size³ 加权的通过率中位粒径（用于"语义说明"用例）
 function volumeWeightedMedian(sizes) {
   const total = sizes.reduce((s, x) => s + Math.pow(x, 3), 0)
-  const below = t =>
-    sizes.reduce((s, x) => (x <= t ? s + Math.pow(x, 3) : s), 0) / total
+  const below = t => sizes.reduce((s, x) => (x <= t ? s + Math.pow(x, 3) : s), 0) / total
   let lo = 1e-4
   let hi = Math.max(...sizes) * 1.01
   for (let i = 0; i < 60; i++) {

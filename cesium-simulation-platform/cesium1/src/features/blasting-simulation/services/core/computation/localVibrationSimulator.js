@@ -24,6 +24,9 @@
  * 网格轴序：输出按 WebGL Data3DTexture 要求（x-最快，z-最慢），保证纹理采样正确。
  */
 
+// 萨道夫斯基 K/α 默认值：单源在 vibrationDefaults.js
+import { LOCAL_SIM_DEFAULT_K, LOCAL_SIM_DEFAULT_ALPHA } from '../vibrationDefaults.js'
+
 // 损伤分区阈值（Persson 模型，近场损伤临界值，单位：cm/s）
 // 与后端 DAMAGE_THRESHOLDS_CMPS 完全一致（P0-1 已提高至 (20,50,100,200)，
 // 使损伤区收束到爆源邻近数米，避免解析场下出现"无视隧道轮廓的无边红圆/黄块"）
@@ -114,7 +117,7 @@ export function damageZoneRadius(o = {}) {
   const pCj = (rhoE * vod * vod) / (DETONATION_GAMMA + 1.0)
   const zr = rhoR * cp
   const ze = rhoE * vod
-  let pb = (2 * zr) / (zr + ze) * pCj
+  let pb = ((2 * zr) / (zr + ze)) * pCj
   const dc = Number(o.chargeDiameter)
   if (Number.isFinite(dc) && dc > 0) {
     pb *= Math.min(1.0, dc / (2 * rb)) ** (2 * DETONATION_GAMMA)
@@ -371,7 +374,7 @@ export function buildPpvGrid(
  */
 export function sadoskyPpv(chargeKg, distance, options = {}) {
   const K = options.K ?? 200.0
-  const alpha = options.alpha ?? 1.5
+  const alpha = options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA
   const minStandoff = options.minStandoff ?? 0.5
   const r = Math.max(distance, minStandoff)
   // K 单位为 cm/s → 转换为 m/s 需要 ×0.01
@@ -517,7 +520,7 @@ function _setPeakCache(gridXyz, distFp, K, corePeak, arrival, dmin) {
 
 export function computePpvField3d(gridXyz, chargeKg, t, options = {}, out = null) {
   const K = options.K ?? 200.0
-  const alpha = options.alpha ?? 1.5
+  const alpha = options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA
   const beta = options.beta ?? 0.02
   const visualBeta = options.visualBeta ?? 0.8
   const cp = options.cp ?? 4500.0
@@ -720,12 +723,9 @@ export function buildChargeSources(holes, faceOffset, cutCenter, options = {}) {
   const seedBase = typeof options.rngSeed === 'number' ? options.rngSeed : 12345
   // 韩亮 2019 回归基线 σ_base(t)=0.017·t+3.483；电子雷管固定 σ
   const sigmaBase = t =>
-    detonatorType.startsWith('elec')
-      ? ELECTRONIC_SIGMA_MS
-      : HAN2019_A * Math.max(0, t) + HAN2019_B
+    detonatorType.startsWith('elec') ? ELECTRONIC_SIGMA_MS : HAN2019_A * Math.max(0, t) + HAN2019_B
   // UI 锚定缩放：σ(anchor)=delayJitterMs（未传/为 0 时 scale=1，纯理论口径）
-  const anchorScale =
-    jitterMs > 0 ? jitterMs / Math.max(sigmaBase(HAN2019_ANCHOR_MS), 1e-6) : 1.0
+  const anchorScale = jitterMs > 0 ? jitterMs / Math.max(sigmaBase(HAN2019_ANCHOR_MS), 1e-6) : 1.0
   const sources = []
   for (let idx = 0; idx < holes.length; idx++) {
     const s = resolveChargePosition(holes[idx], faceOffset, center, options)
@@ -777,7 +777,7 @@ function _seededGauss(seed) {
  */
 export function computeMonitorTimeHistory(point, sources, times, options = {}) {
   const K = options.K ?? 200.0
-  const alpha = options.alpha ?? 1.5
+  const alpha = options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA
   const beta = options.beta ?? 0.02
   const visualBeta = options.visualBeta ?? 0.8
   const visualCp = options.visualCp ?? options.cp ?? 4500.0
@@ -841,7 +841,9 @@ export function computeMonitorTimeHistory(point, sources, times, options = {}) {
       const gap = time - (ss.delay + r * invCp)
       if (gap <= 0) continue
       const osc =
-        twoPiF > 0 ? Math.sin(twoPiF * gap) * Math.exp((-Math.PI * carrierHz * gap) / WAVELET_Q) : 1.0
+        twoPiF > 0
+          ? Math.sin(twoPiF * gap) * Math.exp((-Math.PI * carrierHz * gap) / WAVELET_Q)
+          : 1.0
       const a = ss.coef * Math.pow(r, -alpha) * Math.exp(-decay * gap) * osc
       const inv = 1 / Math.max(r, 1e-6)
       sx += a * dx * inv
@@ -880,8 +882,8 @@ export function computeMonitorTimeHistory(point, sources, times, options = {}) {
  * }
  */
 export function computePpvDecayProfile(sources, options = {}) {
-  const K = options.K ?? 30
-  const alpha = options.alpha ?? 1.5
+  const K = options.K ?? LOCAL_SIM_DEFAULT_K
+  const alpha = options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA
   const visualCp = options.visualCp ?? 35
   const visualBeta = options.visualBeta ?? 0.8
   const minStandoff = options.minStandoff ?? 0.5
@@ -974,8 +976,8 @@ function _maxChargePerDelay(srcList, windowMs = 15) {
  * @returns {{vx:number,vy:number,vz:number,mag:number}}
  */
 export function computePointVector(point, sources, t, options = {}) {
-  const K = options.K ?? 30
-  const alpha = options.alpha ?? 1.5
+  const K = options.K ?? LOCAL_SIM_DEFAULT_K
+  const alpha = options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA
   const beta = options.beta ?? 0.02
   const visualBeta = options.visualBeta ?? 0.8
   const visualCp = options.visualCp ?? 35
@@ -1059,7 +1061,7 @@ export function computeMultiSourcePpvField3d(gridXyz, t, options = {}, out = nul
     return computePpvField3d(gridXyz, options.chargeKg ?? 100, t, options, out)
 
   const K = options.K ?? 200.0
-  const alpha = options.alpha ?? 1.5
+  const alpha = options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA
   const beta = options.beta ?? 0.02
   const visualBeta = options.visualBeta ?? 0.8
   const visualCp = options.visualCp ?? options.cp ?? 4500.0
@@ -1095,7 +1097,8 @@ export function computeMultiSourcePpvField3d(gridXyz, t, options = {}, out = nul
 
   // 径向能量包络（与后端 ppv_field_3d_multi 同口径）：r 取到最近真实装药源距离
   const influenceRadius = Number(options.influenceRadius) > 0 ? Number(options.influenceRadius) : 0
-  const dminArr = influenceRadius > 0 ? _dminFromDistTable(distTable, baseSrc.length, nPoints) : null
+  const dminArr =
+    influenceRadius > 0 ? _dminFromDistTable(distTable, baseSrc.length, nPoints) : null
 
   // 源外/点内循环序：每个源顺序扫过 dist/distPow 各自连续的表段（预取友好），
   // 矢量和累加到模块级复用的逐点缓冲。相比"点外源内"在 nS 个相距 ~1MB 的表段
@@ -1228,8 +1231,7 @@ export function computeStressFieldFromPpv(ppv, options = {}, out = null, distanc
   // 近场几何修正参数（见模块头 NEAR_FIELD_* 注释）：r_nf<=0 时 F≡1，退化为
   // 纯辐射项（与旧行为数值一致）
   const nfR = Number(options.nearFieldRadius) > 0 ? Number(options.nearFieldRadius) : 0
-  const nfG =
-    Number(options.nearFieldGain) > 0 ? Number(options.nearFieldGain) : NEAR_FIELD_GAIN
+  const nfG = Number(options.nearFieldGain) > 0 ? Number(options.nearFieldGain) : NEAR_FIELD_GAIN
 
   const nPoints = ppv.length
   const sigmaVm = out ?? new Float32Array(nPoints)
@@ -1294,8 +1296,8 @@ export function classifyDamageZones(ppv, thresholds = DAMAGE_THRESHOLDS_CMPS, ou
  * @returns {Int8Array} 分区 id 数组 0~4
  */
 export function computePeakDamageZones(gridXyz, chargeKg, t, options = {}, out = null) {
-  const K = options.K ?? 30.0
-  const alpha = options.alpha ?? 1.5
+  const K = options.K ?? LOCAL_SIM_DEFAULT_K
+  const alpha = options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA
   const minStandoff = options.minStandoff ?? 0.5
   const visualCp = options.visualCp ?? 35.0
   // 空间门控（与后端 peak_ppv_envelope_multi + damage_zone_field 同口径）
@@ -1323,9 +1325,7 @@ export function computePeakDamageZones(gridXyz, chargeKg, t, options = {}, out =
     }
     // 峰值 PPV（无时变衰减）× 包络 → cm/s → Persson 档位
     const cm =
-      sadoskyPpv(chargeKg, r, { K, alpha, minStandoff }) *
-      100.0 *
-      _radialEnv(r, influenceRadius)
+      sadoskyPpv(chargeKg, r, { K, alpha, minStandoff }) * 100.0 * _radialEnv(r, influenceRadius)
     let zone = 0
     for (let th = 0; th < DAMAGE_THRESHOLDS_CMPS.length; th++) {
       if (cm >= DAMAGE_THRESHOLDS_CMPS[th]) zone = th + 1
@@ -1459,8 +1459,7 @@ function _staggeredPeakAccumulate(
       bx += w * uxBuf[j]
       by += w * uyBuf[j]
       bz += w * uzBuf[j]
-      const cand =
-        Math.exp(-peakDecay * keyBuf[j]) * Math.sqrt(bx * bx + by * by + bz * bz)
+      const cand = Math.exp(-peakDecay * keyBuf[j]) * Math.sqrt(bx * bx + by * by + bz * bz)
       if (cand > best) best = cand
     }
     peak[i] = best
@@ -1483,8 +1482,8 @@ function _ensurePeakSlot(gridXyz, options = {}) {
   const sources = (options.sources || []).filter(s => Number(s.chargeKg) > 0)
   if (sources.length === 0) return null
 
-  const K = options.K ?? 30.0
-  const alpha = options.alpha ?? 1.5
+  const K = options.K ?? LOCAL_SIM_DEFAULT_K
+  const alpha = options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA
   const minStandoff = options.minStandoff ?? 0.5
   const visualCp = options.visualCp ?? 35.0
   // 峰值方法（文献驱动升级，与后端 peak_ppv_envelope_multi 同口径）：
@@ -1711,8 +1710,8 @@ export function computeMultiSourcePeakField3d(gridXyz, t, options = {}, out = nu
  * @returns {Float32Array} 峰值 PPV 场 (m/s)
  */
 export function computePeakField3d(gridXyz, chargeKg, t, options = {}, out = null) {
-  const K = options.K ?? 30.0
-  const alpha = options.alpha ?? 1.5
+  const K = options.K ?? LOCAL_SIM_DEFAULT_K
+  const alpha = options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA
   const minStandoff = options.minStandoff ?? 0.5
   const visualCp = options.visualCp ?? 35.0
   const influenceRadius = Number(options.influenceRadius) > 0 ? Number(options.influenceRadius) : 0
@@ -1757,8 +1756,8 @@ export function computePeakField3d(gridXyz, chargeKg, t, options = {}, out = nul
  * @returns {{peak: Float32Array, arrival: Float32Array}} 峰值 PPV（m/s，含 occ×agn）与最早到达时刻（s）
  */
 export function computeSurfacePeakField(surfaceXyz, options = {}) {
-  const K = options.K ?? 30.0
-  const alpha = options.alpha ?? 1.5
+  const K = options.K ?? LOCAL_SIM_DEFAULT_K
+  const alpha = options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA
   const minStandoff = options.minStandoff ?? 0.5
   const visualCp = options.visualCp ?? 35.0
   // 径向能量包络（与后端 peak_ppv_envelope_multi 同口径；GPU 岩面着色 peak *= env 同步）
@@ -1848,10 +1847,12 @@ export function computeSurfacePeakField(surfaceXyz, options = {}) {
   // 常数，在候选最大值之后统一相乘（max(f·x) = f·max(x)），不影响错峰语义。
   const peakMethod = options.peakMethod === 'bound' ? 'bound' : 'history'
   const peakDecay = Math.max(
-    Number(options.peakDecay ?? (Number(options.beta ?? 0.02) + Number(options.visualBeta ?? 0.8))),
+    Number(options.peakDecay ?? Number(options.beta ?? 0.02) + Number(options.visualBeta ?? 0.8)),
     0
   )
-  const order = srcExpanded.map((e, idx) => idx).sort((a, b) => srcExpanded[a].delay - srcExpanded[b].delay)
+  const order = srcExpanded
+    .map((e, idx) => idx)
+    .sort((a, b) => srcExpanded[a].delay - srcExpanded[b].delay)
   const src = order.map(idx => srcExpanded[idx])
   const directCols = []
   for (let k = 0; k < order.length; k++) {
@@ -1862,8 +1863,7 @@ export function computeSurfacePeakField(surfaceXyz, options = {}) {
   const distTable = cache.dist
   const distPow = cache.distPow
   // 门控用 dmin（到最近真实装药源距离；直达列由排序索引换算）
-  const dminArr =
-    influenceRadius > 0 ? _dminFromDistColumns(distTable, directCols, nPoints) : null
+  const dminArr = influenceRadius > 0 ? _dminFromDistColumns(distTable, directCols, nPoints) : null
   const invCp = 1 / Math.max(visualCp, 1e-3)
   const history = peakMethod === 'history'
   const nS = src.length
@@ -1936,31 +1936,6 @@ export function computeSurfacePeakField(surfaceXyz, options = {}) {
 }
 
 /**
- * 将 3D 场从 (nx, ny, nz) 原始顺序（numpy indexing='ij'）转换为 WebGL Data3DTexture 要求的 x-最快顺序
- * @param {Float32Array} field - 一维展平场，原始顺序 nx×ny×nz（x-最慢，z-最快）
- * @param {number[]} gridShape - [nx, ny, nz]
- * @returns {Float32Array} 转换后场 (nz × ny × nx)，x 在内存中连续最快，与后端 _webgl_flatten_3d 完全一致
- */
-export function reorderForWebGL(field, gridShape) {
-  const [nx, ny, nz] = gridShape
-  const output = new Float32Array(nx * ny * nz)
-
-  // 原始：field[x*ny*nz + y*nz + z] → (nx, ny, nz)
-  // WebGL 需要：output[z*ny*nx + y*nx + x] → (nz, ny, nx)，即转置 (2, 1, 0)
-  for (let x = 0; x < nx; x++) {
-    for (let y = 0; y < ny; y++) {
-      for (let z = 0; z < nz; z++) {
-        const srcIdx = x * ny * nz + y * nz + z
-        const dstIdx = z * ny * nx + y * nx + x
-        output[dstIdx] = field[srcIdx]
-      }
-    }
-  }
-
-  return output
-}
-
-/**
  * 本地振动模拟器类，管理网格、逐帧更新、数据推送
  */
 export class LocalVibrationSimulator {
@@ -2014,8 +1989,8 @@ export class LocalVibrationSimulator {
     // K=30 时近爆心 PPV 仍达数十 cm/s（破碎/抛掷区，红），远场衰减至 ~1 cm/s（蓝），
     // 呈现"近红→中绿→远蓝"的球面梯度，使 PPV/应力/损伤三模式均能正确分级显示。
     this.params = {
-      K: options.K ?? 30,
-      alpha: options.alpha ?? 1.5,
+      K: options.K ?? LOCAL_SIM_DEFAULT_K,
+      alpha: options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA,
       beta: options.beta ?? 0.02,
       visualBeta: options.visualBeta ?? 0.8, // 可视化时变衰减（波峰回落实时速度）
       cp: options.cp ?? 4500,
@@ -2112,8 +2087,8 @@ export class LocalVibrationSimulator {
    * 轴序说明：buildPpvGrid 生成的 gridXyz 已是 x-最快（zi 最外层、xi 最内层，
    * idx = zi*ny*nx + yi*nx + xi），computePpvField3d / computeStressFieldFromPpv /
    * classifyDamageZones 均逐点保持该顺序。该顺序与后端 pack_ppv_binary 中
-   * np.transpose(2,1,0) 后的 WebGL 布局完全一致，因此这里不能再调用 reorderForWebGL
-   * （它假设输入为 x-最慢），否则会二次转置导致数据错乱。
+   * np.transpose(2,1,0) 后的 WebGL 布局完全一致，无需再做轴序重排
+   * （任何按 x-最慢假设的二次转置都会导致数据错乱）。
    */
   computeAtTime(t) {
     // 全量计算（增量优化意义不大，网格不大，直接计算可保证精度）
@@ -2156,14 +2131,6 @@ export class LocalVibrationSimulator {
     this._lastT = -1
     this._cachedPpv = null
     this._cachedSigmaVm = null
-  }
-
-  /**
-   * 重置损伤状态（保留 API 兼容：损伤分区已改为"峰值×到达门控"的确定性算法，
-   * 输出只与当前时刻 t 有关，不再跨帧累积，故无需额外状态清理）。
-   */
-  resetPeak() {
-    // 确定性算法下无需清理；保留空实现以兼容外部调用（循环回卷/seek 跳变）。
   }
 
   /** 是否已初始化 */
@@ -2444,7 +2411,6 @@ export default {
   computeMonitorTimeHistory,
   computePointVector,
   computePpvDecayProfile,
-  reorderForWebGL,
   LocalVibrationSimulator,
   VibrationParticleSystem,
   VibrationComputeClient

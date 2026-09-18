@@ -46,16 +46,6 @@ import {
   HOLD_AFTER_SETTLED
 } from '../blastDefaults.js'
 
-// ─── 粒子类型常量 ──────────────────────────────────────
-export const THREE_PARTICLE_TYPES = {
-  FIRE: 'fire',
-  SMOKE: 'smoke',
-  SPARK: 'spark',
-  FRAGMENT: 'fragment',
-  SHOCK_WAVE: 'shock_wave',
-  DUST: 'dust'
-}
-
 // 掌子面(岩体边缘)到隧道中心的轴向距离(m)：与 initBlast 中 faceCenter = center + forward*3 保持一致
 const FACEOFFSET_FROM_TUNNEL_CENTER = 3.0
 
@@ -123,17 +113,6 @@ export class ThreeBlastingRenderer {
       spark: createSparkTexture()
     }
 
-    // 粒子组
-    this.particleGroups = {
-      [THREE_PARTICLE_TYPES.FIRE]: null,
-      [THREE_PARTICLE_TYPES.SMOKE]: null,
-      [THREE_PARTICLE_TYPES.SPARK]: null,
-      [THREE_PARTICLE_TYPES.FRAGMENT]: null,
-      [THREE_PARTICLE_TYPES.SHOCK_WAVE]: null,
-      [THREE_PARTICLE_TYPES.DUST]: null
-    }
-
-    this.particles = []
     this.clock = new THREE.Clock()
     this.center = new THREE.Vector3(0, 0, 0)
     // 应力/损伤场爆心（网格局部坐标，缺省网格原点）；由 blastingManager 注入掏槽孔质心
@@ -171,7 +150,7 @@ export class ThreeBlastingRenderer {
     this._renderLoopRaf = null
 
     // 图层可见性开关（供 UI 切换烟雾/碎石/隧道/钻孔/标注等）
-    // 粒子图层：与 THREE_PARTICLE_TYPES 对应；mesh 图层：tunnel/bench/face/blastHoles/annotations
+    // mesh 图层：tunnel/bench/face/blastHoles/annotations
     this.layerVisibility = {
       fire: true,
       smoke: true,
@@ -302,10 +281,7 @@ export class ThreeBlastingRenderer {
     // 初始化尺寸：同步 renderer/camera/bloomComposer 三者，修复初始渲染不高清 bug
     this.resize()
 
-    // 调试钩子：把渲染器暴露到 window，便于在控制台检查振动场状态
-    if (typeof window !== 'undefined') {
-      window.__blastingRenderer = this
-    }
+    // 调试钩子已移除
   }
 
   /**
@@ -1481,14 +1457,6 @@ export class ThreeBlastingRenderer {
   }
 
   clear() {
-    for (const key of Object.keys(this.particleGroups)) {
-      if (this.particleGroups[key]) {
-        this.scene.remove(this.particleGroups[key])
-        this.particleGroups[key].geometry?.dispose()
-        this.particleGroups[key].material?.dispose()
-        this.particleGroups[key] = null
-      }
-    }
     // 清理碎片
     this._fragmentRenderer.clear()
     // 清理场景网格（掌子面/岩体/隧道/钻孔/标注）

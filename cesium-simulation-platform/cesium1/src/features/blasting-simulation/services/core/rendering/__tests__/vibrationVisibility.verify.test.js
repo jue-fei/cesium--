@@ -77,8 +77,7 @@ describe('振动场体积渲染可见性验证', () => {
     // 回拉确定性：重新计算同一时刻（t=1.2）分区应与首次完全一致（不允许累积残留）
     const { zones: z1b } = sim.computeAtTime(1.2)
     expect(Array.from(z1b)).toEqual(Array.from(z1))
-    // 循环回卷重置后，未到达处重新为 0
-    sim.resetPeak()
+    // 循环回卷后，未到达处重新为 0（损伤分区为确定性算法，无需显式重置）
     const { zones: z3 } = sim.computeAtTime(0.15)
     const nz3 = Array.from(z3).reduce((s, z) => s + (z >= 1 ? 1 : 0), 0)
     expect(nz3).toBeLessThan(nz2)

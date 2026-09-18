@@ -576,8 +576,12 @@ export function buildSharpEdgesGeometry(geometry, angleDeg = 20, posDecimals = 4
     return s
   }
   const faceNormal = (a, b, c) => {
-    const ux = pa[b * 3] - pa[a * 3], uy = pa[b * 3 + 1] - pa[a * 3 + 1], uz = pa[b * 3 + 2] - pa[a * 3 + 2]
-    const vx = pa[c * 3] - pa[a * 3], vy = pa[c * 3 + 1] - pa[a * 3 + 1], vz = pa[c * 3 + 2] - pa[a * 3 + 2]
+    const ux = pa[b * 3] - pa[a * 3],
+      uy = pa[b * 3 + 1] - pa[a * 3 + 1],
+      uz = pa[b * 3 + 2] - pa[a * 3 + 2]
+    const vx = pa[c * 3] - pa[a * 3],
+      vy = pa[c * 3 + 1] - pa[a * 3 + 1],
+      vz = pa[c * 3 + 2] - pa[a * 3 + 2]
     let nx = uy * vz - uz * vy
     let ny = uz * vx - ux * vz
     let nz = ux * vy - uy * vx
@@ -589,7 +593,9 @@ export function buildSharpEdgesGeometry(geometry, angleDeg = 20, posDecimals = 4
   const edgeMap = new Map()
   const nT = ia.length / 3
   for (let t = 0; t < nT; t++) {
-    const i0 = ia[t * 3], i1 = ia[t * 3 + 1], i2 = ia[t * 3 + 2]
+    const i0 = ia[t * 3],
+      i1 = ia[t * 3 + 1],
+      i2 = ia[t * 3 + 2]
     const n = faceNormal(i0, i1, i2)
     const ks = [key(i0), key(i1), key(i2)]
     for (let e = 0; e < 3; e++) {
@@ -671,14 +677,20 @@ export function removeSliverTriangles(geometry, maxRatio = 40, capAxisTol = 0.02
   const isKept = new Array(nT)
   let keptTris = 0
   for (let t = 0; t < nT; t++) {
-    const a = ia[t * 3], b = ia[t * 3 + 1], c = ia[t * 3 + 2]
-    const e0 = d2i(a, b), e1 = d2i(b, c), e2 = d2i(c, a)
+    const a = ia[t * 3],
+      b = ia[t * 3 + 1],
+      c = ia[t * 3 + 2]
+    const e0 = d2i(a, b),
+      e1 = d2i(b, c),
+      e2 = d2i(c, a)
     const mn = Math.min(e0, e1, e2)
     const mx = Math.max(e0, e1, e2)
     let sliver = mn > 1e-12 && Math.sqrt(mx / mn) > maxRatio
     if (sliver) {
       // 端面判定：三顶点 z 极差 ≤ tol（贴 z=常平面）。侧壁面板 z 向跨度大 → 保留。
-      const za = pa[a * 3 + 2], zb = pa[b * 3 + 2], zc = pa[c * 3 + 2]
+      const za = pa[a * 3 + 2],
+        zb = pa[b * 3 + 2],
+        zc = pa[c * 3 + 2]
       if (Math.max(za, zb, zc) - Math.min(za, zb, zc) > capAxisTol) sliver = false
     }
     isKept[t] = !sliver
@@ -700,7 +712,8 @@ export function removeSliverTriangles(geometry, maxRatio = 40, capAxisTol = 0.02
   for (let t = 0; t < nT; t++) {
     const ks = [vk(ia[t * 3]), vk(ia[t * 3 + 1]), vk(ia[t * 3 + 2])]
     for (let e = 0; e < 3; e++) {
-      const ka = ks[e], kb = ks[(e + 1) % 3]
+      const ka = ks[e],
+        kb = ks[(e + 1) % 3]
       if (ka === kb) continue
       const ek = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`
       let rec = edgeMap.get(ek)
@@ -721,7 +734,10 @@ export function removeSliverTriangles(geometry, maxRatio = 40, capAxisTol = 0.02
       holeEdges.push(rec)
       for (const end of [rec.ka, rec.kb]) {
         let l = holeAdj.get(end)
-        if (!l) { l = []; holeAdj.set(end, l) }
+        if (!l) {
+          l = []
+          holeAdj.set(end, l)
+        }
         l.push(rec)
       }
     }
@@ -751,19 +767,27 @@ export function removeSliverTriangles(geometry, maxRatio = 40, capAxisTol = 0.02
   let patchTris = 0
   for (const loop of loops) {
     // Newell 法线 + 质心
-    let nx = 0, ny = 0, nz = 0
-    let cx = 0, cy = 0, cz = 0
+    let nx = 0,
+      ny = 0,
+      nz = 0
+    let cx = 0,
+      cy = 0,
+      cz = 0
     for (let i = 0; i < loop.length; i++) {
       const p = vmap.get(loop[i])
       const q = vmap.get(loop[(i + 1) % loop.length])
       nx += (p[1] - q[1]) * (p[2] + q[2])
       ny += (p[2] - q[2]) * (p[0] + q[0])
       nz += (p[0] - q[0]) * (p[1] + q[1])
-      cx += p[0]; cy += p[1]; cz += p[2]
+      cx += p[0]
+      cy += p[1]
+      cz += p[2]
     }
     const nl = Math.hypot(nx, ny, nz)
     if (nl < 1e-9) continue // 退化环：不补（罕见），接受该处开缝
-    nx /= nl; ny /= nl; nz /= nl
+    nx /= nl
+    ny /= nl
+    nz /= nl
     // 扇形补面以**环首顶点**为扇心（不新增顶点）：新增质心点是仅被补面面片
     // 共享的新高阶点，剖切封口行走器在其上无既有邻接信息，Y 轴剖切实测留 5 条
     // 开边；用既有顶点则剖切按原顶点的邻接表正常行走。

@@ -32,6 +32,8 @@ import {
   calcTunnelArea
 } from './core/blastDefaults.js'
 import { INDUSTRIAL_BANDS_DEFAULT } from './core/rendering/vibrationColorScales.js'
+import { SADOVSKY_DEFAULT_K, SADOVSKY_DEFAULT_ALPHA } from './core/vibrationDefaults.js'
+import { matchLiteratureEvent } from './core/literatureEvents.js'
 
 /**
  * 将 { lon, lat, height } 形式的位置转换为 Cesium.Cartesian3
@@ -105,6 +107,20 @@ const DEFAULT_RENDER_CONFIG = {
   threeJsParticleScale: 1.0
 }
 
+// 文献事件 key → 隧道设计构建器（事件匹配规则见 core/literatureEvents.js）
+const LITERATURE_DESIGN_BUILDERS = {
+  nanshan: buildNanshanTunnelDesign,
+  kunyang: buildKunyangTunnelDesign,
+  dabalai: buildDabalaiTunnelDesign,
+  sanlengshan: buildSanlengshanTunnelDesign,
+  yuyang: buildYuyangTunnelDesign,
+  dongwujun: buildDongwujunTunnelDesign,
+  fengyin: buildFengyinTunnelDesign
+}
+
+// WS 振动场帧陈旧判定阈值（ms）：超过该时长未收到帧则回退本地模拟
+const WS_STALE_MS = 2000
+
 // 爆心位置始终尊重 DB 中各事件的地理坐标（曾提供 UNIFY_BLAST_CENTER 统一爆心开关，恒为 false 已移除）
 
 /**
@@ -122,6 +138,11 @@ const DEFAULT_RENDER_CONFIG = {
  * }
  */
 export class BlastingManager {
+  /** three.js 渲染器快捷访问（threeBridge 懒初始化/销毁期间为 null） */
+  get _threeRenderer() {
+    return this.threeBridge?.getThreeRenderer?.() || null
+  }
+
   constructor(viewer) {
     if (!viewer) throw new Error('Viewer is required for BlastingManager')
     this.viewer = viewer
@@ -288,72 +309,21 @@ export class BlastingManager {
   /**
    * 按事件选择对应的文献化隧道设计（CO 按 event_id/名称赠送对应文献模型）。
    * 避免此前"凡 wedge 一律盖章南山"导致 006(Da Balai/昆阳) 与 002(南山) 模型完全相同。
-   *   - 002 / 名称含「南山」→ 南山隧道 15.56×10.23m 楔形掏槽（K=113.64, α=1.341）
-   *   - 004 / 名称含「昆阳」→ 昆阳磷矿 4.7×3.75m 三心拱 楔形掏槽（K=90.63, α=1.58）
-   *   - 001 / 名称含「达巴莱」→ 达巴莱隧道 9.0×7.0m 楔形掏槽（K=150, α=1.7）
-   *   - 003 / 名称含「三棱山」→ 三棱山隧道 13.5×10.25m 楔形掏槽（K=19.3, α=1.082）
-   *   - 005 / 名称含「余漾」→ 余漾隧道 10.8×7.4m 楔形掏槽（块度 x50≈0.19m）
-   *   - 006 / 名称含「天江里/董武俊」→ 天江里隧道 12.25×9.25m 台阶法全断面（x50≈0.19m）
-   *   - 007 / 名称含「备战铁矿/冯银」→ 备战铁矿巷道 4.2×4.0m 双楔形掏槽（环间延时）
-   *   - 其余 → 保持数据库原始设计（不盖章）
+   * 事件→key 的匹配规则与各事件孔深/利用率/K/α 见 core/literatureEvents.js（单源）。
    * @returns {{ key: 'nanshan'|'kunyang'|'dabalai'|'sanlengshan'|'yuyang'|'dongwujun'|'fengyin'|null,
    *    design?: {section, holes}, holeDepth?: number, utilization?: number }}
    */
   _resolveLiteratureDesign() {
-    const evId = String(this.dataset?.event?.event_id || '')
-    const evName = String(this.dataset?.event?.name || '')
-    if (evId.endsWith('002') || evName.includes('南山')) {
-      return {
-        key: 'nanshan',
-        design: buildNanshanTunnelDesign(),
-        holeDepth: 3.0,
-        utilization: 0.85
-      }
+    const ev = this.dataset?.event
+    const lit = matchLiteratureEvent(ev?.event_id, ev?.name)
+    if (!lit) return { key: null, design: null }
+    const builder = LITERATURE_DESIGN_BUILDERS[lit.key]
+    return {
+      key: lit.key,
+      design: builder ? builder() : null,
+      holeDepth: lit.holeDepth,
+      utilization: lit.utilization
     }
-    if (evId.endsWith('004') || evName.includes('昆阳')) {
-      return {
-        key: 'kunyang',
-        design: buildKunyangTunnelDesign(),
-        holeDepth: 3.0,
-        utilization: 0.85
-      }
-    }
-    if (evId.endsWith('001') || evName.includes('Da Balai') || evName.includes('达巴莱')) {
-      return {
-        key: 'dabalai',
-        design: buildDabalaiTunnelDesign(),
-        holeDepth: 3.0,
-        utilization: 0.85
-      }
-    }
-    if (evId.endsWith('003') || evName.includes('三棱山')) {
-      return {
-        key: 'sanlengshan',
-        design: buildSanlengshanTunnelDesign(),
-        holeDepth: 3.0,
-        utilization: 0.9
-      }
-    }
-    if (evId.endsWith('005') || evName.includes('余漾')) {
-      return { key: 'yuyang', design: buildYuyangTunnelDesign(), holeDepth: 3.2, utilization: 0.85 }
-    }
-    if (evId.endsWith('006') || evName.includes('天江里') || evName.includes('董武俊')) {
-      return {
-        key: 'dongwujun',
-        design: buildDongwujunTunnelDesign(),
-        holeDepth: 2.2,
-        utilization: 0.9
-      }
-    }
-    if (evId.endsWith('007') || evName.includes('备战铁矿') || evName.includes('冯银')) {
-      return {
-        key: 'fengyin',
-        design: buildFengyinTunnelDesign(),
-        holeDepth: 3.0,
-        utilization: 0.9
-      }
-    }
-    return { key: null, design: null }
   }
 
   /**
@@ -394,7 +364,7 @@ export class BlastingManager {
    * @param {'interior'|'exterior'} mode - 视角模式
    */
   setCameraViewMode(mode) {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     if (!renderer?.setCameraViewMode) return
     const design = this.dataset?.design || {}
     renderer.setCameraViewMode(mode, {
@@ -501,7 +471,7 @@ export class BlastingManager {
    *  - 完成实测/录制 → 固定时长（全落地 + 3s），进度条在该时长后结束/循环。
    */
   _syncDurationFromRenderer() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     if (!renderer) return
     const d = renderer.getSimulationDurationS?.() || null
     if (d != null && Number.isFinite(d) && d > 0 && d > (this._durationS || 0)) {
@@ -516,13 +486,13 @@ export class BlastingManager {
 
   /** 关键帧回放（全速预计算）是否就绪 */
   isBlastReplayReady() {
-    return !!this.threeBridge?.getThreeRenderer?.()?.getReplayDurationS?.()
+    return !!this._threeRenderer?.getReplayDurationS?.()
   }
 
   /** 全速预计算进度：{ active: boolean, pct: 0-100 }（供 UI 显示"物理预计算中"） */
   getReplayProgress() {
     return (
-      this.threeBridge?.getThreeRenderer?.()?.getReplayProgress?.() ?? {
+      this._threeRenderer?.getReplayProgress?.() ?? {
         active: false,
         pct: 0
       }
@@ -592,7 +562,7 @@ export class BlastingManager {
     this.threeBridge.setCenter(center.lon, center.lat, center.height)
 
     // ── 注入数据库爆破设计数据：隧道断面 + 炮孔设计 + 设计参数 ──
-    const renderer = this.threeBridge.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     const design = this.dataset?.design
     // holes 来自 blasting_design_holes 表，供炮孔布局与 KCO 单孔药量推导使用
     const holes = Array.isArray(design?.holes) ? design.holes : []
@@ -704,7 +674,7 @@ export class BlastingManager {
     this.threeBridge.startBlast(blastParams)
 
     // 注册爆破场景工具桥：供模型控制透明度/测量/裁剪等在爆破模式下重定向到 three 场景
-    blastingSceneTools.setRenderer(this.threeBridge.getThreeRenderer?.() || null)
+    blastingSceneTools.setRenderer(this._threeRenderer || null)
 
     // 跳转到隧道内部视角（直接设置相机位置，非飞行）
     this._jumpToCameraView()
@@ -715,7 +685,7 @@ export class BlastingManager {
    * 相机位于隧道内部（掌子面后方），朝向掌子面观察
    */
   _jumpToCameraView() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     if (!renderer?.setupCameraView) return
     const design = this.dataset?.design || {}
     const tunnelLen = Number(design.tunnelLength) || 0
@@ -738,7 +708,7 @@ export class BlastingManager {
    */
   getThreeStats() {
     if (!this.threeBridge) return null
-    return this.threeBridge.getThreeRenderer?.()?.getStats() || null
+    return this._threeRenderer?.getStats() || null
   }
 
   /**
@@ -746,7 +716,7 @@ export class BlastingManager {
    * @returns {Object|null} { buckets, total, x50, x80, xmax }
    */
   getFragmentDistribution() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     return renderer?.getFragmentDistribution?.() || null
   }
 
@@ -756,13 +726,13 @@ export class BlastingManager {
    * @param {number} maxSize - 物理尺寸上限（米）
    */
   highlightFragmentsBySize(minSize, maxSize) {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     renderer?.highlightFragmentsBySize?.(minSize, maxSize)
   }
 
   /** 清除碎片高亮，恢复原始颜色 */
   clearFragmentHighlight() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     renderer?.clearFragmentHighlight?.()
   }
 
@@ -775,7 +745,7 @@ export class BlastingManager {
    * @param {Object} cfg - { gridShape, boundsMin, boundsMax }
    */
   initVibrationField(cfg) {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     renderer?.initVibrationField?.(cfg)
     // 岩体几何实测的"波场可达半径"回传（本地模拟器/后端包络都取同一值，
     // 保证波一路衰减到模型边界、不在岩体中部截断）
@@ -860,7 +830,7 @@ export class BlastingManager {
       sources: this._computeBlastSources(),
       // 隧道马蹄形轮廓自由面（与 GPU/初始 sim 同口径）
       tunnelFace: this._tunnelFaceConfig(
-        this.threeBridge?.getThreeRenderer?.(),
+        this._threeRenderer,
         Math.max(1, sizeX || params.tunnelWidth),
         cfg.boundsMin?.[1] ?? 0
       ),
@@ -990,7 +960,7 @@ export class BlastingManager {
     // 【PPV 固定量程】用户取证:Python 显示 rRef=117cm/s 已能拉出黄绿梯度;
     // 直接固定 uMaxPPV = 120cm/s,不再做任何自适应(旧 2×P50 EMA 把满刻度
     // 拉得极低,100%近场顶死在最高档 → 全红;用户已明确要求废止)。
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     renderer?.updateVibrationField?.(this._smoothField3d(ppv, this._vibGridShape), t, frame)
     this._liveRefs ??= {}
     const target = 1.2 // 120 cm/s = 1.20 m/s
@@ -1008,7 +978,7 @@ export class BlastingManager {
    * "Seek 期间阻塞着色器读取旧数据"，直到目标帧切片到达。
    */
   clearVibrationFieldTextures() {
-    this.threeBridge?.getThreeRenderer?.()?.clearFieldTextures?.()
+    this._threeRenderer?.clearFieldTextures?.()
     this._fieldPrev = null
     this._fieldCur = null
     this._vibFieldLastUpdate = -1
@@ -1022,7 +992,7 @@ export class BlastingManager {
    */
   updateStressField(sigmaVm, t, frame) {
     this._lastWsStressMs = performance.now()
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     renderer?.updateStressField?.(sigmaVm, t, frame)
   }
 
@@ -1034,7 +1004,7 @@ export class BlastingManager {
    */
   updateDamageField(zones, t, frame) {
     this._lastWsDamageMs = performance.now()
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     renderer?.updateDamageField?.(zones, t, frame)
   }
 
@@ -1043,7 +1013,7 @@ export class BlastingManager {
    * @param {string|number} mode
    */
   setVibrationDisplayMode(mode) {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     renderer?.setVibrationDisplayMode?.(mode)
   }
 
@@ -1052,17 +1022,17 @@ export class BlastingManager {
    * @param {boolean} enabled
    */
   setWhiteModelEnabled(enabled) {
-    this.threeBridge?.getThreeRenderer?.()?.setBenchWhiteModel?.(!!enabled)
+    this._threeRenderer?.setBenchWhiteModel?.(!!enabled)
   }
 
   /** 开关振动场等力线（等值线）叠加显示 */
   setIsoLineEnabled(enabled) {
-    this.threeBridge?.getThreeRenderer?.()?.setIsoLine?.(!!enabled)
+    this._threeRenderer?.setIsoLine?.(!!enabled)
   }
 
   /** 设置等值线样式（线宽 px / 统一颜色；color 省略=保持，null=恢复级别取色） */
   setIsoLineStyle({ width, color } = {}) {
-    this.threeBridge?.getThreeRenderer?.()?.setIsoLineStyle?.({ width, color })
+    this._threeRenderer?.setIsoLineStyle?.({ width, color })
   }
 
   /** 开关振动场矢量箭头（P1-6：波传播方向可视化） */
@@ -1074,12 +1044,12 @@ export class BlastingManager {
   /** 设置半透明渲染（1=热力场上限 0.55 露出岩底，0=实色 0.85） */
   setVibrationTranslucent(on) {
     this._vibTranslucent = !!on
-    this.threeBridge?.getThreeRenderer?.()?.setFieldTranslucent?.(this._vibTranslucent)
+    this._threeRenderer?.setFieldTranslucent?.(this._vibTranslucent)
   }
 
   /** 主动触发一次等值线构建（场景就绪/切换模式后调用，不依赖播放推进） */
   refreshContours() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     if (renderer) this._ensureContourPipeline(renderer)
   }
 
@@ -1114,7 +1084,7 @@ export class BlastingManager {
    * @param {boolean} [force=true] - true=即便未开启也强制按当前几何重算并下发
    */
   _pushVectorFieldNow(force = true) {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     if (!renderer) return
     if (!this._vibVectorFieldOn) {
       renderer.clearVectorField?.()
@@ -1156,8 +1126,8 @@ export class BlastingManager {
       return
     }
     const opt = {
-      K: this._sadoskyK ?? 90,
-      alpha: this._sadoskyAlpha ?? 1.58,
+      K: this._sadoskyK ?? SADOVSKY_DEFAULT_K,
+      alpha: this._sadoskyAlpha ?? SADOVSKY_DEFAULT_ALPHA,
       beta:
         Number(this.dataset?.event?.rockParams?.attenuationP) || this.dataset?.event?.beta || 0.02,
       visualBeta: 0.8,
@@ -1203,8 +1173,8 @@ export class BlastingManager {
     const rockParams = this.dataset?.event?.rockParams || {}
     const origin = this._computeBlastOrigin()
     return computePpvDecayProfile(sources, {
-      K: this._sadoskyK ?? 90,
-      alpha: this._sadoskyAlpha ?? 1.58,
+      K: this._sadoskyK ?? SADOVSKY_DEFAULT_K,
+      alpha: this._sadoskyAlpha ?? SADOVSKY_DEFAULT_ALPHA,
       visualCp: 35,
       visualBeta: 0.8,
       minStandoff: 0.5,
@@ -1224,7 +1194,7 @@ export class BlastingManager {
    * @param {number} mode - 0|1
    */
   setVibrationNormMode(mode) {
-    this.threeBridge?.getThreeRenderer?.()?.setNormMode?.(mode)
+    this._threeRenderer?.setNormMode?.(mode)
   }
 
   /**
@@ -1243,7 +1213,7 @@ export class BlastingManager {
   setVibrationCarrierHz(hz) {
     const v = Math.max(0, Math.min(30, Number(hz) || 0))
     this._vibCarrierHz = v
-    this.threeBridge?.getThreeRenderer?.()?.setFieldPhysics?.({ carrierHz: v })
+    this._threeRenderer?.setFieldPhysics?.({ carrierHz: v })
   }
 
   /**
@@ -1264,19 +1234,19 @@ export class BlastingManager {
 
   /** 当前是否已有可渲染的振动场 */
   hasVibrationField() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     return !!renderer?.hasVibrationField?.()
   }
 
   /** 关闭"场点拾取" */
   disablePpvPick() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     renderer?.disablePointPick?.()
   }
 
   /** 振动场元信息（grid/时间/帧） */
   getVibrationFieldInfo() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     return renderer?.getVibrationFieldInfo?.() || null
   }
 
@@ -1291,7 +1261,7 @@ export class BlastingManager {
    * @returns {number[]} [x, y, z] 网格局部坐标（米）
    */
   _computeBlastOrigin() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     const totalH =
       Math.max(1, Number(renderer?.tunnelHeight)) ||
       DEFAULT_TUNNEL_WALL_HEIGHT + DEFAULT_TUNNEL_ARCH_RADIUS
@@ -1332,7 +1302,7 @@ export class BlastingManager {
    * @returns {Array|null} [{x,y,z,chargeKg,delayMs,id}]；无事件/无装药孔时 null（退化为单源）
    */
   _computeBlastSources() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     const faceOffset = Number(renderer?.faceOffset) || 3
     const totalH =
       Math.max(1, Number(renderer?.tunnelHeight)) ||
@@ -1476,9 +1446,13 @@ export class BlastingManager {
     const design = this.dataset.design || {}
     const effSec = this._effectiveSection
     const origin = this._computeBlastOrigin()
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     const faceOffset = Number(renderer?.faceOffset ?? design.faceOffset)
-    const backendOrigin = [origin[0], origin[1], origin[2] - (Number.isFinite(faceOffset) ? faceOffset : 3)]
+    const backendOrigin = [
+      origin[0],
+      origin[1],
+      origin[2] - (Number.isFinite(faceOffset) ? faceOffset : 3)
+    ]
     return {
       chargeKg: Number(event.chargeKg) || 100,
       // backend build_ppv_grid 以当前掌子面为 z=0；GPU/本地 g 系仍保留 faceOffset。
@@ -1491,8 +1465,8 @@ export class BlastingManager {
         (Number(effSec?.archRadius) ||
           Number(design.tunnelArchRadius) ||
           DEFAULT_TUNNEL_ARCH_RADIUS),
-      k: this._sadoskyK ?? 90,
-      alpha: this._sadoskyAlpha ?? 1.58
+      k: this._sadoskyK ?? SADOVSKY_DEFAULT_K,
+      alpha: this._sadoskyAlpha ?? SADOVSKY_DEFAULT_ALPHA
     }
   }
 
@@ -1507,7 +1481,7 @@ export class BlastingManager {
   getStreamBlastSources() {
     const sources = this._computeBlastSources()
     if (!Array.isArray(sources) || sources.length === 0) return null
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     const design = this.dataset?.design || {}
     const faceOffset = Number(renderer?.faceOffset ?? design.faceOffset)
     const faceZ = Number.isFinite(faceOffset) ? faceOffset : 3
@@ -1612,7 +1586,7 @@ export class BlastingManager {
    * 仅传入可解析字段，缺省项保留 SceneBuilder 内置默认，不会覆盖为无效值。
    */
   _pushFieldPhysics() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     if (!renderer) return
     const params = this.getPpvStreamParams()
     if (!params) return
@@ -1626,8 +1600,8 @@ export class BlastingManager {
     // 旧 EMA 随帧改满刻度会导致图例/等值线级别同步漂移，与工程图惯例相悖。
     renderer.setFieldPhysics?.({
       chargeKg: params.chargeKg,
-      k: this._sadoskyK ?? 90,
-      alpha: this._sadoskyAlpha ?? 1.58,
+      k: this._sadoskyK ?? SADOVSKY_DEFAULT_K,
+      alpha: this._sadoskyAlpha ?? SADOVSKY_DEFAULT_ALPHA,
       beta: Number(rockParams.attenuationP) || this.dataset?.event?.beta || 0.02,
       visualCp: 35,
       rho: Number(design.rockDensity) || 2650,
@@ -1688,8 +1662,8 @@ export class BlastingManager {
    * @returns {{ ppvRefMps:number, stressRefMPa:number }}
    */
   _computeAutoFieldRefs(params, sources, design, rockParams) {
-    const K = this._sadoskyK ?? 90
-    const alpha = this._sadoskyAlpha ?? 1.58
+    const K = this._sadoskyK ?? SADOVSKY_DEFAULT_K
+    const alpha = this._sadoskyAlpha ?? SADOVSKY_DEFAULT_ALPHA
     // 有效总装药：优先各装药段之和，否则用事件总装药
     let Q = 0
     if (Array.isArray(sources) && sources.length) {
@@ -1796,9 +1770,7 @@ export class BlastingManager {
       ...(this._lastFieldRefs || {}),
       [isPpv ? 'ppvRefMps' : 'stressRefMPa']: value
     }
-    this.threeBridge
-      ?.getThreeRenderer?.()
-      ?.setFieldPhysics?.(isPpv ? { ppvRefMps: value } : { stressRefMPa: value })
+    this._threeRenderer?.setFieldPhysics?.(isPpv ? { ppvRefMps: value } : { stressRefMPa: value })
     console.warn('[BlastingManager] 绝对量程已锁定（P99.7 分位扫描）', {
       场: kind,
       满刻度: Number(value.toPrecision(4)),
@@ -1815,8 +1787,8 @@ export class BlastingManager {
    * @returns {number} 1~80 的展开因子（1=不缩放）
    */
   _analyticAutoscale(params, sources, design, rockParams) {
-    const K = this._sadoskyK ?? 90
-    const alpha = this._sadoskyAlpha ?? 1.58
+    const K = this._sadoskyK ?? SADOVSKY_DEFAULT_K
+    const alpha = this._sadoskyAlpha ?? SADOVSKY_DEFAULT_ALPHA
     let Q = 0
     if (Array.isArray(sources) && sources.length) {
       for (const s of sources) Q += Number(s?.chargeKg) || 0
@@ -1838,7 +1810,7 @@ export class BlastingManager {
   }
 
   enablePpvPick(handler, opts) {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     return renderer?.enablePointPick?.(handler, opts) ?? null
   }
 
@@ -1852,7 +1824,7 @@ export class BlastingManager {
       this._lastWsDamageMs = 0
     } else {
       // 停用时清理粒子（避免残留上一轮的波前粒子）
-      this.threeBridge?.getThreeRenderer?.()?.clearVibrationParticles?.()
+      this._threeRenderer?.clearVibrationParticles?.()
       this._particleEmitState = { emittedUntil: -1, lastT: -1 }
     }
   }
@@ -1869,7 +1841,7 @@ export class BlastingManager {
     // 底部对齐 y=floorY、顶部到 floorY+totalH；旧版默认用对称 [-H/2, H/2]，
     // 导致岩体上半部（拱顶+上部直墙）落在场外→"外围一圈无颜色"。
     // 分辨率按完整断面高度调高竖向（ny），使热力色带在拱高方向更细致。
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     const tsec = renderer?.tunnelSection
     const W = Math.max(1, Number(tsec?.width) || params.tunnelWidth)
     const totalH = Math.max(1, Number(renderer?.tunnelHeight) || params.tunnelHeight)
@@ -1918,7 +1890,7 @@ export class BlastingManager {
    */
 
   stepLocalVibration(time, frame) {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     if (!renderer) return
     const sim = this._ensureLocalVibrationSim()
     if (!sim) return
@@ -1935,14 +1907,13 @@ export class BlastingManager {
     // 旧实现只按 _vibFieldLastUpdate 做正向节流：时间回退时 t−last<0 恒小于
     // interval → 热力图/损伤峰值停在跳变前的时刻，与时间轴脱节（循环回卷后
     // 甚至要等一整圈才能恢复刷新）。发现跳变立即强制：清掉旧波前粒子并重置
-    // 发射状态、重置损伤峰值累积、置 _vibFieldLastUpdate=-1 使本帧重算目标时刻。
+    // 发射状态、清空粒子、置 _vibFieldLastUpdate=-1 使本帧重算目标时刻。
     const rewind = t < this._vibLastStepT - 1e-4
     const jumpForward =
       this._vibLastStepT >= 0 && t - this._vibLastStepT > this._vibFieldUpdateInterval * 1.5
     if (rewind || jumpForward) {
       renderer.clearVibrationParticles?.()
       this._particleEmitState = { emittedUntil: -1, lastT: -1 }
-      sim.resetPeak?.()
       // 【Seek 清屏】清空三张场纹理：回卷/前跳时 GPU 里驻留的旧帧（尤其是
       // 峰值/损伤的"未来帧最大值"）会在新帧落地前被读到 → 糊成色块。
       renderer.clearFieldTextures?.()
@@ -1955,10 +1926,9 @@ export class BlastingManager {
 
     if (t < blastTriggerTime) {
       if (this._particleEmitState.emittedUntil >= 0) {
-        // 回到起爆前（循环回卷）：清空粒子 + 重置损伤峰值累积
+        // 回到起爆前（循环回卷）：清空粒子
         renderer.clearVibrationParticles?.()
         this._particleEmitState = { emittedUntil: -1, lastT: -1 }
-        sim.resetPeak?.()
       }
       return
     }
@@ -2092,8 +2062,8 @@ export class BlastingManager {
    */
   _monitorParams(rockParams = {}) {
     return {
-      K: this._sadoskyK ?? 90,
-      alpha: this._sadoskyAlpha ?? 1.58,
+      K: this._sadoskyK ?? SADOVSKY_DEFAULT_K,
+      alpha: this._sadoskyAlpha ?? SADOVSKY_DEFAULT_ALPHA,
       beta: Number(rockParams.attenuationP) || this.dataset?.event?.beta || 0.02,
       visualBeta: this._localVibrationSim?.params?.visualBeta ?? 0.8,
       cp: Number(rockParams.pWaveSpeed) || 4500,
@@ -2139,7 +2109,6 @@ export class BlastingManager {
     // 本地模拟用 visualCp≈35m/s（可视波前），WS 用 cp=4500m/s（物理波前），
     // 两数据源交替写同一纹理会导致云图闪烁/回跳，故以 WS 优先、本地兜底。
     const nowMs = performance.now()
-    const WS_STALE_MS = 2000
     if (nowMs - (this._lastWsStressMs || 0) > WS_STALE_MS) {
       renderer.updateStressField?.(this._smoothField3d(sigmaVm, this._vibGridShape), t, frame)
     }
@@ -2391,7 +2360,6 @@ export class BlastingManager {
 
     renderer.updateVibrationField?.(ppvBuf, t, frame)
     const nowMs = performance.now()
-    const WS_STALE_MS = 2000
     if (nowMs - (this._lastWsStressMs || 0) > WS_STALE_MS) {
       renderer.updateStressField?.(sigBuf, t, frame)
     }
@@ -2403,13 +2371,13 @@ export class BlastingManager {
    * @param {boolean} visible
    */
   setLayerVisible(layer, visible) {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     renderer?.setLayerVisible?.(layer, visible)
   }
 
   /** 批量设置图层可见性 */
   setLayersVisible(map = {}) {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     renderer?.setLayersVisible?.(map)
   }
 
@@ -2419,7 +2387,7 @@ export class BlastingManager {
    * @param {Object} payload - { width, wallHeight, archRadius, shape, cutPattern }
    */
   updateSection(payload) {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     if (!renderer) return
     // 1) 更新断面参数
     renderer.setTunnelSection({
@@ -2444,7 +2412,7 @@ export class BlastingManager {
 
   /** 获取当前图层可见性状态 */
   getLayerVisibility() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     return renderer?.getLayerVisibility?.() || null
   }
 
@@ -2452,19 +2420,19 @@ export class BlastingManager {
 
   /** 开启/关闭爆堆轮廓渲染 */
   setMuckPileOutlineEnabled(enabled) {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     renderer?.setMuckPileOutlineEnabled?.(enabled)
   }
 
   /** 当前爆堆轮廓是否可见 */
   getMuckPileOutlineEnabled() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     return !!renderer?.getMuckPileOutlineEnabled?.()
   }
 
   /** 爆堆测量值（安息角/堆高/堆宽/堆长） */
   getMuckPileMeasure() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     return renderer?.getMuckPileMeasure?.() ?? null
   }
 
@@ -2473,7 +2441,7 @@ export class BlastingManager {
    * @returns {Object|null}
    */
   getBlastDesign() {
-    const renderer = this.threeBridge?.getThreeRenderer?.()
+    const renderer = this._threeRenderer
     return renderer?.getBlastDesign?.() || null
   }
 

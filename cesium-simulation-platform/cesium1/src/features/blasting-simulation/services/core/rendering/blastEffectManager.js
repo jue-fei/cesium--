@@ -227,10 +227,10 @@ export class BlastEffectManager {
       nx: out.x,
       ny: out.y,
       nz: out.z,
-      width: (tunnelSection.width || 10),
-      wallHeight: (tunnelSection.wallHeight || 6),
-      archRadius: (tunnelSection.archRadius || 5),
-      shape: (tunnelSection.shape || 'horseshoe')
+      width: tunnelSection.width || 10,
+      wallHeight: tunnelSection.wallHeight || 6,
+      archRadius: tunnelSection.archRadius || 5,
+      shape: tunnelSection.shape || 'horseshoe'
     }
 
     const allParticles = []

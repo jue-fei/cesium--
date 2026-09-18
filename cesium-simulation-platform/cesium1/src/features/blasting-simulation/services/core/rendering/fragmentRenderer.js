@@ -124,7 +124,10 @@ export class FragmentRenderer {
       }
     }
     // 2) 拱顶尖角探出：AABB 顶面超过净空 + 容差
-    const e = this._extentTable && spec && spec.variantIndex != null ? this._extentTable[spec.variantIndex] : null
+    const e =
+      this._extentTable && spec && spec.variantIndex != null
+        ? this._extentTable[spec.variantIndex]
+        : null
     if (e) {
       const qx = body.qx || 0
       const qy = body.qy || 0

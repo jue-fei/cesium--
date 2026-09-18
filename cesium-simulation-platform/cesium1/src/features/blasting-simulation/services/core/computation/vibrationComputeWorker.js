@@ -95,7 +95,9 @@ self.onmessage = e => {
     const srcFp = _sourcesFingerprint(p.sources)
     // 反射配置（掌子面自由面镜象源）纳入指纹：反射面变化 → 峰值场强制重算
     const reflFp = Array.isArray(p.reflections)
-      ? p.reflections.map(r => `${r.axis}:${Number(r.value).toFixed(3)}:${Number(r.coeff).toFixed(3)}`).join(',')
+      ? p.reflections
+          .map(r => `${r.axis}:${Number(r.value).toFixed(3)}:${Number(r.coeff).toFixed(3)}`)
+          .join(',')
       : 'none'
     const fp =
       srcFp +

@@ -120,9 +120,9 @@ describe('应力场与振速场空间结构不同（两图一模一样回归）'
     })
     const expectStatic = (2650 * 4500) / 0.75
     for (let i = 0; i < v.length; i++) {
-      expect(
-        Math.abs(outStatic[i] - expectStatic * v[i]) / (expectStatic * v[i])
-      ).toBeLessThan(1e-6)
+      expect(Math.abs(outStatic[i] - expectStatic * v[i]) / (expectStatic * v[i])).toBeLessThan(
+        1e-6
+      )
     }
   })
 })

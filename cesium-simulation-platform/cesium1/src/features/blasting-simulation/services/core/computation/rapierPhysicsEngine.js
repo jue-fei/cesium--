@@ -14,45 +14,21 @@
 
 import RAPIER from '@dimforge/rapier3d-compat'
 import { DEFAULT_RESTITUTION, DEFAULT_FRICTION, REST_SPEED } from '../blastDefaults.js'
+// 共享物理常量（GRAVITY/SETTLE_*/ENERGY_SAMPLE_INTERVAL/AIR_*/SPHERE_DRAG_COEFF/
+// FLAG_*/computeDragAccel）单源于 physicsConstants.js，与 blastPhysicsEngine.js 一致
+import {
+  GRAVITY,
+  SETTLE_SPEED,
+  SETTLE_FRAMES,
+  ENERGY_SAMPLE_INTERVAL,
+  computeDragAccel,
+  FLAG_ALIVE,
+  FLAG_LANDED
+} from './physicsConstants.js'
 
-// ─── 物理常量（与 blastPhysicsEngine.js 一致）──────────
-const GRAVITY = 9.8
-const SETTLE_SPEED = 0.8
-const SETTLE_FRAMES = 3
-const ENERGY_SAMPLE_INTERVAL = 0.1
-
-// 空气动力学常量
-const AIR_DENSITY = 1.225
-const AIR_KINEMATIC_VISC = 1.5e-5
-const SPHERE_DRAG_COEFF = 0.47
-
-// 碰撞分组（enableInterCollision=false 时使用）
+// 碰撞分组（enableInterCollision=false 时使用，本引擎专属）
 const FRAG_GROUPS = 0x00020001 // group=0x0001, mask=0x0002（仅与隧道碰撞）
 const TUNNEL_GROUPS = 0x00010002 // group=0x0002, mask=0x0001（仅与碎片碰撞）
-
-// body 状态标志位（与 blastPhysicsEngine.js 一致）
-const FLAG_ALIVE = 0x01
-const FLAG_LANDED = 0x02
-
-// ─── 空气阻力计算（P-01 分段模型，与原引擎完全一致）────
-function computeDragAccel(vx, vy, vz, size, mass) {
-  const v = Math.sqrt(vx * vx + vy * vy + vz * vz)
-  if (v < 1e-6 || mass <= 0) return { ax: 0, ay: 0, az: 0 }
-  const d = Math.max(0.01, size)
-  const Re = (v * d) / AIR_KINEMATIC_VISC
-  const area = Math.PI * (d / 2) * (d / 2)
-  let Cd
-  if (Re > 1e4) {
-    Cd = SPHERE_DRAG_COEFF
-  } else if (Re > 1) {
-    Cd = (24 / Re) * (1 + 0.15 * Math.pow(Re, 0.687))
-  } else {
-    Cd = 24 / Math.max(1e-3, Re)
-  }
-  const Fd = 0.5 * Cd * AIR_DENSITY * area * v * v
-  const a = Fd / mass
-  return { ax: -(a * vx) / v, ay: -(a * vy) / v, az: -(a * vz) / v }
-}
 
 // ─── 基向量 → 四元数（隧道朝向）────────────────────────
 function basisToQuat(rx, ry, rz, ux, uy, uz, fx, fy, fz) {
@@ -378,8 +354,7 @@ export class RapierPhysicsEngine {
         const dd = Math.min(R, Math.abs(ct))
         ceilU = R + Math.sqrt(Math.max(0, R * R - dd * dd))
       } else if (shape !== 'rectangular') {
-        ceilU =
-          Math.abs(ct) > R ? wallH : wallH + Math.sqrt(Math.max(0, R * R - ct * ct))
+        ceilU = Math.abs(ct) > R ? wallH : wallH + Math.sqrt(Math.max(0, R * R - ct * ct))
       }
       const cu = Math.max(0.05, Math.min(Math.max(0.05, ceilU - 0.05), u))
       b.rigidBody.setTranslation({ x: fc.x + rx * ct, y: fc.y + cu, z: fc.z + rz * ct }, false)

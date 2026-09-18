@@ -15,6 +15,10 @@ import {
   sealPlaneOpenBoundaries,
   weldPositions
 } from './geometrySmoothing.js'
+// 断面几何判定：与 tunnelDesign 布孔过滤共用同一实现（单源）
+import { isInsideSection } from '../computation/sectionShape.js'
+// mulberry32（漏斗形状可复现 RNG）：单源在 utils/rng.js
+import { mulberry32 } from '../utils/rng.js'
 import {
   PPV_COLOR_STOPS_LINEAR,
   STRESS_COLOR_STOPS_LINEAR,
@@ -889,7 +893,6 @@ const BENCH_FIELD_DEFAULTS = {
   stressFactor: 1.49e7
 }
 
-// ─── seeded RNG（mulberry32，保证漏斗形状可复现） ──────
 /** HSV → RGB（0..1），矢量箭头场按模长取色用 */
 function _hsvToRgb(h, s, v) {
   const i = Math.floor(h * 6)
@@ -910,17 +913,6 @@ function _hsvToRgb(h, s, v) {
       return [t, p, v]
     default:
       return [v, p, q]
-  }
-}
-
-function mulberry32(seed) {
-  let a = seed >>> 0
-  return function () {
-    a |= 0
-    a = (a + 0x6d2b79f5) | 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
 }
 
@@ -1381,7 +1373,6 @@ export class SceneBuilder {
         this[key] = null
       }
     }
-    this._sectionLine = null
     this._sectionFill = null
     this._sectionSphere = null
     this._lastCutAxis = null
@@ -3872,11 +3863,9 @@ uniform float uArrFade;`
     if (this._sectionMarkerGroup) {
       const parent = this._sectionMarkerGroup.parent
       if (parent) parent.remove(this._sectionMarkerGroup)
-      if (this._sectionLine) this._sectionLine.geometry.dispose()
       if (this._sectionFill) this._sectionFill.geometry.dispose()
       if (this._sectionSphere) this._sectionSphere.geometry.dispose()
       this._sectionMarkerGroup = null
-      this._sectionLine = null
       this._sectionFill = null
       this._sectionSphere = null
     }
@@ -4339,13 +4328,17 @@ uniform float uArrFade;`
 
   // 孔口是否落在掌子面马蹄形断面轮廓内侧（基准：底板 y=0，直墙高 Hw，拱半 R）
   _insideFaceProfile(x, y) {
-    if (y < -1e-4) return false // 不越底板
-    const Hw = this.tunnelWallHeight
-    const R = this.tunnelArchRadius
-    const halfW = this.tunnelWidth / 2
-    if (y <= Hw) return Math.abs(x) <= halfW
-    const dy = y - Hw
-    return x * x + dy * dy <= R * R
+    return isInsideSection(
+      {
+        width: this.tunnelWidth,
+        wallHeight: this.tunnelWallHeight,
+        archRadius: this.tunnelArchRadius
+      },
+      x,
+      y,
+      0,
+      1e-4
+    )
   }
 
   // ─── 回退模式：硬编码典型布孔（菱形掏槽 + 辅助 + 周边）
@@ -4882,12 +4875,7 @@ uniform float uArrFade;`
 
   // ─── 断面内判断 ──────────────────────────────────────
   _isInsideTunnelSection(x, y, W, Hw, R) {
-    if (Math.abs(x) > W / 2 - 0.2) return false
-    if (y < 0.2) return false
-    if (y <= Hw) return true
-    const dx = x
-    const dy = y - Hw
-    return dx * dx + dy * dy <= (R - 0.2) * (R - 0.2)
+    return isInsideSection({ width: W, wallHeight: Hw, archRadius: R }, x, y, 0.2)
   }
 
   // ─── 爆破触发（切换掌子面可见性） ────────────────────

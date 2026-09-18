@@ -1,49 +1,8 @@
 import { describe, it, beforeAll } from 'vitest'
 import * as THREE from 'three'
 import { SceneBuilder } from '../sceneBuilder.js'
-
-function makeCtxStub() {
-  return {
-    fillStyle: '',
-    strokeStyle: '',
-    lineWidth: 1,
-    textBaseline: 'alphabetic',
-    font: '',
-    fillRect() {},
-    strokeRect() {},
-    beginPath() {},
-    arc() {},
-    fill() {},
-    moveTo() {},
-    lineTo() {},
-    stroke() {},
-    measureText(text) {
-      return { width: String(text || '').length * 12 }
-    },
-    fillText() {},
-    scale() {},
-    translate() {},
-    rotate() {},
-    setTransform() {},
-    save() {},
-    restore() {},
-    clearRect() {}
-  }
-}
-function makeCanvasStub() {
-  return {
-    width: 0,
-    height: 0,
-    getContext() {
-      return makeCtxStub()
-    }
-  }
-}
-beforeAll(() => {
-  if (typeof globalThis.document === 'undefined') {
-    globalThis.document = { createElement: () => makeCanvasStub() }
-  }
-})
+// canvas stub 单源：../__tests__/helpers/canvasStub.js
+import { installCanvasStub } from '../__tests__/helpers/canvasStub.js'
 
 function buildBuilder(triggered) {
   const scene = new THREE.Scene()
@@ -102,8 +61,7 @@ function triArea2(a, b, c) {
 }
 function pointInTri(p, a, b, c) {
   return (
-    Math.abs(triArea2(a, b, c) - triArea2(p, b, c) - triArea2(a, p, c) - triArea2(a, b, p)) <=
-    1e-6
+    Math.abs(triArea2(a, b, c) - triArea2(p, b, c) - triArea2(a, p, c) - triArea2(a, b, p)) <= 1e-6
   )
 }
 
@@ -114,7 +72,14 @@ function pointInTri(p, a, b, c) {
 function analyzeHoles(sb, axis) {
   const regions = sb._sectionRegions
   if (!regions || !regions.length)
-    return { axis, regions: regions ? regions.length : 0, fillTris: 0, missed: 0, total: 0, ratio: 1 }
+    return {
+      axis,
+      regions: regions ? regions.length : 0,
+      fillTris: 0,
+      missed: 0,
+      total: 0,
+      ratio: 1
+    }
 
   const plots = regions.map(r => projectRegion(r, axis))
   const u1 = (axis + 1) % 3
@@ -174,8 +139,17 @@ function analyzeHoles(sb, axis) {
     }
   }
   const ratio = total ? missed / total : 0
-  return { axis, regions: regions.length, fillTris: tris.length, missed, total, ratio: +ratio.toFixed(4) }
+  return {
+    axis,
+    regions: regions.length,
+    fillTris: tris.length,
+    missed,
+    total,
+    ratio: +ratio.toFixed(4)
+  }
 }
+
+beforeAll(installCanvasStub)
 
 describe('REPRO: section cap holes (stress field mode)', () => {
   it('scan pre/post geometry cuts for uncovered (hole) regions', () => {
@@ -224,9 +198,9 @@ describe('REPRO: section cap holes (stress field mode)', () => {
       }
       const bad = report.filter(r => r.ratio > 0.03)
       console.log(
-        `  → significant hole ratio (>3%): ${bad
-          .map(r => `ax${r.axis}@${r.pos}:${r.ratio}`)
-          .join(', ') || 'NONE'}`
+        `  → significant hole ratio (>3%): ${
+          bad.map(r => `ax${r.axis}@${r.pos}:${r.ratio}`).join(', ') || 'NONE'
+        }`
       )
     }
   }, 120000)

@@ -224,7 +224,9 @@
       <div class="chart-legend">
         <span class="lg"><i class="c5"></i>仿真（多源叠加·全时程峰值）</span>
         <span class="lg"><i class="c6"></i>萨道夫斯基 K·(Q<sup>1/3</sup>/R)<sup>α</sup></span>
-        <span class="lg-lg">最大单响药量 {{ ppvMaxChargePerDelay }} kg（总 {{ ppvTotalQ }} kg）</span>
+        <span class="lg-lg"
+          >最大单响药量 {{ ppvMaxChargePerDelay }} kg（总 {{ ppvTotalQ }} kg）</span
+        >
       </div>
     </div>
 
@@ -358,6 +360,11 @@ import {
   industrialBandCount,
   industrialLegendItems
 } from '../services/core/rendering/vibrationColorScales.js'
+import {
+  LOCAL_SIM_DEFAULT_K,
+  LOCAL_SIM_DEFAULT_ALPHA,
+  SADOSKY_PRESETS
+} from '../services/core/vibrationDefaults.js'
 
 defineOptions({ name: 'VibrationFieldPanel' })
 
@@ -411,9 +418,9 @@ const emit = defineEmits([
   'toggle-vector-field'
 ])
 
-// 萨道夫斯基参数本地编辑态（外部 props 变化时同步）
-const kInput = ref(30)
-const alphaInput = ref(1.5)
+// 萨道夫斯基参数本地编辑态（外部 props 变化时同步；默认值单源于 vibrationDefaults.js）
+const kInput = ref(LOCAL_SIM_DEFAULT_K)
+const alphaInput = ref(LOCAL_SIM_DEFAULT_ALPHA)
 watch(
   () => [props.sadoskyParams?.k, props.sadoskyParams?.alpha],
   ([k, alpha]) => {
@@ -433,40 +440,8 @@ function applySadosky() {
   emit('update-sadosky-params', { k, alpha })
 }
 
-// 文献实测的萨道夫斯基标定集（便于用真实场地参数反标定 PPV 场）
-const sadoskyPresets = [
-  { key: 'preset_default', label: '平台默认 · 中硬岩（K=200, α=1.5）', k: 200, alpha: 1.5 },
-  {
-    key: 'preset_tunnel_near_xu',
-    label: '三棱山隧道近场 r<110m（K=19.3, α=1.082·徐言2020）',
-    k: 19.3,
-    alpha: 1.082
-  },
-  {
-    key: 'preset_tunnel_far_xu',
-    label: '三棱山隧道远场 r>110m（K=1.23, α=0.372·徐言2020）',
-    k: 1.23,
-    alpha: 0.372
-  },
-  {
-    key: 'preset_open_300_yan',
-    label: '露天铁矿 300°线（K=165.9, α=1.418·闫常陆2018）',
-    k: 165.9,
-    alpha: 1.418
-  },
-  {
-    key: 'preset_open_285_yan',
-    label: '露天铁矿 285°线（K=165.8, α=1.476·闫常陆2018）',
-    k: 165.8,
-    alpha: 1.476
-  },
-  {
-    key: 'preset_open_m30_yan',
-    label: '露天铁矿 -30m 平台（K=236.5, α=1.531·闫常陆2018）',
-    k: 236.5,
-    alpha: 1.531
-  }
-]
+// 文献实测的萨道夫斯基标定集（便于用真实场地参数反标定 PPV 场）：单源于 vibrationDefaults.js
+const sadoskyPresets = SADOSKY_PRESETS
 const presetKey = ref('__none__')
 function applyPreset() {
   const p = sadoskyPresets.find(x => x.key === presetKey.value)

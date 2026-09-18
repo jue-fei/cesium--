@@ -24,8 +24,7 @@ import {
  */
 
 // 网格点：r=5（包络内）、r=12（衰减带 10~13）、r=16（超程归零），源在原点
-const makeGrid = () =>
-  new Float32Array([5, 0, 0, 12, 0, 0, 16, 0, 0])
+const makeGrid = () => new Float32Array([5, 0, 0, 12, 0, 0, 16, 0, 0])
 const SRC = [{ x: 0, y: 0, z: 0, chargeKg: 84, delayMs: 0 }]
 const OPTS = { K: 90, alpha: 1.58, sources: SRC }
 
