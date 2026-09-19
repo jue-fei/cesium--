@@ -4,7 +4,11 @@
  * 从 ThreeBlastingRenderer（门面）按职责域拆分的组合控制器之一，负责：
  *  - initBlast：单次爆破的完整初始化流程（KCO 模型计算 → 粒子特效配置 →
  *    碎片规格生成 → 爆堆轮廓/物理边界注入 → 物理引擎初始化 →
- *    碎片 InstancedMesh 构建 → 参数缓存与爆破前状态复位）
+ *    碎片 InstancedMesh 构建 → 参数缓存与爆破前状态复位）；
+ *    内部按既有分节注释拆分为顺序编排的私有步骤方法
+ *    （_computeBasis/_configureMuckPile/_rebuildScene/_resolveKco/_setupEffects/
+ *    _generateFragmentSpecs/_initPhysicsEngine/_setupFragmentRenderer/
+ *    _cacheBlastParams/_resetPreBlastState）
  *  - _buildHoleSpecsForFragmentGen：数据库炮孔设计数据 → 碎片规格生成器
  *    输入格式（{x, y, chargeKg, delayMs, isEmpty, holeType}）的转换
  *
@@ -32,7 +36,7 @@ export class BlastInitController {
   }
 
   /**
-   * 初始化爆破粒子系统
+   * 初始化爆破粒子系统（顺序编排器：各步骤一行调用，逻辑见各私有方法）
    * @param {Object} params
    * @param {number} params.chargeKg - 装药量(kg)
    * @param {number} params.fragmentCount - 碎片数量
@@ -61,6 +65,24 @@ export class BlastInitController {
       )
     }
 
+    const basis = this._computeBasis()
+    this._configureMuckPile(basis)
+    const faceCenter = this._rebuildScene(basis)
+    const { kco, throwDir } = this._resolveKco(params, chargeKg, basis.forward)
+    const ctx = { ...basis, faceCenter, kco, throwDir }
+    this._setupEffects(chargeKg, ctx)
+    const gen = this._generateFragmentSpecs(params, chargeKg, ctx)
+    this._initPhysicsEngine(params, ctx, gen)
+    this._setupFragmentRenderer(gen)
+    this._cacheBlastParams(chargeKg, ctx, gen)
+    this._resetPreBlastState()
+  }
+
+  /**
+   * 计算掌子面局部基向量：面内水平方向 dir、世界上方向 up、侧向 right、轴向 forward。
+   * @returns {{ dir: THREE.Vector3, up: THREE.Vector3, right: THREE.Vector3, forward: THREE.Vector3 }}
+   */
+  _computeBasis() {
     const dir = this.r.faceDirection.clone()
     // 投影到水平面（去除垂直分量）并归一化，保证 right 水平、forward 有限；
     // 与 _computeTunnelBasis 一致——面方向平行于 up 时 cross 会得零向量，
@@ -71,7 +93,14 @@ export class BlastInitController {
     const up = new THREE.Vector3(0, 1, 0)
     const right = new THREE.Vector3().crossVectors(dir, up).normalize()
     const forward = new THREE.Vector3().crossVectors(up, right).normalize()
+    return { dir, up, right, forward }
+  }
 
+  /**
+   * 配置爆堆轮廓渲染器的局部基与隧道断面参数。
+   * @param {{ forward: THREE.Vector3, right: THREE.Vector3, up: THREE.Vector3 }} basis
+   */
+  _configureMuckPile({ forward, right, up }) {
     // 配置爆堆轮廓渲染器局部基：轴向 forward、侧向 right、竖直 up、爆堆中心、
     // 底板高度、掌子面轴向距离（裁掉穿模进未爆破岩体的碎片，否则包裹壳
     // 会被撑进岩体内部、贴不住真实爆堆）
@@ -90,7 +119,14 @@ export class BlastInitController {
         shape: this.r.tunnelSection.shape
       }
     })
+  }
 
+  /**
+   * 构建掌子面/台阶几何、同步隧道补光并写入隧道截面物理边界。
+   * @param {{ forward: THREE.Vector3, right: THREE.Vector3 }} basis
+   * @returns {THREE.Vector3} 掌子面中心（爆心沿轴向前方 3m）
+   */
+  _rebuildScene({ forward, right }) {
     // 构建掌子面/台阶几何体
     this.r._sceneBuilder.buildBenchGeometry()
     const faceCenter = new THREE.Vector3().copy(this.r.center).addScaledVector(forward, 3)
@@ -112,7 +148,17 @@ export class BlastInitController {
       archRadius: this.r.tunnelArchRadius,
       floorY: this.r.center.y
     }
+    return faceCenter
+  }
 
+  /**
+   * KCO 模型计算：由装药量与 UI 覆盖参数（params.kcoParams）计算块度分布输出。
+   * @param {Object} params
+   * @param {number} chargeKg - 装药量(kg)
+   * @param {THREE.Vector3} forward - 掌子面轴向基向量
+   * @returns {{ kco: Object, throwDir: THREE.Vector3 }} kco 输出与抛掷方向（forward 反向）
+   */
+  _resolveKco(params, chargeKg, forward) {
     // ── 1. KCO 模型计算 ──
     const throwDir = forward.clone().negate()
     const kcoInput = {
@@ -121,7 +167,16 @@ export class BlastInitController {
       ...(params.kcoParams || {})
     }
     const kco = calculateKCOParams(kcoInput)
+    return { kco, throwDir }
+  }
 
+  /**
+   * 爆破粒子特效配置：写入特效参数缓存、初始化特效管理器并同步图层可见性。
+   * @param {number} chargeKg - 装药量(kg)
+   * @param {{ faceCenter: THREE.Vector3, throwDir: THREE.Vector3, right: THREE.Vector3,
+   *           up: THREE.Vector3, kco: Object }} ctx
+   */
+  _setupEffects(chargeKg, { faceCenter, throwDir, right, up, kco }) {
     // ── 2. 爆破粒子特效 ──
     this.r._lastEffectParams = {
       chargeKg,
@@ -145,7 +200,19 @@ export class BlastInitController {
     for (const layer of ['fire', 'smoke', 'spark', 'dust', 'shock_wave']) {
       this.r._effectManager.setVisible(layer, this.r.layerVisibility[layer] !== false)
     }
+  }
 
+  /**
+   * KCO 碎片规格生成：构建掌子面描述与炮孔数据，生成碎片规格/初值，并写入
+   * 碎片统计、爆堆轮廓逐碎片包围盒、seekTo 复用数据与物理边界缓存。
+   * @param {Object} params
+   * @param {number} chargeKg - 装药量(kg)
+   * @param {{ dir: THREE.Vector3, forward: THREE.Vector3, right: THREE.Vector3, up: THREE.Vector3,
+   *           faceCenter: THREE.Vector3, kco: Object }} ctx
+   * @returns {{ specs: Array<Object>, positions: Float32Array, velocities: Float32Array,
+   *             variantHalfExtents: Array<number[]>, faceDesc: Object }}
+   */
+  _generateFragmentSpecs(params, chargeKg, { dir, forward, right, up, faceCenter, kco }) {
     // ── 3. KCO 碎片规格生成 ──
     const faceDesc = {
       cx: faceCenter.x,
@@ -260,7 +327,16 @@ export class BlastInitController {
       faceOffset: this.r.faceOffset, // 掌子面到隧道中心的轴向距离(m)
       shape: this.r.tunnelSection.shape
     }
+    return { specs, positions, velocities, variantHalfExtents, faceDesc }
+  }
 
+  /**
+   * 物理引擎初始化：复位、写入隧道边界、挂接碎片落地回调并注入碎片初值。
+   * @param {Object} params
+   * @param {{ right: THREE.Vector3, forward: THREE.Vector3 }} basis
+   * @param {{ specs: Array<Object>, positions: Float32Array, velocities: Float32Array }} gen
+   */
+  _initPhysicsEngine(params, { right, forward }, { specs, positions, velocities }) {
     // ── 4. 物理引擎初始化 ──
     this.r._physicsEngine.reset()
     this.r._physicsEngine.setTunnelBounds({
@@ -290,13 +366,27 @@ export class BlastInitController {
       randomSeed: params.randomSeed,
       blastTriggerTime: this.r.blastTriggerTime
     })
+  }
 
+  /**
+   * 碎片 InstancedMesh 构建：按规格重建实例网格，写入断面剔除边界与变体半轴表。
+   * @param {{ specs: Array<Object>, variantHalfExtents: Array<number[]> }} gen
+   */
+  _setupFragmentRenderer({ specs, variantHalfExtents }) {
     // ── 5. 碎片 InstancedMesh ──
     this.r._fragmentRenderer.buildFragmentMesh(specs)
     // 按隧道断面隐藏"卡在隧道外/拱顶尖角伸出"的实例（口径与爆堆轮廓一致）
     this.r._fragmentRenderer.setSectionBounds(this.r._lastPhysicsBounds)
     this.r._fragmentRenderer.setExtentTable(variantHalfExtents)
+  }
 
+  /**
+   * 缓存本次爆破的规格生成参数（供重播/seekTo 复用）。
+   * @param {number} chargeKg - 装药量(kg)
+   * @param {{ kco: Object }} ctx
+   * @param {{ specs: Array<Object>, faceDesc: Object }} gen
+   */
+  _cacheBlastParams(chargeKg, { kco }, { specs, faceDesc }) {
     // ── 6. 缓存参数 ──
     this.r._lastSpecGenParams = { kco, face: faceDesc, chargeKg, fragmentCount: specs.length }
 
@@ -311,7 +401,10 @@ export class BlastInitController {
         b: kco.b.toFixed(3)
       }
     })
+  }
 
+  /** 爆破前状态复位：清触发/实测时长/回放标记并刷新实例网格。 */
+  _resetPreBlastState() {
     // ── 7. 爆破前状态 ──
     this.r.blastTriggered = false
     // 重置实测时长状态（新一次爆破重新观测）

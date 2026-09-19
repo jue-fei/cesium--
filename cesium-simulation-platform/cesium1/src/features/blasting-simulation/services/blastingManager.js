@@ -3,14 +3,8 @@ import { CesiumThreeBridge } from './core/rendering/cesiumThreeBridge.js'
 import { blastingSceneTools } from '@/services/fusion/blastingSceneTools.js'
 import {
   VibrationComputeClient,
-  computeSurfacePeakField,
-  computePpvDecayProfile,
-  tunnelFaceBoostFactor,
-  nearFieldRadius,
-  nearFieldGain,
-  NEAR_FIELD_GAIN
+  computePpvDecayProfile
 } from './core/computation/localVibrationSimulator.js'
-import { extractContours, computeContourLevels } from './core/computation/contourExtractor.js'
 import {
   DEFAULT_TUNNEL_WIDTH,
   DEFAULT_TUNNEL_WALL_HEIGHT,
@@ -23,6 +17,7 @@ import { LiteratureDesignService } from './blasting/literatureDesign.js'
 import { UndergroundViewController } from './blasting/undergroundView.js'
 import { BlastSourceResolver } from './blasting/blastSources.js'
 import { LocalVibrationOrchestrator } from './blasting/localVibrationOrchestrator.js'
+import { VibrationFieldDomain } from './blasting/vibrationFieldDomain.js'
 
 /**
  * 将 { lon, lat, height } 形式的位置转换为 Cesium.Cartesian3
@@ -102,6 +97,7 @@ const DEFAULT_RENDER_CONFIG = {
 //   · UndergroundViewController 地下视角/相机域（blasting/undergroundView.js）
 //   · BlastSourceResolver       爆源解析域（blasting/blastSources.js）
 //   · LocalVibrationOrchestrator 本地振动场编排域（blasting/localVibrationOrchestrator.js）
+//   · VibrationFieldDomain      场量程/等值线域（blasting/vibrationFieldDomain.js）
 // 域对象懒创建并缓存在实例字段上（不占原型成员）：兼容测试用
 // Object.create(BlastingManager.prototype) 裸实例（不运行构造函数），首次委托时才创建；
 // 域对象经 this.m 反向访问门面共享状态，域间互不引用。
@@ -174,7 +170,6 @@ export class BlastingManager {
     // 峰值场与 t 无关 → 一次性计算；仅在几何版本/显示模式/标尺/事件参数变化时重提取。
     this._contourBuiltFp = null // 已构建折线的指纹（null=待构建）
     this._contourConfiguredVersion = -1 // 已下发 Worker 的岩面顶点集版本
-    this._contourReqId = 0 // computeContour 请求 id（过期结果丢弃）
     this._contourInFlight = false // 等值线峰值场计算在途（coalesce 单在途）
     this._contourDirty = false // 在途期间指纹又变化 → 完成后补算
     this._contourStats = null // 最近一次提取诊断 stats（面板显示）
@@ -1193,53 +1188,12 @@ export class BlastingManager {
    * @returns {{ ppvRefMps:number, stressRefMPa:number }}
    */
   _computeAutoFieldRefs(params, sources, design, rockParams) {
-    const K = this._sadoskyK ?? SADOVSKY_DEFAULT_K
-    const alpha = this._sadoskyAlpha ?? SADOVSKY_DEFAULT_ALPHA
-    // 有效总装药：优先各装药段之和，否则用事件总装药
-    let Q = 0
-    if (Array.isArray(sources) && sources.length) {
-      for (const s of sources) Q += Number(s?.chargeKg) || 0
-    }
-    if (!(Q > 0)) Q = Number(params?.chargeKg) || 100
-    // 距源代表可视半径(m)：取隧道内代表可视半径 rRef=4m（K·(Q^(1/3)/4)^α·0.01）。
-    // 注意：不得收紧到 2m——基线抬高 2^α≈3 倍会把满刻度整体抬高，对数标尺上
-    // 全场颜色下移约 1.6 个八度、可见下限(NORM_FLOOR·ref)同步抬高 3 倍，
-    // 热力图表现为"颜色变暗、渲染范围收窄"（用户实测反馈的强度回归根因）。
-    // 中心过曝由【绝对量程】锚定场最大值天然规避（中心即满刻度，饱和区只剩
-    // 爆源核心），不再需要任何随帧自愈。
-    const rRef = 4.0
-    const ppvRefMps = K * Math.pow(Math.pow(Q, 1 / 3) / rRef, alpha) * 0.01
-    const rho = Number(design?.rockDensity) || 2650
-    const cp = Number(rockParams?.pWaveSpeed) || 4500
-    // Number(undefined)=NaN 不是 nullish，?? 链不生效 → nu/stressFactor 变 NaN，
-    // stressRefMPa 随之 NaN 且 applyFieldPhysics 拒收 → 应力模式量程失效。显式判有限值。
-    const nuDesign = Number(design?.poissonRatio)
-    const nuRock = Number(rockParams?.poissonRatio)
-    const nu = Number.isFinite(nuDesign) ? nuDesign : Number.isFinite(nuRock) ? nuRock : 0.25
-    // 动态泊松比 μ_d=0.8μ（梁瑞 2020 长江科学院院报 37(4):67-72）：
-    // 与后端 stress_field_from_ppv(dynamic_poisson=True) / computeStressFieldFromPpv 同口径
-    const nuDyn = 0.8 * Math.max(0, Math.min(0.49, nu))
-    const stressFactor = rho * cp * (1 / (1 - nuDyn))
-    const nfR = nearFieldRadius(Number(params?.chargeKg) || Q)
-    this._stressNearFieldR = nfR
-    this._stressNearFieldGain = NEAR_FIELD_GAIN
-    // 应力满量程：锚定**场最大值**（近场 standoff 处），并把 F(standoff) 一并计入。
-    // 【收紧满量程】若锚在 rRef=4m 代表值，中心(standoff≈0.5m)会比满刻度高
-    // ~27×F → 近场深饱和、糊成大片黄云（用户实测"巨大黄色高斯云"的根因）；
-    // 锚在场最大值后中心恰好落在色阶顶部、饱和区只剩爆源核心，梯度全程可见。
-    const MIN_STANDOFF = 0.5
-    const vNear = K * Math.pow(Math.pow(Q, 1 / 3) / MIN_STANDOFF, alpha) * 0.01
-    const nfC = nearFieldGain(MIN_STANDOFF, nfR, NEAR_FIELD_GAIN)
-    const refs = {
-      ppvRefMps,
-      stressRefMPa: (stressFactor * vNear * nfC) / 1.0e6
-    }
-    this._lastFieldRefs = refs
-    // 解析基线快照（只由 rRef=4m 的解析值决定，不含自愈成分）：
-    // → cap=base×MULT 同步抬高 → 正反馈把满刻度重新推到近场极值。
-    this._analyticRefs = { ppvRefMps, stressRefMPa: refs.stressRefMPa }
-    this._stressFactorCache = stressFactor // 供 stress 场帧自愈换算
-    return refs
+    return domainOf(this, '_vibrationField', VibrationFieldDomain).computeAutoFieldRefs(
+      params,
+      sources,
+      design,
+      rockParams
+    )
   }
 
   /** 自动量程的最近一次计算值（供 UI 图例实时显示当前满刻度） */
@@ -1256,27 +1210,9 @@ export class BlastingManager {
     return this._vibInfluenceRadius
   }
 
-  // ─── 绝对量程·启动分位扫描（应力用，P99.7，锁定后恒定）────────
-  // 解析近场值受 standoff 钳制与**隧道空腔掩码**影响，可能是"渲染数据中永不
-  // 出现的奇点"——爆心位于已开挖洞身内，近源网格点被 void_mask 清零。用解析
-  // 极值当满刻度会把有效场值全压到最低档（用户实测：应力图几乎全蓝）。
-  // 做法：仿真开始后的前 ABS_SCAN_FRAMES 个**有效帧**（分位峰值>0）对渲染场做
-  // P99.7 分位扫描、取单调最大，之后锁定为绝对量程。锁定后图例区间与等值线
-  // 级别不再变化（满足"仿真前全局扫描并固定最大/最小值"的工程要求）。
-  static ABS_SCAN_FRAMES = 24
-
   /** 分位值（下采样 + 降序取第 (1-q) 分位；arr 为 Float32Array，O(N)） */
   _fieldQuantile(arr, q = 0.997) {
-    if (!(arr && arr.length)) return 0
-    const step = Math.max(1, Math.floor(arr.length / 2400))
-    const vals = []
-    for (let i = 0; i < arr.length; i += step) {
-      const v = Number(arr[i])
-      if (Number.isFinite(v) && v > 0) vals.push(v)
-    }
-    if (!vals.length) return 0
-    vals.sort((a, b) => b - a)
-    return vals[Math.min(vals.length - 1, Math.floor(vals.length * (1 - q)))] || 0
+    return domainOf(this, '_vibrationField', VibrationFieldDomain).fieldQuantile(arr, q)
   }
 
   /**
@@ -1284,29 +1220,7 @@ export class BlastingManager {
    * @param {'ppv'|'stress'} kind - ppv 数组单位 m/s；stress 数组单位 Pa
    */
   _fixFieldRefOnce(kind, arr) {
-    if (!(arr && arr.length)) return
-    if (!this._absScan) this._absScan = { ppv: { n: 0, v: 0 }, stress: { n: 0, v: 0 } }
-    const st = this._absScan[kind]
-    if (!st || st.n >= BlastingManager.ABS_SCAN_FRAMES) return // 已锁定
-    const q = this._fieldQuantile(arr)
-    if (!(q > 0)) return // 波前未到/全零帧：不计入
-    if (q > st.v) st.v = q
-    st.n++
-    if (st.n < BlastingManager.ABS_SCAN_FRAMES) return
-
-    // ── 锁定：以实测分位峰值作为满刻度，并一次性下发 ──
-    const isPpv = kind === 'ppv'
-    const value = isPpv ? st.v : st.v / 1.0e6 // Pa → MPa
-    this._lastFieldRefs = {
-      ...(this._lastFieldRefs || {}),
-      [isPpv ? 'ppvRefMps' : 'stressRefMPa']: value
-    }
-    this._threeRenderer?.setFieldPhysics?.(isPpv ? { ppvRefMps: value } : { stressRefMPa: value })
-    console.warn('[BlastingManager] 绝对量程已锁定（P99.7 分位扫描）', {
-      场: kind,
-      满刻度: Number(value.toPrecision(4)),
-      采样帧数: st.n
-    })
+    domainOf(this, '_vibrationField', VibrationFieldDomain).fixFieldRefOnce(kind, arr)
   }
 
   /**
@@ -1318,26 +1232,12 @@ export class BlastingManager {
    * @returns {number} 1~80 的展开因子（1=不缩放）
    */
   _analyticAutoscale(params, sources, design, rockParams) {
-    const K = this._sadoskyK ?? SADOVSKY_DEFAULT_K
-    const alpha = this._sadoskyAlpha ?? SADOVSKY_DEFAULT_ALPHA
-    let Q = 0
-    if (Array.isArray(sources) && sources.length) {
-      for (const s of sources) Q += Number(s?.chargeKg) || 0
-    }
-    if (!(Q > 0)) Q = Number(params?.chargeKg) || 100
-    const rho = Number(design?.rockDensity) || 2650
-    const cp = Number(rockParams?.pWaveSpeed) || 4500
-    const nuDesign = Number(design?.poissonRatio)
-    const nuRock = Number(rockParams?.poissonRatio)
-    const nu = Number.isFinite(nuDesign) ? nuDesign : Number.isFinite(nuRock) ? nuRock : 0.25
-    // 动态泊松比 μ_d=0.8μ（梁瑞 2020），与后端/本地模拟器应力反演同口径
-    const nuDyn = 0.8 * Math.max(0.01, Math.min(0.49, nu))
-    const stressFactor = rho * cp * (1 / (1 - nuDyn))
-    const vAt4 = K * Math.pow(Math.pow(Q, 1 / 3) / 4.0, alpha) * 0.01
-    const stressAt4 = (stressFactor * vAt4) / 1.0e6
-    const stressRef = Number(this._lastFieldRefs?.stressRefMPa) || 0
-    if (!(stressRef > 0) || !(stressAt4 > 0)) return 1
-    return Math.min(80, Math.max(1, stressRef / (stressAt4 * 1.06)))
+    return domainOf(this, '_vibrationField', VibrationFieldDomain).analyticAutoscale(
+      params,
+      sources,
+      design,
+      rockParams
+    )
   }
 
   enablePpvPick(handler, opts) {
@@ -1473,102 +1373,7 @@ export class BlastingManager {
    * @param {object} renderer - three.js 渲染器
    */
   _ensureContourPipeline(renderer) {
-    const sim = this._localVibrationSim
-    if (!sim || !renderer?.getContourSurface) return
-    const surface = renderer.getContourSurface()
-    if (!surface || !surface.positions?.length || surface.positions.length < 9) return
-    const rp = renderer.getFieldRenderParams?.() || {}
-    const p = sim.params || {}
-    // 指纹：几何版本 | 显示模式 | 标尺 | 满刻度 | 密度 | sim 事件参数（K/α/cp/装药/源数）
-    const fp = [
-      surface.version,
-      Number(rp.displayMode) || 0,
-      Number(rp.normMode) > 0 ? 1 : 0,
-      (Number(rp.ppvRefMps) || 0).toFixed(4),
-      (Number(rp.stressRefMPa) || 0).toFixed(3),
-      (Number(rp.stressFactor) || 0).toExponential(4),
-      this._contourDensity,
-      Number(p.K) || 0,
-      Number(p.alpha) || 0,
-      Number(p.visualCp) || 0,
-      // 包络半径纳入指纹：滑块拖动 → 峰值场 env 变化 → 等值线必须重提取
-      Number(p.influenceRadius) || 0,
-      sim.chargeKg || 0,
-      Array.isArray(p.sources) ? p.sources.length : 0,
-      this._delayJitterMs // 雷管误差变更 → 源延期抖动变化 → 峰值场干涉形态变化，强制重提
-    ].join('|')
-    if (fp === this._contourBuiltFp) return
-    if (this._contourInFlight) {
-      this._contourDirty = true
-      return
-    }
-    this._contourInFlight = true
-    const reqId = ++this._contourReqId
-    const finish = (peak, arrival) => {
-      this._contourInFlight = false
-      this._contourBuiltFp = fp
-      try {
-        // 等值线峰值场与 GPU 岩面热力图同口径：统一在 JS 侧附加隧道轮廓自由面
-        // 放大（Worker 与主线程回退都未带此修正，避免双乘；不改变 arrival 门控）
-        const tunnelFace = sim.params?.tunnelFace
-        if (tunnelFace && Number(tunnelFace.coeff) > 0.001) {
-          const pos = surface.positions
-          for (let i = 0; i < peak.length; i++) {
-            peak[i] *= tunnelFaceBoostFactor(
-              [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]],
-              tunnelFace
-            )
-          }
-        }
-        this._buildAndPushContours(peak, arrival, surface, rp, renderer)
-      } catch (err) {
-        console.warn('[BlastingManager] 等值线构建失败', err)
-      }
-      if (this._contourDirty) {
-        this._contourDirty = false
-        this._ensureContourPipeline(renderer)
-      }
-    }
-    if (this._vibComputeClient.ensure(sim)) {
-      // Worker 路径：顶点集只在版本变化时重发（样式变化命中 Worker 缓存，避免
-      // 每次数百 KB 结构化克隆）；computeContour 带 requestId 丢弃过期结果。
-      if (surface.version !== this._contourConfiguredVersion) {
-        this._vibComputeClient.contourConfig(surface.positions, surface.shaping)
-        this._contourConfiguredVersion = surface.version
-      }
-      this._vibComputeClient.computeContour(reqId).then(res => {
-        if (res && res.requestId === reqId && res.peak?.length === surface.positions.length / 3) {
-          finish(res.peak, res.arrival)
-        } else {
-          // 过期/异常：复位在途标记，下一 tick 指纹仍失配会自动重试
-          this._contourInFlight = false
-          this._contourBuiltFp = null
-        }
-      })
-      return
-    }
-    // Worker 不可用 → 主线程同步回退（computeSurfacePeakField 与 Worker 同口径）
-    try {
-      const sp = sim.params || {}
-      const shaping = surface.shaping || {}
-      const r = computeSurfacePeakField(surface.positions, {
-        K: sp.K,
-        alpha: sp.alpha,
-        minStandoff: sp.minStandoff,
-        visualCp: sp.visualCp,
-        chargeKg: sim.chargeKg,
-        sources: Array.isArray(sp.sources) ? sp.sources : null,
-        origin: Array.isArray(sp.origin) ? sp.origin : (shaping.origin ?? [0, 0, 0]),
-        holeRadius: shaping.holeRadius,
-        holeLen: shaping.holeLen,
-        lateralAttn: shaping.lateralAttn
-      })
-      if (r) finish(r.peak, r.arrival)
-      else this._contourInFlight = false
-    } catch (err) {
-      console.warn('[BlastingManager] 等值线主线程回退计算失败', err)
-      this._contourInFlight = false
-    }
+    domainOf(this, '_vibrationField', VibrationFieldDomain).ensureContourPipeline(renderer)
   }
 
   /**
@@ -1580,58 +1385,13 @@ export class BlastingManager {
    * @param {object} renderer - three.js 渲染器
    */
   _buildAndPushContours(peak, arrival, surface, rp, renderer) {
-    const mode = Number(rp.displayMode) || 0
-    const stressFactor = Number(rp.stressFactor)
-    // 等值线级别与 shader 归一化必须同单位：应力模式下把顶点峰值 PPV(m/s) 换算成
-    // σ_vm(MPa)（σ=ρcp/(1-ν)·v，surface 远场近似；近场几何增益分量在 surface
-    // 提取中未含，故此处用同一解析换算，保持"级别/像素值"线性一致）。
-    const inStressUnits = mode === 1 && Number.isFinite(stressFactor) && stressFactor > 0
-    const values = inStressUnits ? new Float32Array(peak.length) : peak
-    if (inStressUnits) {
-      const cSt = stressFactor / 1.0e6
-      for (let i = 0; i < peak.length; i++) values[i] = peak[i] * cSt
-    }
-    // 动态满量程（P99.9）：以当前显示模式下实测峰值场 P99.9 反解展开因子 S，
-    // 使岩体实际分布铺满色域（修"应力全场深蓝"）；S 在数值单位上与 levels 同源，
-    // 随事件固定（不随帧漂移），与 shader lin*=uNormAutoScale 严格互逆 → 等值线
-    // 始终落在色阶边界上。
-    const refDisp = mode === 1 ? Number(rp.stressRefMPa) || 0 : Number(rp.ppvRefMps) || 0
-    let autoscale = 1
-    if (refDisp > 0) autoscale = this._p99Autoscale(values, refDisp)
-    this._fieldAutoScale = autoscale
-    renderer.setFieldPhysics?.({ normAutoScale: autoscale })
-    const levels = computeContourLevels({
-      displayMode: rp.displayMode,
-      normMode: rp.normMode,
-      ppvRefMps: rp.ppvRefMps,
-      stressRefMPa: rp.stressRefMPa,
-      stressFactor: rp.stressFactor,
-      density: this._contourDensity
-    }).map(l => l / autoscale)
-    if (!levels.length) {
-      this._contourStats = null
-      renderer.setContourPolylines?.({ polylines: [] })
-      return
-    }
-    const { polylines, stats } = extractContours(
-      {
-        positions: surface.positions,
-        normals: surface.normals,
-        index: surface.index,
-        values,
-        arrival
-      },
-      { minLoopPerimeter: 0.9, minOpenLength: 0.6, chaikinIterations: 2 }
+    domainOf(this, '_vibrationField', VibrationFieldDomain).buildAndPushContours(
+      peak,
+      arrival,
+      surface,
+      rp,
+      renderer
     )
-    this._contourStats = stats
-    renderer.setContourPolylines?.({
-      polylines,
-      displayMode: Number(rp.displayMode) || 0,
-      normMode: Number(rp.normMode) > 0 ? 1 : 0,
-      ppvRefMps: rp.ppvRefMps,
-      stressRefMPa: rp.stressRefMPa,
-      stressFactor: rp.stressFactor
-    })
   }
 
   /**

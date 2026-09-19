@@ -177,7 +177,9 @@ describe('shader 应力支与 CPU/后端同口径（源码守卫）', () => {
   })
 
   it('应力满量程锚定场最大值（收紧满量程，中心不深饱和）', () => {
-    const mgr = read('../../../blastingManager.js')
+    // 满量程解析逻辑（_computeAutoFieldRefs）已迁至 blasting/vibrationFieldDomain.js
+    const mgr =
+      read('../../../blastingManager.js') + read('../../../blasting/vibrationFieldDomain.js')
     expect(mgr).toContain('stressRefMPa: (stressFactor * vNear * nfC) / 1.0e6')
     expect(mgr).not.toContain('stressRefMPa: (ppvRefMps * stressFactor')
   })

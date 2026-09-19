@@ -81,6 +81,33 @@ function methodLabel(key, fallback) {
   return METHOD_LABELS[key] || fallback || key
 }
 
+/**
+ * 对已过滤的数值数组计算 min/max/mean/标准差（总体方差），统一保留 4 位小数，
+ * 供与 "xxx MPa" 直接拼接使用；空数组返回 '-'。
+ * 注：与 statisticsUtils.computeBasicStats 字段结构不同（该函数返回数值与 median/count），
+ * 故保留本地实现。
+ */
+function calcStats(arr) {
+  if (!arr.length) return { min: '-', max: '-', mean: '-', std: '-' }
+  let min = Infinity,
+    max = -Infinity,
+    sum = 0
+  for (const v of arr) {
+    if (v < min) min = v
+    if (v > max) max = v
+    sum += v
+  }
+  const mean = sum / arr.length
+  let sq = 0
+  for (const v of arr) sq += (v - mean) ** 2
+  return {
+    min: min.toFixed(4),
+    max: max.toFixed(4),
+    mean: mean.toFixed(4),
+    std: Math.sqrt(sq / arr.length).toFixed(4)
+  }
+}
+
 // ==================== 样式应用函数 ====================
 
 function applyHeaderStyle(row, dark = false) {
@@ -117,6 +144,16 @@ function applySectionCell(cell) {
   cell.border = {
     bottom: { style: 'thin', color: { argb: COLORS.primaryLight } }
   }
+}
+
+/** 写入"▎节区标题"行（合并单元格 + 节区样式 + 固定行高），返回下一行行号 */
+function writeSectionTitle(ws, row, endCol, title) {
+  ws.mergeCells(`A${row}:${endCol}${row}`)
+  const cell = ws.getCell(`A${row}`)
+  applySectionCell(cell)
+  cell.value = title
+  ws.getRow(row).height = 22
+  return row + 1
 }
 
 function formatNumberCell(cell, value, decimals = 4) {
@@ -161,12 +198,7 @@ function addOverviewSheet(workbook, config, results) {
   ws.getCell('A2').font = FONTS.dim
 
   // === 实验摘要 ===
-  let r = 4
-  ws.mergeCells(`A${r}:F${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎实验摘要'
-  ws.getRow(r).height = 22
-  r++
+  let r = writeSectionTitle(ws, 4, 'F', '▎实验摘要')
 
   const summary = results?.comparison?.summary
   const summaryData = [
@@ -210,12 +242,7 @@ function addOverviewSheet(workbook, config, results) {
   })
 
   // === 实验参数配置 ===
-  r += 1
-  ws.mergeCells(`A${r}:F${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎实验参数配置'
-  ws.getRow(r).height = 22
-  r++
+  r = writeSectionTitle(ws, r + 1, 'F', '▎实验参数配置')
 
   const paramHeader = ws.getRow(r)
   ws.getCell(`A${r}`).value = '参数分类'
@@ -280,12 +307,7 @@ function addOverviewSheet(workbook, config, results) {
   })
 
   // === 评估指标说明 ===
-  r += 1
-  ws.mergeCells(`A${r}:F${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎评估指标说明'
-  ws.getRow(r).height = 22
-  r++
+  r = writeSectionTitle(ws, r + 1, 'F', '▎评估指标说明')
 
   const metricHeader = ws.getRow(r)
   ws.getCell(`A${r}`).value = '指标'
@@ -350,37 +372,11 @@ function addTrainingDataSheet(workbook, results) {
   ws.getCell('A2').font = FONTS.dim
 
   // 统计摘要
-  let r = 4
-  ws.mergeCells(`A${r}:H${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎数据统计摘要'
-  ws.getRow(r).height = 22
-  r++
+  let r = writeSectionTitle(ws, 4, 'H', '▎数据统计摘要')
 
   const trainVals = ds.trainValues.map(Number).filter(Number.isFinite)
   const trainTrueVals = ds.trainTrueValues.map(Number).filter(Number.isFinite)
   const anomalyCount = ds.trainAnomaly?.filter(Boolean).length || 0
-
-  function calcStats(arr) {
-    if (!arr.length) return { min: '-', max: '-', mean: '-', std: '-' }
-    let min = Infinity,
-      max = -Infinity,
-      sum = 0
-    for (const v of arr) {
-      if (v < min) min = v
-      if (v > max) max = v
-      sum += v
-    }
-    const mean = sum / arr.length
-    let sq = 0
-    for (const v of arr) sq += (v - mean) ** 2
-    return {
-      min: min.toFixed(4),
-      max: max.toFixed(4),
-      mean: mean.toFixed(4),
-      std: Math.sqrt(sq / arr.length).toFixed(4)
-    }
-  }
 
   const obsStats = calcStats(trainVals)
   const trueStats = calcStats(trainTrueVals)
@@ -410,12 +406,7 @@ function addTrainingDataSheet(workbook, results) {
   })
 
   // 数据表
-  r += 1
-  ws.mergeCells(`A${r}:H${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎训练点坐标与观测值（含异常点标记）'
-  ws.getRow(r).height = 22
-  r++
+  r = writeSectionTitle(ws, r + 1, 'H', '▎训练点坐标与观测值（含异常点标记）')
 
   const headerRow = ws.getRow(r)
   const headers = [
@@ -495,36 +486,10 @@ function addTestDataSheet(workbook, results) {
   ws.getCell('A2').value = `共 ${ds.testCount} 个测试点 | 真实场真值（不含噪声）`
   ws.getCell('A2').font = FONTS.dim
 
-  let r = 4
-  ws.mergeCells(`A${r}:G${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎数据统计摘要'
-  ws.getRow(r).height = 22
-  r++
+  let r = writeSectionTitle(ws, 4, 'G', '▎数据统计摘要')
 
   const testVals = ds.testTrueValues.map(Number).filter(Number.isFinite)
   const anomalyCount = ds.testAnomaly?.filter(Boolean).length || 0
-
-  function calcStats(arr) {
-    if (!arr.length) return { min: '-', max: '-', mean: '-', std: '-' }
-    let min = Infinity,
-      max = -Infinity,
-      sum = 0
-    for (const v of arr) {
-      if (v < min) min = v
-      if (v > max) max = v
-      sum += v
-    }
-    const mean = sum / arr.length
-    let sq = 0
-    for (const v of arr) sq += (v - mean) ** 2
-    return {
-      min: min.toFixed(4),
-      max: max.toFixed(4),
-      mean: mean.toFixed(4),
-      std: Math.sqrt(sq / arr.length).toFixed(4)
-    }
-  }
 
   const stats = calcStats(testVals)
   const statsData = [
@@ -550,12 +515,7 @@ function addTestDataSheet(workbook, results) {
   })
 
   // 数据表
-  r += 1
-  ws.mergeCells(`A${r}:G${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎测试点坐标与真值（含异常点标记）'
-  ws.getRow(r).height = 22
-  r++
+  r = writeSectionTitle(ws, r + 1, 'G', '▎测试点坐标与真值（含异常点标记）')
 
   const headerRow = ws.getRow(r)
   const headers = ['序号', 'X (m)', 'Y (m)', 'Z (m)', '真值 (MPa)', '异常标记', '备注']
@@ -928,12 +888,7 @@ function addPSODetailSheet(workbook, results) {
   }
 
   // 优化参数
-  let r = 3
-  ws.mergeCells(`A${r}:D${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎最优参数'
-  ws.getRow(r).height = 22
-  r++
+  let r = writeSectionTitle(ws, 3, 'D', '▎最优参数')
 
   const paramData = [
     [
@@ -965,12 +920,7 @@ function addPSODetailSheet(workbook, results) {
   })
 
   // 优化效果对比
-  r += 1
-  ws.mergeCells(`A${r}:D${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎优化效果对比'
-  ws.getRow(r).height = 22
-  r++
+  r = writeSectionTitle(ws, r + 1, 'D', '▎优化效果对比')
 
   const idwDefault = results?.idwDefault?.metrics
   const idwOptimized = results?.idw?.metrics
@@ -1041,11 +991,7 @@ function addMethodDetailSheet(workbook, methodKey, methodLabel, results) {
   let r = 3
 
   // === 方法概述 ===
-  ws.mergeCells(`A${r}:H${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎方法概述'
-  ws.getRow(r).height = 22
-  r++
+  r = writeSectionTitle(ws, r, 'H', '▎方法概述')
 
   const methodDesc = {
     'IDW-PSO（PSO优化）':
@@ -1063,11 +1009,7 @@ function addMethodDetailSheet(workbook, methodKey, methodLabel, results) {
   r += 2
 
   // === 精度指标 ===
-  ws.mergeCells(`A${r}:H${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎精度指标'
-  ws.getRow(r).height = 22
-  r++
+  r = writeSectionTitle(ws, r, 'H', '▎精度指标')
 
   const compRow = results?.comparison?.rows?.find(row => row.key === methodKey)
   if (compRow?.metrics) {
@@ -1101,11 +1043,7 @@ function addMethodDetailSheet(workbook, methodKey, methodLabel, results) {
   r += 1
 
   // === 模型参数 / 变异函数 ===
-  ws.mergeCells(`A${r}:H${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎模型参数与函数表达式'
-  ws.getRow(r).height = 22
-  r++
+  r = writeSectionTitle(ws, r, 'H', '▎模型参数与函数表达式')
 
   if (methodKey.startsWith('kriging_')) {
     const modelName = methodKey.replace('kriging_', '')
@@ -1267,11 +1205,7 @@ function addMethodDetailSheet(workbook, methodKey, methodLabel, results) {
   r += 1
 
   // === 耗时统计 ===
-  ws.mergeCells(`A${r}:H${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎耗时统计'
-  ws.getRow(r).height = 22
-  r++
+  r = writeSectionTitle(ws, r, 'H', '▎耗时统计')
 
   if (compRow?.timing) {
     const timing = compRow.timing
@@ -1476,12 +1410,7 @@ async function addChartsSheet(workbook, results) {
   }
 
   // 添加数据表（图表对应的数据源）
-  let r = 3
-  ws.mergeCells(`A${r}:E${r}`)
-  applySectionCell(ws.getCell(`A${r}`))
-  ws.getCell(`A${r}`).value = '▎图表数据源'
-  ws.getRow(r).height = 22
-  r++
+  let r = writeSectionTitle(ws, 3, 'E', '▎图表数据源')
 
   const dataHeader = ws.getRow(r)
   ws.getCell(`A${r}`).value = '方法'

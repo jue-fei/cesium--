@@ -26,7 +26,12 @@ const sceneBuilderSrc = [
   readFileSync(join(testDir, '..', 'benchField.vert.glsl'), 'utf8'),
   readFileSync(join(testDir, '..', 'benchField.frag.glsl'), 'utf8')
 ].join('\n')
-const useBlastingSrc = readFileSync(join(testDir, '..', '..', '..', 'useBlasting.js'), 'utf8')
+// useBlasting 已按职责拆分至 useBlastingParts/*：振动场开关（carrierHz/isoLineEnabled）
+// 随代码迁移到 vibrationParts.js，守卫文本须覆盖主文件 + 迁移文件
+const useBlastingSrc = [
+  readFileSync(join(testDir, '..', '..', '..', 'useBlasting.js'), 'utf8'),
+  readFileSync(join(testDir, '..', '..', '..', 'useBlastingParts', 'vibrationParts.js'), 'utf8')
+].join('\n')
 const blastingManagerSrc = readFileSync(
   join(testDir, '..', '..', '..', 'blastingManager.js'),
   'utf8'

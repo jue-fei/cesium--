@@ -35,6 +35,12 @@ const clamp01 = v => Math.max(0, Math.min(1, v))
 const MAX_FIELD_FRAME_TEXTURE_CACHE = 16
 const MAX_SOURCE_TEXTURE_CACHE = 16
 
+// 应力源数量上限（着色器源纹理宽度、直传源切片与 directSourceLimit 钳制的统一上限）
+const MAX_SOURCE_COUNT = 1000
+
+// 数据偏度阈值：|偏度| 超过该值视为显著偏态分布，自适应分位数裁剪保留更多极端值
+const SKEWNESS_THRESHOLD = 1.5
+
 export function stressDebugLog(scope, title, payload) {
   if (!isStressDebugEnabled()) return
   const scopeText = String(scope || 'core')
@@ -138,8 +144,64 @@ function prepareShaderSourceContext(manager, normalized, anchorToModel, resolveC
     sourceUniforms,
     sourceAccessor,
     sourceTex,
-    maxShaderSources: useSourceTex ? 1000 : Math.max(1, directSources.length)
+    maxShaderSources: useSourceTex ? MAX_SOURCE_COUNT : Math.max(1, directSources.length)
   }
+}
+
+/**
+ * 应力着色器 uniform 取值表（单一事实源，表驱动）。
+ * buildStressShaderUniforms（首次创建着色器）与 updateStressConfig（增量更新）共用，
+ * 保证两条路径的 uniform 集合与取值完全一致。
+ *
+ * 注意：u_whiteModel 有意不在此表中 —— 首次创建时初始化为 0，
+ * 增量更新时必须保留当前白模状态，由 applyStressConfig / setWhiteModel 单独写入。
+ *
+ * @returns {Array<[string, number, *]>} [uniformName, uniformType, value]
+ */
+function createStressUniformEntries({
+  normalized,
+  sourceTex,
+  model,
+  field,
+  anchorToModel,
+  fieldCenterMC,
+  emptyTexture
+}) {
+  return [
+    ['u_lutTexture', Cesium.UniformType.SAMPLER_2D, normalized.lut.texture],
+    ['u_lutSize', Cesium.UniformType.FLOAT, normalized.lut.size],
+    ['u_useSourceTex', Cesium.UniformType.FLOAT, sourceTex.enabled ? 1.0 : 0.0],
+    ['u_sourceTex', Cesium.UniformType.SAMPLER_2D, sourceTex.texture],
+    ['u_sourceTexSize', Cesium.UniformType.VEC2, sourceTex.size],
+    ['u_cutoff', Cesium.UniformType.FLOAT, normalized.cutoff],
+    ['u_fieldMaskMode', Cesium.UniformType.FLOAT, normalized.fieldMaskMode],
+    ['u_fieldMaskPower', Cesium.UniformType.FLOAT, normalized.fieldMaskPower],
+    ['u_markerEnabled', Cesium.UniformType.FLOAT, normalized.markerEnabled],
+    ['u_markerRadius', Cesium.UniformType.FLOAT, normalized.markerRadius],
+    ['u_contourEnabled', Cesium.UniformType.FLOAT, normalized.contourEnabled],
+    ['u_contourLevels', Cesium.UniformType.FLOAT, normalized.contourLevels],
+    ['u_contourWidth', Cesium.UniformType.FLOAT, normalized.contourWidth],
+    ['u_glowEnabled', Cesium.UniformType.FLOAT, normalized.glowEnabled],
+    ['u_glowThreshold', Cesium.UniformType.FLOAT, normalized.glowThreshold],
+    ['u_glowStrength', Cesium.UniformType.FLOAT, normalized.glowStrength],
+    ['u_anchorToModel', Cesium.UniformType.FLOAT, anchorToModel ? 1.0 : 0.0],
+    ['u_diffuseMix', Cesium.UniformType.FLOAT, normalized.diffuseMix],
+    ['u_emissiveMix', Cesium.UniformType.FLOAT, normalized.emissiveMix],
+    ['u_blendMode', Cesium.UniformType.FLOAT, normalized.blendMode],
+    ['u_forceVisible', Cesium.UniformType.FLOAT, normalized.forceVisible],
+    ['u_lowRangeOpacity', Cesium.UniformType.FLOAT, normalized.lowRangeOpacity],
+    ['u_modelRadius', Cesium.UniformType.FLOAT, Number(model?.boundingSphere?.radius) || 1.0],
+    ['u_sourceCount', Cesium.UniformType.FLOAT, normalized.sourceCount],
+    ['u_fieldEnabled', Cesium.UniformType.FLOAT, field.enabled ? 1.0 : 0.0],
+    ['u_fieldCombine', Cesium.UniformType.FLOAT, field.combine],
+    ['u_fieldTexture', Cesium.UniformType.SAMPLER_2D, field.texture || emptyTexture],
+    ['u_fieldTexSize', Cesium.UniformType.VEC2, field.textureSize],
+    ['u_fieldGridSize', Cesium.UniformType.VEC3, field.gridSize],
+    ['u_fieldEdgeFade', Cesium.UniformType.FLOAT, normalized.fieldEdgeFade],
+    ['u_fieldSize', Cesium.UniformType.VEC3, field.size],
+    ['u_fieldWorldToLocal', Cesium.UniformType.MAT4, field.worldToLocal],
+    ['u_fieldCenter_mc', Cesium.UniformType.VEC3, fieldCenterMC]
+  ]
 }
 
 function buildStressShaderUniforms({
@@ -149,48 +211,25 @@ function buildStressShaderUniforms({
   model,
   field,
   anchorToModel,
-  fieldCenterMC
+  fieldCenterMC,
+  emptyTexture
 }) {
-  return {
-    u_lutTexture: { type: Cesium.UniformType.SAMPLER_2D, value: normalized.lut.texture },
-    u_lutSize: { type: Cesium.UniformType.FLOAT, value: normalized.lut.size },
-    u_useSourceTex: { type: Cesium.UniformType.FLOAT, value: sourceTex.enabled ? 1.0 : 0.0 },
-    u_sourceTex: { type: Cesium.UniformType.SAMPLER_2D, value: sourceTex.texture },
-    u_sourceTexSize: { type: Cesium.UniformType.VEC2, value: sourceTex.size },
-    u_cutoff: { type: Cesium.UniformType.FLOAT, value: normalized.cutoff },
-    u_fieldMaskMode: { type: Cesium.UniformType.FLOAT, value: normalized.fieldMaskMode },
-    u_fieldMaskPower: { type: Cesium.UniformType.FLOAT, value: normalized.fieldMaskPower },
-    u_markerEnabled: { type: Cesium.UniformType.FLOAT, value: normalized.markerEnabled },
-    u_markerRadius: { type: Cesium.UniformType.FLOAT, value: normalized.markerRadius },
-    u_contourEnabled: { type: Cesium.UniformType.FLOAT, value: normalized.contourEnabled },
-    u_contourLevels: { type: Cesium.UniformType.FLOAT, value: normalized.contourLevels },
-    u_contourWidth: { type: Cesium.UniformType.FLOAT, value: normalized.contourWidth },
-    u_glowEnabled: { type: Cesium.UniformType.FLOAT, value: normalized.glowEnabled },
-    u_glowThreshold: { type: Cesium.UniformType.FLOAT, value: normalized.glowThreshold },
-    u_glowStrength: { type: Cesium.UniformType.FLOAT, value: normalized.glowStrength },
-    u_anchorToModel: { type: Cesium.UniformType.FLOAT, value: anchorToModel ? 1.0 : 0.0 },
-    u_diffuseMix: { type: Cesium.UniformType.FLOAT, value: normalized.diffuseMix },
-    u_emissiveMix: { type: Cesium.UniformType.FLOAT, value: normalized.emissiveMix },
-    u_blendMode: { type: Cesium.UniformType.FLOAT, value: normalized.blendMode },
-    u_forceVisible: { type: Cesium.UniformType.FLOAT, value: normalized.forceVisible },
-    u_whiteModel: { type: Cesium.UniformType.FLOAT, value: 0.0 },
-    u_lowRangeOpacity: { type: Cesium.UniformType.FLOAT, value: normalized.lowRangeOpacity },
-    u_modelRadius: {
-      type: Cesium.UniformType.FLOAT,
-      value: Number(model?.boundingSphere?.radius) || 1.0
-    },
-    u_sourceCount: { type: Cesium.UniformType.FLOAT, value: normalized.sourceCount },
-    ...sourceUniforms,
-    u_fieldEnabled: { type: Cesium.UniformType.FLOAT, value: field.enabled ? 1.0 : 0.0 },
-    u_fieldCombine: { type: Cesium.UniformType.FLOAT, value: field.combine },
-    u_fieldTexture: { type: Cesium.UniformType.SAMPLER_2D, value: field.texture },
-    u_fieldTexSize: { type: Cesium.UniformType.VEC2, value: field.textureSize },
-    u_fieldGridSize: { type: Cesium.UniformType.VEC3, value: field.gridSize },
-    u_fieldEdgeFade: { type: Cesium.UniformType.FLOAT, value: normalized.fieldEdgeFade },
-    u_fieldSize: { type: Cesium.UniformType.VEC3, value: field.size },
-    u_fieldWorldToLocal: { type: Cesium.UniformType.MAT4, value: field.worldToLocal },
-    u_fieldCenter_mc: { type: Cesium.UniformType.VEC3, value: fieldCenterMC }
+  const entries = createStressUniformEntries({
+    normalized,
+    sourceTex,
+    model,
+    field,
+    anchorToModel,
+    fieldCenterMC,
+    emptyTexture
+  })
+  const uniforms = {}
+  for (const [name, type, value] of entries) {
+    uniforms[name] = { type, value }
   }
+  // u_whiteModel 默认关闭；白模状态由 applyStressConfig / setWhiteModel 单独写入
+  uniforms.u_whiteModel = { type: Cesium.UniformType.FLOAT, value: 0.0 }
+  return { ...uniforms, ...sourceUniforms }
 }
 
 const STRESS_FRAGMENT_SHADER_BODY = `
@@ -427,7 +466,9 @@ export class HeatmapManager {
     const normalized = this.normalizeStressConfig(config)
     const field = this.prepareField(config.field)
     const fieldCenterMC = resolveFieldCenterMC(config, anchorToModel, worldToLocal)
-    const rawSources = Array.isArray(config.sources) ? config.sources.slice(0, 1000) : []
+    const rawSources = Array.isArray(config.sources)
+      ? config.sources.slice(0, MAX_SOURCE_COUNT)
+      : []
     const resolveCenterMC = createModelCenterResolver(rawSources, worldToLocal)
     const sourceContext = prepareShaderSourceContext(
       this,
@@ -463,7 +504,8 @@ export class HeatmapManager {
         model,
         field,
         anchorToModel,
-        fieldCenterMC
+        fieldCenterMC,
+        emptyTexture: this.getEmptyTexture()
       }),
       lightingModel: Cesium.LightingModel.PBR,
       fragmentShaderText: buildStressFragmentShader(
@@ -501,57 +543,12 @@ export class HeatmapManager {
     if (!this.canIncrementallyUpdate(entry, normalized, field, anchorToModel)) return false
 
     const shader = entry.shader
-    let fieldCenterMC = new Cesium.Cartesian3(0, 0, 0)
-    try {
-      if (anchorToModel && worldToLocal) {
-        const origin = config?.field?.data?.origin || config?.field?.origin || null
-        if (
-          Array.isArray(origin) &&
-          origin.length >= 2 &&
-          origin.slice(0, 3).every(Number.isFinite)
-        ) {
-          const originWC = Cesium.Cartesian3.fromDegrees(origin[0], origin[1], origin[2] || 0)
-          fieldCenterMC = Cesium.Matrix4.multiplyByPoint(
-            worldToLocal,
-            originWC,
-            new Cesium.Cartesian3()
-          )
-        }
-      }
-    } catch (e) {
-      warn('heatmap', 'HeatmapManager', e)
-    }
+    const fieldCenterMC = resolveFieldCenterMC(config, anchorToModel, worldToLocal)
 
-    const rawSources = Array.isArray(config.sources) ? config.sources.slice(0, 1000) : []
-    const resolveCenterMC = s => {
-      const idx = Number.isInteger(s?.idx) && s.idx >= 0 ? s.idx : null
-      const raw = idx !== null ? rawSources[idx] : null
-      const stored = raw?.centerMC ?? raw?.centerMc ?? raw?.center_model ?? null
-      if (
-        stored &&
-        typeof stored === 'object' &&
-        Number.isFinite(stored.x) &&
-        Number.isFinite(stored.y) &&
-        Number.isFinite(stored.z)
-      ) {
-        return new Cesium.Cartesian3(stored.x, stored.y, stored.z)
-      }
-      if (
-        Array.isArray(stored) &&
-        stored.length >= 3 &&
-        stored.slice(0, 3).every(Number.isFinite)
-      ) {
-        return new Cesium.Cartesian3(stored[0], stored[1], stored[2])
-      }
-      if (!worldToLocal) return new Cesium.Cartesian3(0, 0, 0)
-      const computed = Cesium.Matrix4.multiplyByPoint(
-        worldToLocal,
-        s?.center || new Cesium.Cartesian3(0, 0, 0),
-        new Cesium.Cartesian3()
-      )
-      if (raw && stored === null) raw.centerMC = { x: computed.x, y: computed.y, z: computed.z }
-      return computed
-    }
+    const rawSources = Array.isArray(config.sources)
+      ? config.sources.slice(0, MAX_SOURCE_COUNT)
+      : []
+    const resolveCenterMC = createModelCenterResolver(rawSources, worldToLocal)
 
     const useSourceTex = Boolean(normalized.sourceTex?.enabled)
     const directSources =
@@ -570,41 +567,22 @@ export class HeatmapManager {
       }
     }
 
-    shader.setUniform('u_lutTexture', normalized.lut.texture)
-    shader.setUniform('u_lutSize', normalized.lut.size)
-    shader.setUniform('u_useSourceTex', useSourceTex ? 1.0 : 0.0)
-    shader.setUniform('u_sourceTex', sourceTex.texture)
-    shader.setUniform('u_sourceTexSize', sourceTex.size)
-    shader.setUniform('u_cutoff', normalized.cutoff)
-    shader.setUniform('u_fieldMaskMode', normalized.fieldMaskMode)
-    shader.setUniform('u_fieldMaskPower', normalized.fieldMaskPower)
-    shader.setUniform('u_markerEnabled', normalized.markerEnabled)
-    shader.setUniform('u_markerRadius', normalized.markerRadius)
-    shader.setUniform('u_contourEnabled', normalized.contourEnabled)
-    shader.setUniform('u_contourLevels', normalized.contourLevels)
-    shader.setUniform('u_contourWidth', normalized.contourWidth)
-    shader.setUniform('u_glowEnabled', normalized.glowEnabled)
-    shader.setUniform('u_glowThreshold', normalized.glowThreshold)
-    shader.setUniform('u_glowStrength', normalized.glowStrength)
-    shader.setUniform('u_anchorToModel', anchorToModel ? 1.0 : 0.0)
-    shader.setUniform('u_diffuseMix', normalized.diffuseMix)
-    shader.setUniform('u_emissiveMix', normalized.emissiveMix)
-    shader.setUniform('u_blendMode', normalized.blendMode)
-    shader.setUniform('u_forceVisible', normalized.forceVisible)
-    shader.setUniform('u_lowRangeOpacity', normalized.lowRangeOpacity)
-    shader.setUniform('u_sourceCount', normalized.sourceCount)
+    // 复用与 buildStressShaderUniforms 相同的 uniform 取值表，消除双源定义
+    const uniformEntries = createStressUniformEntries({
+      normalized,
+      sourceTex,
+      model,
+      field,
+      anchorToModel,
+      fieldCenterMC,
+      emptyTexture: this.getEmptyTexture()
+    })
+    for (const [name, , value] of uniformEntries) {
+      shader.setUniform(name, value)
+    }
     if (!useSourceTex) {
       this.setSourceUniforms(shader, directSources, sourceCentersMC)
     }
-    shader.setUniform('u_fieldEnabled', field.enabled ? 1.0 : 0.0)
-    shader.setUniform('u_fieldCombine', field.combine)
-    shader.setUniform('u_fieldTexture', field.texture || this.getEmptyTexture())
-    shader.setUniform('u_fieldTexSize', field.textureSize)
-    shader.setUniform('u_fieldGridSize', field.gridSize)
-    shader.setUniform('u_fieldEdgeFade', normalized.fieldEdgeFade)
-    shader.setUniform('u_fieldSize', field.size)
-    shader.setUniform('u_fieldWorldToLocal', field.worldToLocal)
-    shader.setUniform('u_fieldCenter_mc', fieldCenterMC)
 
     const previousConfig = entry.config
     const previousField = entry.field
@@ -613,14 +591,7 @@ export class HeatmapManager {
     entry.anchorToModel = anchorToModel
     entry.lastTimeIndex = null
     entry.lastFieldTextureIndex = null
-    if (entry.sourceTextureCache instanceof Map) {
-      for (const tex of entry.sourceTextureCache.values()) {
-        if (tex && tex !== this.emptySourceTexture?.texture) {
-          this.destroyTextureUniform(tex)
-        }
-      }
-      entry.sourceTextureCache.clear()
-    }
+    this.clearSourceTextureCache(entry)
     entry.sourceTextureOrder = []
     this.destroyConfigResources(previousConfig, previousField)
     if (this.viewer?.scene?.requestRender) {
@@ -641,38 +612,10 @@ export class HeatmapManager {
     if (hasSameFrame) return
     const worldToLocal = anchorToModel ? this.resolveModelWorldToLocal(model) : null
     const updated = this.withTimeSeries(config, safeTimeIndex)
-    const rawSources = Array.isArray(config.sources) ? config.sources.slice(0, 1000) : []
-    const resolveCenterMC = s => {
-      const idx = Number.isInteger(s?.idx) && s.idx >= 0 ? s.idx : null
-      const raw = idx !== null ? rawSources[idx] : null
-      const stored = raw?.centerMC ?? raw?.centerMc ?? raw?.center_model ?? null
-      if (
-        stored &&
-        typeof stored === 'object' &&
-        Number.isFinite(stored.x) &&
-        Number.isFinite(stored.y) &&
-        Number.isFinite(stored.z)
-      ) {
-        return new Cesium.Cartesian3(stored.x, stored.y, stored.z)
-      }
-      if (
-        Array.isArray(stored) &&
-        stored.length >= 3 &&
-        stored.slice(0, 3).every(Number.isFinite)
-      ) {
-        return new Cesium.Cartesian3(stored[0], stored[1], stored[2])
-      }
-      if (!worldToLocal) return new Cesium.Cartesian3(0, 0, 0)
-      const computed = Cesium.Matrix4.multiplyByPoint(
-        worldToLocal,
-        s?.center || new Cesium.Cartesian3(0, 0, 0),
-        new Cesium.Cartesian3()
-      )
-      if (raw && stored === null) {
-        raw.centerMC = { x: computed.x, y: computed.y, z: computed.z }
-      }
-      return computed
-    }
+    const rawSources = Array.isArray(config.sources)
+      ? config.sources.slice(0, MAX_SOURCE_COUNT)
+      : []
+    const resolveCenterMC = createModelCenterResolver(rawSources, worldToLocal)
 
     const useSourceTex = Boolean(updated.sourceTex?.enabled)
     const directSources = Array.isArray(updated.sourcesDirect) ? updated.sourcesDirect : []
@@ -792,6 +735,20 @@ export class HeatmapManager {
     }
   }
 
+  /**
+   * 清空 entry 的应力源纹理缓存（销毁其中所有非空纹理）
+   * @private
+   */
+  clearSourceTextureCache(entry) {
+    if (!(entry?.sourceTextureCache instanceof Map)) return
+    for (const tex of entry.sourceTextureCache.values()) {
+      if (tex && tex !== this.emptySourceTexture?.texture) {
+        this.destroyTextureUniform(tex)
+      }
+    }
+    entry.sourceTextureCache.clear()
+  }
+
   destroyStressResources(entry) {
     if (!entry) return
     const { shader, config, field } = entry
@@ -802,34 +759,15 @@ export class HeatmapManager {
         warn('heatmap', 'HeatmapManager', e)
       }
     }
-    const lutTexture = config?.lut?.texture || null
-    if (lutTexture && lutTexture !== this.emptyColorLUTTexture) {
-      this.destroyTextureUniform(lutTexture)
-    }
-    const sourceTexture = config?.sourceTex?.texture || null
-    if (sourceTexture && sourceTexture !== this.emptySourceTexture?.texture) {
-      this.destroyTextureUniform(sourceTexture)
-    }
-    if (entry.sourceTextureCache instanceof Map) {
-      for (const tex of entry.sourceTextureCache.values()) {
-        if (tex && tex !== this.emptySourceTexture?.texture) {
-          this.destroyTextureUniform(tex)
-        }
-      }
-      entry.sourceTextureCache.clear()
-    }
-    const fieldTextures = Array.isArray(field?.textures) ? field.textures : []
-    const cachedFrameTextures = field?.frameTextureCache
-      ? Array.from(field.frameTextureCache.values())
-      : []
-    const textureSet = new Set([...fieldTextures, ...cachedFrameTextures, field?.texture])
-    for (const tex of textureSet) {
-      if (tex && tex !== this.emptyTexture) {
-        this.destroyTextureUniform(tex)
-      }
-    }
+    this.clearSourceTextureCache(entry)
+    this.destroyConfigResources(config, field)
   }
 
+  /**
+   * 销毁配置相关的纹理（LUT / 应力源纹理 / 场纹理）。
+   * destroyStressResources 与 updateStressConfig 的公共清理路径。
+   * @private
+   */
   destroyConfigResources(config, field) {
     const lutTexture = config?.lut?.texture || null
     if (lutTexture && lutTexture !== this.emptyColorLUTTexture) {
@@ -926,7 +864,7 @@ export class HeatmapManager {
       ? Math.max(0, Math.min(0.6, Number(style.lowRangeOpacity)))
       : 0.18
 
-    const maxSources = 1000
+    const maxSources = MAX_SOURCE_COUNT
     const selectTopSources = (list, limit) => {
       const arr = Array.isArray(list) ? list.slice() : []
       arr.sort((a, b) => {
@@ -982,9 +920,9 @@ export class HeatmapManager {
 
     const directSourceLimitRaw = Number(style.sourceLimit)
     const directSourceLimit = Number.isFinite(directSourceLimitRaw)
-      ? Math.max(1, Math.min(1000, Math.floor(directSourceLimitRaw)))
+      ? Math.max(1, Math.min(MAX_SOURCE_COUNT, Math.floor(directSourceLimitRaw)))
       : style.useSourceTexture
-        ? 1000
+        ? MAX_SOURCE_COUNT
         : 4
     const useSourceTex =
       (Boolean(style.useSourceTexture) || directSourceLimit > 32) && sources.length > 16
@@ -1048,7 +986,7 @@ export class HeatmapManager {
       }
     })
     const sourceLimit = Number.isFinite(config?.directSourceLimit)
-      ? Math.max(1, Math.min(1000, Math.floor(config.directSourceLimit)))
+      ? Math.max(1, Math.min(MAX_SOURCE_COUNT, Math.floor(config.directSourceLimit)))
       : 4
     const useSourceTex = (Boolean(config?.useSourceTex) || sourceLimit > 32) && sources.length > 16
     const sourcesDirect = useSourceTex ? [] : selectTopSources(sources, sourceLimit)
@@ -1065,7 +1003,7 @@ export class HeatmapManager {
   }
 
   prepareSourceTexture(sources) {
-    const maxSources = 1000
+    const maxSources = MAX_SOURCE_COUNT
     const width = maxSources
     const height = 2
     const data = new Float32Array(width * height * 4)
@@ -1465,6 +1403,8 @@ export class HeatmapManager {
         rgba[offset + 3] = 255
       }
     } else if (preset) {
+      // 数据集配置可触发：foundation.js 允许 LUT 仅提供 色标 而无 表，
+      // 故该 preset 降级路径仍需保留（CIELAB 主路径仅覆盖由配色带推导的 LUT）。
       const name = preset.toLowerCase()
       for (let i = 0; i < size; i++) {
         const t = size === 1 ? 0 : i / (size - 1)
@@ -1491,51 +1431,6 @@ export class HeatmapManager {
     })
 
     return { enabled: true, texture, size }
-  }
-
-  buildColorLUTFromRamp(ramp) {
-    const list = (Array.isArray(ramp) ? ramp : [])
-      .map(r => ({
-        t: Math.max(0, Math.min(1, Number(r?.value ?? 0))),
-        color: String(r?.color || '#000000')
-      }))
-      .sort((a, b) => a.t - b.t)
-    if (list.length < 2) {
-      return { enabled: false, texture: this.getEmptyColorLUTTexture(), size: 1 }
-    }
-    if (list[0].t > 0) list.unshift({ t: 0, color: list[0].color })
-    if (list[list.length - 1].t < 1) list.push({ t: 1, color: list[list.length - 1].color })
-
-    const lutSize = 256
-    const rgba = new Uint8Array(lutSize * 4)
-    let seg = 0
-    for (let i = 0; i < lutSize; i++) {
-      const t = i / (lutSize - 1)
-      while (seg < list.length - 2 && list[seg + 1].t < t) seg++
-      const a = list[seg]
-      const b = list[Math.min(seg + 1, list.length - 1)]
-      const span = Math.max(0.0001, b.t - a.t)
-      const localT = Math.max(0, Math.min(1, (t - a.t) / span))
-      const ca = Cesium.Color.fromCssColorString(a.color)
-      const cb = Cesium.Color.fromCssColorString(b.color)
-      const offset = i * 4
-      rgba[offset] = Math.round(Cesium.Math.lerp(ca.red, cb.red, localT) * 255)
-      rgba[offset + 1] = Math.round(Cesium.Math.lerp(ca.green, cb.green, localT) * 255)
-      rgba[offset + 2] = Math.round(Cesium.Math.lerp(ca.blue, cb.blue, localT) * 255)
-      rgba[offset + 3] = 255
-    }
-
-    const texture = new Cesium.TextureUniform({
-      typedArray: rgba,
-      width: lutSize,
-      height: 1,
-      pixelFormat: Cesium.PixelFormat.RGBA,
-      pixelDatatype: Cesium.PixelDatatype.UNSIGNED_BYTE,
-      repeat: false,
-      minificationFilter: Cesium.TextureMinificationFilter.LINEAR,
-      magnificationFilter: Cesium.TextureMagnificationFilter.LINEAR
-    })
-    return { enabled: true, texture, size: lutSize }
   }
 
   jetRGB(t) {
@@ -1623,11 +1518,11 @@ export class HeatmapManager {
       hiQ = Number.isFinite(Number(quantileOpts.hi)) ? clamp01(Number(quantileOpts.hi)) : hiQ
     } else {
       const skew = this.computeSkewness(arr)
-      if (skew > 1.5) {
+      if (skew > SKEWNESS_THRESHOLD) {
         // 右偏分布（多数低应力，少数高应力）→ 保留更多上尾极端值
         loQ = 0.01
         hiQ = 0.995
-      } else if (skew < -1.5) {
+      } else if (skew < -SKEWNESS_THRESHOLD) {
         // 左偏分布 → 保留更多下尾
         loQ = 0.005
         hiQ = 0.97

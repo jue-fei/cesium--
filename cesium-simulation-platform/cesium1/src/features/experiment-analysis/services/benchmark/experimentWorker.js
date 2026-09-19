@@ -11,25 +11,36 @@
 
 import {
   optimizeIDWParameters as optimizeStressIDWParameters,
-  idwInterpolateSingle
+  idwInterpolateSingle,
+  createSeededRng
 } from '../../../stress-analysis/services/core/interpolation/idwCore.js'
 import {
   train3D as trainStressKriging3D,
   predict3D as predictStressKriging3D
 } from '../../../stress-analysis/services/core/interpolation/interpolationCore.js'
 import { clampInt, computeHeatmapGlobalRange } from './experimentVisualizationCore.js'
+import { computeAllMetrics, computeErrorDistribution } from './statisticsUtils.js'
 
 // Worker 全局作用域：在 vitest 等无 self 的环境下用 globalThis 兜底，保证模块可导入测试
 const workerScope = typeof self !== 'undefined' ? self : globalThis
 
-// ==================== 工具函数 ====================
+// ==================== 常量 ====================
 
-function createSeededRng(seed) {
-  let s = (Number(seed) || 0) >>> 0
-  return function rng() {
-    s = (1664525 * s + 1013904223) >>> 0
-    return s / 4294967296
-  }
+/** Kriging 变异函数模型名 → 中文标签（未知模型回退为原名） */
+const KRIGING_MODEL_LABELS = {
+  exponential: '指数模型',
+  gaussian: '高斯模型',
+  spherical: '球状模型'
+}
+
+/** Kriging 模型名 → 中文短标签（交叉验证对比表窄列），由全称派生以保持输出不变 */
+const KRIGING_MODEL_SHORT_LABELS = Object.fromEntries(
+  Object.entries(KRIGING_MODEL_LABELS).map(([name, label]) => [name, label.replace(/模型$/, '')])
+)
+
+/** 模型名 → 中文标签；未知模型返回原名 */
+function krigingModelLabel(modelName) {
+  return KRIGING_MODEL_LABELS[modelName] || modelName
 }
 
 // ==================== 合成数据生成 ====================
@@ -367,6 +378,39 @@ function optimizeIDWParameters(points, values, options, cancelFlag) {
   return result
 }
 
+/**
+ * 解析 PSO 运行时配置（holdout 与 K 折两条实验流程共用）：
+ * 依据是否深度寻优（thorough）与当前训练点数，推导模式、重启次数、
+ * 粒子数、迭代数、适应度样本上限及基础种子。
+ * @param {Object} idwConfig comparison.idwConfig
+ * @param {boolean} useThoroughPSO 是否启用深度寻优
+ * @param {number} trainCount 当前参与寻优的训练点数（quick 模式样本上限基准）
+ * @param {number} fallbackSeed 未配置 optimizationSeed 时的兜底种子
+ */
+function resolvePsoRuntimeConfig(idwConfig, useThoroughPSO, trainCount, fallbackSeed) {
+  return {
+    psoMode: useThoroughPSO ? 'thorough' : 'quick',
+    restartCount: useThoroughPSO ? 3 : 1,
+    particleCount: useThoroughPSO
+      ? clampInt(idwConfig.optimizationParticles, 4, 40, PSO_CONFIG.particleCount)
+      : 8,
+    maxIterations: useThoroughPSO
+      ? clampInt(idwConfig.optimizationIterations, 4, 120, PSO_CONFIG.maxIterations)
+      : 20,
+    maxFitnessSamples: useThoroughPSO
+      ? clampInt(
+          idwConfig.optimizationMaxFitnessSamples,
+          24,
+          trainCount,
+          PSO_CONFIG.maxFitnessSamples
+        )
+      : Math.min(60, trainCount),
+    baseSeed: Number.isFinite(Number(idwConfig.optimizationSeed))
+      ? Number(idwConfig.optimizationSeed)
+      : fallbackSeed
+  }
+}
+
 // ==================== Kriging ====================
 
 function trainKriging(trainPts, trainVals, modelName) {
@@ -385,121 +429,7 @@ function krigingPredict(x, y, z, model, clampRange) {
   return predictStressKriging3D(x, y, z, model, clampRange)
 }
 
-// ==================== 统计指标 ====================
-
-function computeRMSE(preds, truth) {
-  let sq = 0,
-    c = 0
-  for (let i = 0; i < Math.min(preds.length, truth.length); i++) {
-    if (Number.isFinite(preds[i]) && Number.isFinite(truth[i])) {
-      sq += (preds[i] - truth[i]) ** 2
-      c++
-    }
-  }
-  return c > 0 ? Math.sqrt(sq / c) : NaN
-}
-
-function computeMAE(preds, truth) {
-  let sum = 0,
-    c = 0
-  for (let i = 0; i < Math.min(preds.length, truth.length); i++) {
-    if (Number.isFinite(preds[i]) && Number.isFinite(truth[i])) {
-      sum += Math.abs(preds[i] - truth[i])
-      c++
-    }
-  }
-  return c > 0 ? sum / c : NaN
-}
-
-function computeMaxError(preds, truth) {
-  let maxErr = 0
-  let c = 0
-  for (let i = 0; i < Math.min(preds.length, truth.length); i++) {
-    if (Number.isFinite(preds[i]) && Number.isFinite(truth[i])) {
-      maxErr = Math.max(maxErr, Math.abs(preds[i] - truth[i]))
-      c++
-    }
-  }
-  return c > 0 ? maxErr : NaN
-}
-
-function computeMAPE(preds, truth) {
-  // 计算真值均值的绝对值，作为尺度参考
-  let sumAbsTruth = 0
-  let validCount = 0
-  for (let i = 0; i < Math.min(preds.length, truth.length); i++) {
-    if (Number.isFinite(preds[i]) && Number.isFinite(truth[i])) {
-      sumAbsTruth += Math.abs(truth[i])
-      validCount++
-    }
-  }
-  const meanAbsTruth = validCount > 0 ? sumAbsTruth / validCount : 0
-  // 分母下限 = max(均值的1%, 1e-4)，避免近零真值导致 MAPE 爆炸
-  const floor = Math.max(meanAbsTruth * 0.01, 1e-4)
-
-  let sum = 0
-  let c = 0
-  for (let i = 0; i < Math.min(preds.length, truth.length); i++) {
-    if (Number.isFinite(preds[i]) && Number.isFinite(truth[i])) {
-      const denom = Math.max(floor, Math.abs(truth[i]))
-      sum += Math.abs((preds[i] - truth[i]) / denom) * 100
-      c++
-    }
-  }
-  return c > 0 ? sum / c : NaN
-}
-
-function computeR2(preds, truth) {
-  const valid = []
-  let sumY = 0
-  for (let i = 0; i < Math.min(preds.length, truth.length); i++) {
-    if (Number.isFinite(preds[i]) && Number.isFinite(truth[i])) {
-      valid.push({ p: preds[i], t: truth[i] })
-      sumY += truth[i]
-    }
-  }
-  if (valid.length < 2) return NaN
-  const meanY = sumY / valid.length
-  let ssRes = 0,
-    ssTot = 0
-  for (const { p, t } of valid) {
-    ssRes += (p - t) ** 2
-    ssTot += (t - meanY) ** 2
-  }
-  return ssTot < 1e-12 ? (ssRes < 1e-12 ? 1 : NaN) : 1 - ssRes / ssTot
-}
-
-function computeAllMetrics(preds, truth) {
-  return {
-    rmse: computeRMSE(preds, truth),
-    mae: computeMAE(preds, truth),
-    r2: computeR2(preds, truth),
-    maxError: computeMaxError(preds, truth),
-    mape: computeMAPE(preds, truth)
-  }
-}
-
-function computeErrorDistribution(errors) {
-  const valid = errors.filter(Number.isFinite)
-  if (!valid.length) return { bins: [], count: 0 }
-  let lo = valid[0],
-    hi = valid[0]
-  for (const v of valid) {
-    if (v < lo) lo = v
-    if (v > hi) hi = v
-  }
-  const range = Math.max(0.01, (hi - lo) * 1.1)
-  lo -= range * 0.05
-  hi += range * 0.05
-  const binN = 20,
-    binW = range / binN
-  const bins = new Array(binN).fill(0)
-  for (const v of valid) {
-    const idx = Math.min(binN - 1, Math.max(0, Math.floor((v - lo) / binW)))
-    bins[idx]++
-  }
-  return { bins: bins.map((c, i) => ({ binStart: lo + i * binW, count: c })), count: valid.length }
-}
+// 统计指标（RMSE/MAE/MaxError/MAPE/R2/AllMetrics/ErrorDistribution）单源自 './statisticsUtils.js'
 
 // ==================== 交叉验证辅助（K折 × 重复 + 显著性） ====================
 
@@ -758,6 +688,11 @@ function kriging2dGrid(dataset, gridRes, model, krigingCache) {
 
 // ==================== 主实验流程 ====================
 
+/**
+ * Worker 单例运行状态（模块级共享，同一时刻只保留一次实验运行）。
+ * currentRunId 是当前允许上报的 run id，旧 run 的进度消息按 id 比对被丢弃；
+ * cancelFlag 是当前 run 的取消标记，每次 'run' 消息重建，'cancel' 消息置位 cancelled。
+ */
 let currentRunId = null
 let cancelFlag = { cancelled: false }
 
@@ -810,27 +745,20 @@ async function runExperiment(config, runId, cancelFg) {
     let idwParams = { ...defaultIdwParams }
 
     // 始终运行 PSO：快模式用轻量参数，慢模式用完整参数
-    const psoMode = useThoroughPSO ? 'thorough' : 'quick'
     const psoT0 = performance.now()
-    const baseSeed = Number.isFinite(Number(idwConfig.optimizationSeed))
-      ? Number(idwConfig.optimizationSeed)
-      : dataset.config.seed + 1337
-
-    const restartCount = useThoroughPSO ? 3 : 1
-    const psoParticleCount = useThoroughPSO
-      ? clampInt(idwConfig.optimizationParticles, 4, 40, PSO_CONFIG.particleCount)
-      : 8
-    const psoMaxIterations = useThoroughPSO
-      ? clampInt(idwConfig.optimizationIterations, 4, 120, PSO_CONFIG.maxIterations)
-      : 20
-    const psoMaxFitnessSamples = useThoroughPSO
-      ? clampInt(
-          idwConfig.optimizationMaxFitnessSamples,
-          24,
-          dataset.trainPoints.length,
-          PSO_CONFIG.maxFitnessSamples
-        )
-      : Math.min(60, dataset.trainPoints.length)
+    const {
+      psoMode,
+      restartCount,
+      particleCount: psoParticleCount,
+      maxIterations: psoMaxIterations,
+      maxFitnessSamples: psoMaxFitnessSamples,
+      baseSeed
+    } = resolvePsoRuntimeConfig(
+      idwConfig,
+      useThoroughPSO,
+      dataset.trainPoints.length,
+      dataset.config.seed + 1337
+    )
 
     reportProgress(
       'idw_benchmark',
@@ -1027,14 +955,7 @@ async function runExperiment(config, runId, cancelFg) {
     for (let mi = 0; mi < krModels.length; mi++) {
       const mn = krModels[mi]
       checkCancel()
-      const ml =
-        mn === 'exponential'
-          ? '指数模型'
-          : mn === 'gaussian'
-            ? '高斯模型'
-            : mn === 'spherical'
-              ? '球状模型'
-              : mn
+      const ml = krigingModelLabel(mn)
       const krGrid = kriging2dGrid(dataset, gridRes, { modelName: mn }, krCache)
       heatmapSnapshots.push({
         methodKey: `kriging_${mn}`,
@@ -1084,14 +1005,7 @@ async function runExperiment(config, runId, cancelFg) {
     })
 
     for (const [mn, kr] of Object.entries(krResults)) {
-      const ml =
-        mn === 'exponential'
-          ? '指数模型'
-          : mn === 'gaussian'
-            ? '高斯模型'
-            : mn === 'spherical'
-              ? '球状模型'
-              : mn
+      const ml = krigingModelLabel(mn)
       comparisonRows.push({
         method: `Kriging（${ml}）`,
         key: `kriging_${mn}`,
@@ -1258,25 +1172,19 @@ async function runCrossValidated(config, runId, cancelFg) {
         // 每折重训 PSO（在折内训练集上寻优，避免参数泄漏）
         const defaultIdwParams = createDefaultIdwParams(trainPts.length, idwConfig)
         const useThoroughPSO = idwConfig.optimizeParameters !== false && trainPts.length >= 4
-        const psoMode = useThoroughPSO ? 'thorough' : 'quick'
-        const restartCount = useThoroughPSO ? 3 : 1
-        const psoParticleCount = useThoroughPSO
-          ? clampInt(idwConfig.optimizationParticles, 4, 40, PSO_CONFIG.particleCount)
-          : 8
-        const psoMaxIterations = useThoroughPSO
-          ? clampInt(idwConfig.optimizationIterations, 4, 120, PSO_CONFIG.maxIterations)
-          : 20
-        const psoMaxFitnessSamples = useThoroughPSO
-          ? clampInt(
-              idwConfig.optimizationMaxFitnessSamples,
-              24,
-              trainPts.length,
-              PSO_CONFIG.maxFitnessSamples
-            )
-          : Math.min(60, trainPts.length)
-        const baseSeed = Number.isFinite(Number(idwConfig.optimizationSeed))
-          ? Number(idwConfig.optimizationSeed)
-          : dataset.config.seed + 1337
+        const {
+          psoMode,
+          restartCount,
+          particleCount: psoParticleCount,
+          maxIterations: psoMaxIterations,
+          maxFitnessSamples: psoMaxFitnessSamples,
+          baseSeed
+        } = resolvePsoRuntimeConfig(
+          idwConfig,
+          useThoroughPSO,
+          trainPts.length,
+          dataset.config.seed + 1337
+        )
 
         let bestPso = null,
           bestFit = Infinity,
@@ -1446,14 +1354,7 @@ async function runCrossValidated(config, runId, cancelFg) {
     })
     const krCache = {}
     for (const mn of krModels) {
-      const ml =
-        mn === 'exponential'
-          ? '指数模型'
-          : mn === 'gaussian'
-            ? '高斯模型'
-            : mn === 'spherical'
-              ? '球状模型'
-              : mn
+      const ml = krigingModelLabel(mn)
       heatmapSnapshots.push({
         methodKey: `kriging_${mn}`,
         label: `Kriging（${ml}）`,
@@ -1477,14 +1378,7 @@ async function runCrossValidated(config, runId, cancelFg) {
       timing: { folds: totalFolds }
     })
     for (const mn of krModels) {
-      const ml =
-        mn === 'exponential'
-          ? '指数'
-          : mn === 'gaussian'
-            ? '高斯'
-            : mn === 'spherical'
-              ? '球状'
-              : mn
+      const ml = KRIGING_MODEL_SHORT_LABELS[mn] || mn
       comparisonRows.push({
         method: `Kriging（${ml}）`,
         key: `kriging_${mn}`,
