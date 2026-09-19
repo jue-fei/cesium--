@@ -51,12 +51,13 @@ function computeVonMises(s) {
 export { eigenvaluesSymmetric3 } from '../shared/eigenvalues.js'
 
 // ============================================================================
-// 二、岩体材料参数 — 按 GB/T 50218-2014 附录B 及 YS/T 5046-2025
+// 二、岩体材料参数 — 按 GB/T 50218-2014 及 YS/T 5046-2025
 // ============================================================================
 
 /**
- * 岩石坚硬程度分类 (GB/T 50218-2014 表4.1.1)
- * Rc = 饱和单轴抗压强度 (MPa)
+ * 岩石坚硬程度分类（GB/T 50218-2014）
+ * 定性划分：表 3.2.1；Rc 与坚硬程度定量对应：表 3.3.3（第 3.3.3 条）
+ * Rc = 饱和单轴抗压强度 (MPa)：>60 坚硬岩 / >30 较坚硬岩 / >15 较软岩 / >5 软岩 / ≤5 极软岩
  */
 export function classifyRockHardness(rcMPa) {
   const rc = Number(rcMPa)
@@ -76,8 +77,9 @@ export function classifyRockHardness(rcMPa) {
 }
 
 /**
- * 岩体完整程度分类 (GB/T 50218-2014 表4.2.1)
- * Kv = 岩体完整性系数 (0~1)
+ * 岩体完整程度分类（GB/T 50218-2014）
+ * 定性划分：表 3.2.3；Kv 与完整程度定量对应：表 3.3.4（第 3.3.4 条）
+ * Kv = 岩体完整性系数 (0~1)：>0.75 完整 / >0.55 较完整 / >0.35 较破碎 / >0.15 破碎 / ≤0.15 极破碎
  */
 export function classifyRockIntegrity(kv) {
   const k = Number(kv)
@@ -90,10 +92,10 @@ export function classifyRockIntegrity(kv) {
 }
 
 /**
- * 岩体基本质量指标 BQ (GB/T 50218-2014 公式4.3.1)
+ * 岩体基本质量指标 BQ（GB/T 50218-2014 式 4.2.2，第 4.2.2 条）
  * BQ = 100 + 3Rc + 250Kv
  *
- * 使用限制 (4.3.2条):
+ * 使用限制条件（第 4.2.2 条第 2 款）:
  *   - 当 Rc > 90Kv + 30 时，以 Rc = 90Kv + 30 代入
  *   - 当 Kv > 0.04Rc + 0.4 时，以 Kv = 0.04Rc + 0.4 代入
  */
@@ -110,12 +112,12 @@ export function computeBQ(rcMPa, kv) {
 }
 
 /**
- * 地下工程岩体质量指标 [BQ] (GB/T 50218-2014 公式5.2.2)
+ * 地下工程岩体质量指标 [BQ]（GB/T 50218-2014 式 5.2.2，第 5.2.2 条）
  * [BQ] = BQ - 100(K₁ + K₂ + K₃)
  *
- * K₁ — 地下水影响修正系数
- * K₂ — 主要结构面产状影响修正系数
- * K₃ — 初始应力状态影响修正系数
+ * K₁ — 地下水影响修正系数（表 5.2.2-1）
+ * K₂ — 主要结构面产状影响修正系数（表 5.2.2-2）
+ * K₃ — 初始应力状态影响修正系数（表 5.2.2-3）
  */
 export function computeBQModified(bq, k1 = 0, k2 = 0, k3 = 0) {
   if (bq === null || !Number.isFinite(bq)) return null
@@ -123,7 +125,9 @@ export function computeBQModified(bq, k1 = 0, k2 = 0, k3 = 0) {
 }
 
 /**
- * 工程岩体级别划分 (GB/T 50218-2014 表4.1.1-1)
+ * 工程岩体级别划分（GB/T 50218-2014 表 4.1.1 岩体基本质量分级）
+ * BQ 区间：>550 Ⅰ 级 / >451 Ⅱ 级 / >351 Ⅲ 级 / >251 Ⅳ 级 / ≤251 Ⅴ 级
+ * selfSupport 描述对应附录 E 表 E.0.1 地下工程岩体自稳能力（见第 5.2.3 条，跨度 ≤ 20m）
  */
 export function classifyBQ(bqValue) {
   const bq = Number(bqValue)
@@ -222,6 +226,10 @@ export function hoekBrownUtilization(sigma1, sigma3, hbParams) {
 }
 
 // 完整岩石 m_i 经验值 (Hoek & Brown, 2018, Table 2)
+// 【数据真源已后端化】backend-py/config/hoek_brown_mi.json（含 mi 表 + 硬岩典型 UCS 分档），
+// 经 GET /api/blasting/hoek-brown-mi 下发。下方 HOEK_BROWN_MI / _FALLBACK_TYPICAL_UCS
+// 仅为无网/后端未就绪时的兜底副本——修改岩性参数请以后端 JSON 为准并同步本副本。
+// 可在任何初始化点调用 loadHoekBrownMiConfig() 拉取后端配置（Promise 缓存，失败可重试）。
 export const HOEK_BROWN_MI = Object.freeze({
   // 沉积岩
   limestone: 10,
@@ -250,28 +258,83 @@ export const HOEK_BROWN_MI = Object.freeze({
   ore_lead_zinc: 20
 })
 
+// 硬岩典型 UCS 兜底分档（与 inferRockParams 原硬编码一致；真源在后端 hoek_brown_mi.json）
+const _FALLBACK_TYPICAL_UCS = Object.freeze({
+  granite: 120,
+  basalt: 120,
+  gabbro: 120,
+  quartzite: 120,
+  gneiss: 120,
+  diorite: 120,
+  ore_iron: 80,
+  ore_copper: 80
+})
+
+// 运行期岩性配置（初始为兜底副本；loadHoekBrownMiConfig() 成功后被后端数据整体替换）
+let _rockLithologyConfig = {
+  mi: HOEK_BROWN_MI,
+  typicalUCS: _FALLBACK_TYPICAL_UCS,
+  defaultTypicalUCS: 50,
+  fallback: { mi: 12, typicalUCS: 40 }
+}
+
+let _hoekBrownMiPromise = null
 /**
- * 根据岩性名推断 m_i 和典型 UCS
+ * 懒加载后端 m_i 岩性配置（Promise 缓存模式：并发调用共享同一请求）。
+ * 成功后 inferRockParams 改用后端数据；失败清除缓存允许下次重试（前端兜底副本仍可用）。
+ * 后端真源：GET /api/blasting/hoek-brown-mi（config/hoek_brown_mi.json）。
+ * @returns {Promise<Object>} 当前生效的岩性配置 { mi, typicalUCS, defaultTypicalUCS, fallback }
+ */
+export function loadHoekBrownMiConfig() {
+  if (!_hoekBrownMiPromise) {
+    _hoekBrownMiPromise = fetch('/api/blasting/hoek-brown-mi')
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then(json => {
+        const data = json?.data
+        if (data && typeof data.mi === 'object' && Object.keys(data.mi).length > 0) {
+          _rockLithologyConfig = {
+            mi: Object.freeze({ ...data.mi }),
+            typicalUCS: Object.freeze({ ...(data.typicalUCS || _FALLBACK_TYPICAL_UCS) }),
+            defaultTypicalUCS: Number(data.defaultTypicalUCS) || 50,
+            fallback: {
+              mi: Number(data.fallback?.mi) || 12,
+              typicalUCS: Number(data.fallback?.typicalUCS) || 40
+            }
+          }
+        }
+        return _rockLithologyConfig
+      })
+      .catch(err => {
+        _hoekBrownMiPromise = null // 失败清缓存，允许重试
+        throw err
+      })
+  }
+  return _hoekBrownMiPromise
+}
+
+/**
+ * 根据岩性名推断 m_i 和典型 UCS（同步签名保持不变：已加载后端配置则用后端值，
+ * 未加载时用兜底副本，不阻塞调用方）
  */
 export function inferRockParams(lithology) {
   const text = String(lithology || '')
     .toLowerCase()
     .trim()
-  const entries = Object.entries(HOEK_BROWN_MI)
+  const entries = Object.entries(_rockLithologyConfig.mi)
   for (const [key, mi] of entries) {
     if (text.includes(key)) {
-      // 硬岩典型 UCS
-      const hardUCS = ['granite', 'basalt', 'gabbro', 'quartzite', 'gneiss', 'diorite'].includes(
-        key
-      )
-        ? 120
-        : ['ore_iron', 'ore_copper'].includes(key)
-          ? 80
-          : 50
-      return { mi, typicalUCS: hardUCS }
+      // 硬岩典型 UCS（分档真源在后端 hoek_brown_mi.json 的 typicalUCS 字段）
+      const typicalUCS =
+        Number(_rockLithologyConfig.typicalUCS?.[key]) ||
+        _rockLithologyConfig.defaultTypicalUCS ||
+        50
+      return { mi, typicalUCS }
     }
   }
-  return { mi: 12, typicalUCS: 40 }
+  return { ..._rockLithologyConfig.fallback }
 }
 
 // ============================================================================

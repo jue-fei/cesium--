@@ -10,12 +10,20 @@
  *
  * 只要在场景 JSON 的 layout.nodes / segments / levelSegs / layout.levels 中增删巷道，
  * 渲染与 NSGA-III 路径绘制即自动适配，无需修改本文件或组件代码。
+ *
+ * ⚠️⚠️⚠️ 兜底数据警示（重要）⚠️⚠️⚠️
+ * 下文 DEFAULT_VIEW_BOX / DEFAULT_SEGMENT_LINKS / DEFAULT_NODE_POSITIONS /
+ * DEFAULT_LEVELS / DEFAULT_LAYOUT 各表，均为后端 config/scenario_*.json 的兜底副本。
+ * ⚠️ 数据真源在后端 config/scenario_*.json，本表仅为后端未配置时的兜底；
+ * ⚠️ 修改场地布局请改后端配置并同步本表，否则前后端布局将不一致！
  */
 
-// 默认 2D 画布范围（与场景配置 layout.viewBox 一致；此处作为兜底）
+// ⚠️ 兜底副本：数据真源在后端 config/scenario_*.json（layout.viewBox），本表仅为后端
+// 未配置时的兜底；修改场地布局请改后端配置并同步本表。
 export const DEFAULT_VIEW_BOX = { x: 0, y: 0, width: 390, height: 300 }
 
-// 顶层默认巷道段（与场景配置 levelSegs["0"] 一致；作为兜底）
+// ⚠️ 兜底副本：顶层巷道段数据真源在后端 config/scenario_*.json（segments + levelSegs["0"]），
+// 本表仅为后端未配置时的兜底；修改场地布局请改后端配置并同步本表。
 export const DEFAULT_SEGMENT_LINKS = [
   ['SEG-01', 'S0', 'N1'],
   ['SEG-02', 'N1', 'N2'],
@@ -34,7 +42,8 @@ export const DEFAULT_SEGMENT_LINKS = [
   ['SEG-15', 'M4', 'S1']
 ]
 
-// 默认节点 2D 布局（与场景配置 layout.nodes 一致；作为兜底）
+// ⚠️ 兜底副本：节点 2D 布局数据真源在后端 config/scenario_*.json（layout.nodes），
+// 本表仅为后端未配置时的兜底；修改场地布局请改后端配置并同步本表。
 export const DEFAULT_NODE_POSITIONS = {
   S0: { x: 50, y: 40, label: 'S0 卸载点', isDump: true },
   N1: { x: 140, y: 40, label: 'N1' },
@@ -51,7 +60,8 @@ export const DEFAULT_NODE_POSITIONS = {
   S1: { x: 230, y: 250, label: 'S1 备用卸点', isDump: true }
 }
 
-// 默认三维分层（与场景配置 layout.levels 一致；作为兜底）
+// ⚠️ 兜底副本：三维分层数据真源在后端 config/scenario_*.json（layout.levels），
+// 本表仅为后端未配置时的兜底；修改场地布局请改后端配置并同步本表。
 export const DEFAULT_LEVELS = [
   { y: 36, name: '主运输水平', shift: { x: 0, z: 0 }, activity: 0.5 },
   { y: 14, name: '上部出矿分段', shift: { x: 22, z: -12 }, activity: 0.8 },
@@ -83,7 +93,7 @@ const _r3 = v => Math.round(v * 1000) / 1000
 
 function deriveDeepSegments(cfg, nodePositions, levelSegs) {
   const segById = {}
-  for (const s of (cfg && Array.isArray(cfg.segments) ? cfg.segments : [])) segById[s.id] = s
+  for (const s of cfg && Array.isArray(cfg.segments) ? cfg.segments : []) segById[s.id] = s
   const out = []
   const keys = Object.keys(levelSegs || {})
     .map(Number)
@@ -165,7 +175,11 @@ export function buildLayout(cfg) {
   }
 }
 
-/** 无场景配置时的兜底布局（保留旧版视觉，供 pathToPoints 等独立使用）。 */
+/**
+ * ⚠️ 兜底副本：无场景配置时的兜底布局（保留旧版视觉，供 pathToPoints 等独立使用）。
+ * 数据真源在后端 config/scenario_*.json，本表仅为后端未配置时的兜底；
+ * 修改场地布局请改后端配置并同步本表。
+ */
 export const DEFAULT_LAYOUT = buildLayout({
   layout: {
     viewBox: DEFAULT_VIEW_BOX,

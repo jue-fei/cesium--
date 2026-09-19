@@ -156,6 +156,9 @@
           </select>
         </label>
       </div>
+      <div v-if="presetsLoadFailed" class="hint-sm">
+        标定集加载失败（后端未就绪？），可直接输入 K/α 应用。
+      </div>
       <div class="hint-sm mt-1">
         峰值振速 v<sub>p</sub> = K·(Q<sup>1/3</sup>/R)<sup>α</sup>，热力图显示该峰值随
         波前到达后衰减的当前瞬时振速 v(t)。默认
@@ -362,9 +365,9 @@ import {
 } from '../services/core/rendering/vibrationColorScales.js'
 import {
   LOCAL_SIM_DEFAULT_K,
-  LOCAL_SIM_DEFAULT_ALPHA,
-  SADOSKY_PRESETS
+  LOCAL_SIM_DEFAULT_ALPHA
 } from '../services/core/vibrationDefaults.js'
+import { fetchSadoskyPresets } from '../services/blastingApi.js'
 
 defineOptions({ name: 'VibrationFieldPanel' })
 
@@ -440,11 +443,22 @@ function applySadosky() {
   emit('update-sadosky-params', { k, alpha })
 }
 
-// 文献实测的萨道夫斯基标定集（便于用真实场地参数反标定 PPV 场）：单源于 vibrationDefaults.js
-const sadoskyPresets = SADOSKY_PRESETS
+// 文献实测的萨道夫斯基标定集：数据真源已后端化（backend-py/config/blasting_sadosky.json），
+// 运行时经 GET /api/blasting/sadosky-presets 拉取一次；拉取失败时下拉为空（保留占位项），
+// 仍可通过上方 K/α 输入框 + applySadosky 手动输入。
+const sadoskyPresets = ref([])
+const presetsLoadFailed = ref(false)
+onMounted(async () => {
+  try {
+    const data = await fetchSadoskyPresets()
+    sadoskyPresets.value = Array.isArray(data?.presets) ? data.presets : []
+  } catch {
+    presetsLoadFailed.value = true
+  }
+})
 const presetKey = ref('__none__')
 function applyPreset() {
-  const p = sadoskyPresets.find(x => x.key === presetKey.value)
+  const p = sadoskyPresets.value.find(x => x.key === presetKey.value)
   if (!p) return
   kInput.value = p.k
   alphaInput.value = p.alpha

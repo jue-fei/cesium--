@@ -25,6 +25,11 @@ from app.services.blasting.blast_physics import (
 )
 from app.services.blasting.compare import compare_multiple_events
 from app.services.blasting.literature_design_config import build_literature_payload
+from app.services.blasting.static_preset_config import (
+    build_hoek_brown_mi_payload,
+    build_kco_site_presets_payload,
+    build_sadosky_payload,
+)
 from app.schemas import KCOValidateRequest, JwlRequest, VibrationRequest
 from app.security import require_token
 
@@ -987,3 +992,34 @@ def physics_vibration(req: VibrationRequest):
         "chargeKg": req.chargeKg,
         "distance": req.distance,
     }}
+
+
+# ============================================================
+# 静态预设/标定集下发（config/*.json 单文件真源，GET 无需鉴权）
+# ============================================================
+
+@router.get("/sadosky-presets")
+def read_sadosky_presets():
+    """萨道夫斯基标定集：文献实测预设 6 条 + 平台默认 K/α（真源 config/blasting_sadosky.json）。
+
+    返回 { code:0, data:{ presets:[{key,label,k,alpha,source}], default:{k,alpha,source} } }。
+    """
+    return {"code": 0, "data": build_sadosky_payload()}
+
+
+@router.get("/kco-site-presets")
+def read_kco_site_presets():
+    """KCO 场地预设：3 套典型工程场景参数（真源 config/kco_site_presets.json）。
+
+    返回 { code:0, data:{ presets:{ <key>: {label, RMD, ..., b} } } }。
+    """
+    return {"code": 0, "data": build_kco_site_presets_payload()}
+
+
+@router.get("/hoek-brown-mi")
+def read_hoek_brown_mi():
+    """Hoek-Brown m_i 岩性表 + 硬岩典型 UCS 分档（真源 config/hoek_brown_mi.json）。
+
+    返回 { code:0, data:{ mi, miGroupMeta, typicalUCS, defaultTypicalUCS, fallback } }。
+    """
+    return {"code": 0, "data": build_hoek_brown_mi_payload()}

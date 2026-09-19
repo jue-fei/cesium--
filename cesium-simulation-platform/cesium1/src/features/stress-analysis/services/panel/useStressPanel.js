@@ -7,7 +7,11 @@ import { formatStressValueRangeText, resolveStressUnit } from './stressHeatmapPa
 import { useStressPanelChart } from './useStressPanelChart.js'
 import { useStressPanelHeatmap } from './useStressPanelHeatmap.js'
 import { useStressPanelPointRender } from './useStressPanelPointRender.js'
-import { isSafetyMetric, SAFETY_SCORE_STANDARD_LINES } from '../core/safety/index.js'
+import {
+  isSafetyMetric,
+  loadHoekBrownMiConfig,
+  SAFETY_SCORE_STANDARD_LINES
+} from '../core/safety/index.js'
 import { evaluateSourceData, buildWarningSummary } from '../core/safety/warningEngine.js'
 
 const EXAMPLE_URL = '/stress/应力分析_示例数据_自动生成-模型中心.json'
@@ -179,6 +183,10 @@ export function useStressPanel() {
   const state = stress.state
   const actions = stress.actions
   const sliderTime = ref(state.currentTime.value)
+
+  // 安全服务初始化：懒加载后端 m_i 岩性配置（真源 config/hoek_brown_mi.json，
+  // Promise 缓存；失败静默，inferRockParams 等仍走前端兜底副本）
+  loadHoekBrownMiConfig().catch(() => {})
 
   const timeLabel = computed(() => {
     const map = { day: '日', week: '周', month: '月' }

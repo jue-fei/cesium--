@@ -12,6 +12,8 @@
     其余不耦合装药、装药长度 2.5m；毫秒延时爆破。
   - 萨道夫斯基分段修正：近/远场分界 R=110m；近场 α=1.082、K=19.3（拟合95%），
     远场 α=0.372、K≈1.23（拟合81%）。本平台振动场默认采用近场 K=19.3、α=1.082。
+    【单源】萨道夫斯基 K/α 以 config/blasting_designs/sanlengshan.json 的 sadosky
+    字段为唯一数据源，本脚本运行时读取该文件注入 effect dict（不再硬编码）。
   - 断面尺寸文献未给出，按"双向高铁线路隧道"量级估算：马蹄形 13.5m×10.25m（宽×高）。
 
 运行: venv\\Scripts\\python.exe seed_sanlengshan_event.py
@@ -21,6 +23,7 @@ import sys
 import math
 import json
 from datetime import datetime
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -41,6 +44,28 @@ DB_CONFIG = {
 }
 
 EVENT_ID = "BLAST-2026-003"
+
+# ─── 萨道夫斯基 K/α 单源：config/blasting_designs/sanlengshan.json ───
+# 此前在本脚本 effect dict 中硬编码近场 K=19.3、α=1.082，与 sanlengshan.json 双源；
+# 现改为运行时读取该 JSON 的 sadosky 字段，消除后端内部双源。
+_SADOSKY_JSON = (
+    Path(__file__).resolve().parent / "config" / "blasting_designs" / "sanlengshan.json"
+)
+
+
+def _load_sadosky():
+    """从 sanlengshan.json 读取三棱山萨道夫斯基近场 K/α（缺失/损坏时中止脚本）。"""
+    try:
+        with open(_SADOSKY_JSON, "r", encoding="utf-8") as f:
+            sadosky = (json.load(f) or {}).get("sadosky") or {}
+        return float(sadosky["k"]), float(sadosky["alpha"])
+    except Exception as e:
+        raise SystemExit(
+            f"[seed_sanlengshan] 读取三棱山萨道夫斯基参数失败（{_SADOSKY_JSON}）: {e}"
+        )
+
+
+SADOSKY_K, SADOSKY_ALPHA = _load_sadosky()
 
 # ─── 三棱山隧道文献断面（马蹄形，估算，高铁双线量级）──────────
 HW = 13.5           # 掘进断面宽 (m)
@@ -176,7 +201,7 @@ def _build_json_columns(holes):
         "漏斗中心偏移_m": 0.2, "Swebrec弯曲参数_b": 2.3, "冲击波速度系数": 4.0,
         "最大质点振速_cms": 3.2, "Cunningham均匀指数_n": 0.9,
         "近远场分界_m": 110, "近场拟合精度": 0.95, "远场拟合精度": 0.81,
-        "萨道夫斯基_K": 19.3, "萨道夫斯基_α": 1.082,
+        "萨道夫斯基_K": SADOSKY_K, "萨道夫斯基_α": SADOSKY_ALPHA,
     }
     rho = {
         "天气": "晴", "泊松比": 0.3, "风速_ms": 3, "风向_度": 45, "密度_kgm3": 2600,
@@ -214,7 +239,7 @@ def main():
                 datetime(2026, 7, 24, 8, 30), "已规划",
                 f"三棱山高铁隧道钻爆掘进，拱形断面13.5×10.25m(估算)；"
                 f"楔形掏槽、孔距0.5-0.7m、孔深3.0m；萨道夫斯基分段修正"
-                f"近场K=19.3、α=1.082(R<110m)",
+                f"近场K={SADOSKY_K}、α={SADOSKY_ALPHA}(R<110m)",
                 d["炮孔设计"], d["断面掘进"], d["装药起爆"], d["爆破效果"], d["环境岩体"],
                 datetime.now(), datetime.now(),
             ),
@@ -224,7 +249,7 @@ def main():
         print(f"      名称: 三棱山隧道钻爆法掘进(文献)")
         print(f"      断面: 13.5×10.25m 马蹄形({AREA}m²) | 孔深 {HOLE_DEPTH}m | 进尺 {ADVANCE}m")
         print(f"      总装药量: {d['_total_charge']}kg | 炮孔数: {len(holes)}")
-        print(f"      掏槽: 楔形8孔 毫秒雷管 | K=19.3, α=1.082(近场R<110m)")
+        print(f"      掏槽: 楔形8孔 毫秒雷管 | K={SADOSKY_K}, α={SADOSKY_ALPHA}(近场R<110m)")
         print(f"      MS段别: 周边MS11 拱顶MS13 间隔装药")
     except Exception as e:
         conn.rollback()

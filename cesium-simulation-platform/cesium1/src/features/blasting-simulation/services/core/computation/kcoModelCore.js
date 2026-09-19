@@ -51,56 +51,10 @@ export const KCO_SOURCE_MODE = {
 }
 
 /**
- * 场地预设：按工程场景封装岩石因子 + 装药 + 孔网典型值
- * 用于 UI 一键填充，避免用户面对裸数值。数值来源：工程经验典型值，非标定。
+ * 场地预设（SITE_PRESETS）已后端化：数据真源在后端 backend-py/config/kco_site_presets.json，
+ * 经 GET /api/blasting/kco-site-presets 下发，由 BlastKcoPanel.vue 运行时拉取后注入
+ * BlastKcoEditor 下拉。本纯计算模块不再持有副本（工程经验典型值，非标定）。
  */
-export const SITE_PRESETS = {
-  'highway-tunnel-hard': {
-    label: '公路隧道·中硬岩',
-    RMD: 20,
-    RDI: 15,
-    HF: 25,
-    Q: 10.8, // = q × B × S × H
-    q: 0.8,
-    B: 1.5,
-    S: 2.0,
-    d: 90,
-    SANFO: 100,
-    H: 4.5,
-    xmax: 2.0,
-    b: 2.0
-  },
-  'subway-tunnel-soft': {
-    label: '地铁隧道·软岩',
-    RMD: 12,
-    RDI: 10,
-    HF: 15,
-    Q: 3.2, // = q × B × S × H
-    q: 0.55,
-    B: 1.2,
-    S: 1.6,
-    d: 64,
-    SANFO: 100,
-    H: 3.0,
-    xmax: 1.5,
-    b: 1.8
-  },
-  'mine-drift-hard': {
-    label: '矿山巷道·硬岩',
-    RMD: 25,
-    RDI: 18,
-    HF: 28,
-    Q: 19.8, // = q × B × S × H
-    q: 1.0,
-    B: 1.8,
-    S: 2.2,
-    d: 102,
-    SANFO: 115,
-    H: 5.0,
-    xmax: 2.5,
-    b: 2.2
-  }
-}
 
 /**
  * 炸药类型 → { SANFO 相对ANFO威力, Eg 比能 J/kg }
@@ -330,7 +284,6 @@ export function computeKLDivergence(p, q) {
 export default {
   DEFAULT_KCO_PARAMS,
   KCO_SOURCE_MODE,
-  SITE_PRESETS,
   EXPLOSIVE_TYPES,
   calculateUniformityIndex,
   calculateKCOParams,

@@ -1,0 +1,50 @@
+{
+  "_description": "KCO 场地预设单源配置：按工程场景封装的岩石因子（RMD/RDI/HF）+ 装药（Q/q/SANFO）+ 孔网（B/S/d/H）+ 块度（xmax/b）典型值，共 3 套，用于 UI 一键填充。此前硬编码在前端 cesium1/src/features/blasting-simulation/services/core/computation/kcoModelCore.js 的 SITE_PRESETS，现已后端化，经 GET /api/blasting/kco-site-presets 下发。数值来源：工程经验典型值，非标定。",
+  "presets": {
+    "highway-tunnel-hard": {
+      "label": "公路隧道·中硬岩",
+      "RMD": 20,
+      "RDI": 15,
+      "HF": 25,
+      "Q": 10.8,
+      "q": 0.8,
+      "B": 1.5,
+      "S": 2.0,
+      "d": 90,
+      "SANFO": 100,
+      "H": 4.5,
+      "xmax": 2.0,
+      "b": 2.0
+    },
+    "subway-tunnel-soft": {
+      "label": "地铁隧道·软岩",
+      "RMD": 12,
+      "RDI": 10,
+      "HF": 15,
+      "Q": 3.2,
+      "q": 0.55,
+      "B": 1.2,
+      "S": 1.6,
+      "d": 64,
+      "SANFO": 100,
+      "H": 3.0,
+      "xmax": 1.5,
+      "b": 1.8
+    },
+    "mine-drift-hard": {
+      "label": "矿山巷道·硬岩",
+      "RMD": 25,
+      "RDI": 18,
+      "HF": 28,
+      "Q": 19.8,
+      "q": 1.0,
+      "B": 1.8,
+      "S": 2.2,
+      "d": 102,
+      "SANFO": 115,
+      "H": 5.0,
+      "xmax": 2.5,
+      "b": 2.2
+    }
+  }
+}

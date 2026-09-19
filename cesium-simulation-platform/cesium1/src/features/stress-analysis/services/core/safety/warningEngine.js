@@ -8,6 +8,62 @@ import {
   assessRockburstRisk
 } from './index.js'
 
+// ============================================================================
+// 预警阈值常量表 —— 全文件唯一阈值来源
+// 规则判定（DEFAULT_WARNING_RULES）、默认评估上下文（buildEvaluationContext）、
+// 预警文案中的数值均引用本表；修改阈值只需改这里，逻辑与文案自动同步。
+// 出处：Hoek-Brown (2018)、Mohr-Coulomb 判据、GB/T 50218-2014、Russenes (1974) 岩爆判据
+// ============================================================================
+export const WARNING_THRESHOLDS = Object.freeze({
+  // ——— 综合安全评分（0~10 分制，分值越高越安全）———
+  // 出处：本模块安全评分体系（von Mises 利用率 ×10 映射，见 evaluateTensorMetrics）
+  safetyScore: {
+    critical: 8.5, // ≥8.5 → 红色预警：极高风险，需立即检查
+    high: 7.0, // ≥7.0 → 橙色预警：高风险区间，建议加密监测（上界为 critical）
+    warning: 5.0 // ≥5.0 → 黄色预警：中风险区间，保持常规监测（上界为 high）
+  },
+  // ——— Hoek-Brown 破坏准则 (2018)：σ₁/σ₁_peak 强度利用率 ———
+  // 出处：广义 Hoek-Brown 准则 (Hoek & Brown, 2018)；≥95% 接近峰值强度，
+  // 75%~95% 为屈服阶段（塑性变形显著发展）
+  hoekBrown: {
+    critical: 0.95, // ≥0.95：裂隙网络贯通，接近极限承载（文案中 95% 由本值换算）
+    yield: 0.75 // ≥0.75：进入屈服阶段（上界为 critical）
+  },
+  // ——— Mohr-Coulomb 剪切/拉伸破坏利用率 ———
+  // 出处：GB/T 50218-2014《工程岩体分级标准》摩尔-库仑强度判据
+  mohrCoulomb: {
+    shear: 0.9, // 剪切利用率 ≥0.9：τ_max → c + σₙ·tanφ，剪切滑移破坏临近
+    tension: 0.85 // 拉应力利用率 ≥0.85：接近抗拉截断值，张拉裂隙/剥离临近
+  },
+  // ——— von Mises 等效应力（相对参考强度利用率）———
+  vonMises: {
+    critical: 0.9, // ≥0.9：达到破坏阶段（红色预警）
+    elevated: 0.6 // ≥0.6：进入损伤-屈服阶段（0.6~0.9 为偏高/橙色预警）
+  },
+  // ——— 岩爆倾向性 Russenes (1974)：σ_θ/σ_c（切向应力/单轴抗压强度比）———
+  russenes: {
+    strong: 0.55, // ≥0.55：强岩爆，可能弹射抛射、伴随巨响和冲击波
+    moderate: 0.3, // ≥0.3：中等岩爆，可能出现片帮、弹射（上界为 strong）
+    weak: 0.2 // ≥0.2：弱岩爆，轻微剥落或小片帮（上界为 moderate）
+  },
+  // ——— 通用利用率分档（buildEvaluationContext 下发 ctx.thresholds 的默认值）———
+  utilization: {
+    high: 0.8, // ctx.thresholds.utilizationHigh 默认值
+    medium: 0.6 // ctx.thresholds.utilizationMedium 默认值
+  },
+  // ——— 应力趋势检测（detectStressTrend）———
+  trend: {
+    rate: 0.15, // 平均每帧变化率阈值：|rate| > 0.15 触发"应力快速上升/下降"预警
+    significantFactor: 1.8, // 显著性倍率：|rate| > 阈值×1.8 升级橙色，否则黄色
+    windowSize: 5 // 默认趋势窗口（回看帧数）
+  },
+  // ——— 空间聚类检测（detectSpatialClusters）———
+  cluster: {
+    minCount: 3, // 高等级预警 ≥3 条才成簇（"区域风险集中"）
+    regionGrid: 3 // 默认空间网格划分数（水平每轴 3 格，竖向减半）
+  }
+})
+
 export const WARNING_LEVELS = Object.freeze({
   red: { key: 'red', label: '红色预警', severity: 3, color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
   orange: {
@@ -44,7 +100,8 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
   {
     id: 'safety_score_critical',
     metric: 'safety_score',
-    condition: (value, ctx) => value >= (ctx.thresholds?.safetyScoreCritical ?? 8.5),
+    condition: (value, ctx) =>
+      value >= (ctx.thresholds?.safetyScoreCritical ?? WARNING_THRESHOLDS.safetyScore.critical),
     level: 'red',
     title: '综合安全评分 — 极高风险',
     description: result =>
@@ -54,8 +111,8 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
     id: 'safety_score_high',
     metric: 'safety_score',
     condition: (value, ctx) =>
-      value >= (ctx.thresholds?.safetyScoreHigh ?? 7.0) &&
-      value < (ctx.thresholds?.safetyScoreCritical ?? 8.5),
+      value >= (ctx.thresholds?.safetyScoreHigh ?? WARNING_THRESHOLDS.safetyScore.high) &&
+      value < (ctx.thresholds?.safetyScoreCritical ?? WARNING_THRESHOLDS.safetyScore.critical),
     level: 'orange',
     title: '综合安全评分 — 高风险',
     description: result =>
@@ -65,8 +122,8 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
     id: 'safety_score_warning',
     metric: 'safety_score',
     condition: (value, ctx) =>
-      value >= (ctx.thresholds?.safetyScoreWarning ?? 5.0) &&
-      value < (ctx.thresholds?.safetyScoreHigh ?? 7.0),
+      value >= (ctx.thresholds?.safetyScoreWarning ?? WARNING_THRESHOLDS.safetyScore.warning) &&
+      value < (ctx.thresholds?.safetyScoreHigh ?? WARNING_THRESHOLDS.safetyScore.high),
     level: 'yellow',
     title: '综合安全评分 — 中风险',
     description: result => `综合安全评分 ${result.value.toFixed(2)}/10，中风险区间，保持常规监测`
@@ -76,16 +133,19 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
   {
     id: 'hoek_brown_critical',
     metric: 'hb_utilization',
-    condition: value => value >= 0.95,
+    condition: value => value >= WARNING_THRESHOLDS.hoekBrown.critical,
     level: 'red',
     title: 'Hoek-Brown 接近峰值强度',
     description: result =>
-      `Hoek-Brown σ₁/σ₁_peak = ${(result.value * 100).toFixed(1)}% ≥ 95%，裂隙网络贯通，接近极限承载`
+      `Hoek-Brown σ₁/σ₁_peak = ${(result.value * 100).toFixed(1)}% ≥ ${(
+        WARNING_THRESHOLDS.hoekBrown.critical * 100
+      ).toFixed(0)}%，裂隙网络贯通，接近极限承载`
   },
   {
     id: 'hoek_brown_yield',
     metric: 'hb_utilization',
-    condition: value => value >= 0.75 && value < 0.95,
+    condition: value =>
+      value >= WARNING_THRESHOLDS.hoekBrown.yield && value < WARNING_THRESHOLDS.hoekBrown.critical,
     level: 'orange',
     title: 'Hoek-Brown 进入屈服阶段',
     description: result =>
@@ -96,7 +156,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
   {
     id: 'mc_shear_failure',
     metric: 'mc_shear_util',
-    condition: value => value >= 0.9,
+    condition: value => value >= WARNING_THRESHOLDS.mohrCoulomb.shear,
     level: 'red',
     title: 'Mohr-Coulomb 剪切破坏临近',
     description: result =>
@@ -105,7 +165,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
   {
     id: 'mc_tension_failure',
     metric: 'mc_tension_util',
-    condition: value => value >= 0.85,
+    condition: value => value >= WARNING_THRESHOLDS.mohrCoulomb.tension,
     level: 'red',
     title: 'Mohr-Coulomb 拉伸破坏临近',
     description: result =>
@@ -116,7 +176,7 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
   {
     id: 'von_mises_critical',
     metric: 'von_mises_util',
-    condition: value => value >= 0.9,
+    condition: value => value >= WARNING_THRESHOLDS.vonMises.critical,
     level: 'red',
     title: '等效应力达到破坏阶段',
     description: (result, ctx) =>
@@ -125,7 +185,8 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
   {
     id: 'von_mises_elevated',
     metric: 'von_mises_util',
-    condition: value => value >= 0.6 && value < 0.9,
+    condition: value =>
+      value >= WARNING_THRESHOLDS.vonMises.elevated && value < WARNING_THRESHOLDS.vonMises.critical,
     level: 'orange',
     title: '等效应力偏高',
     description: result =>
@@ -136,27 +197,29 @@ export const DEFAULT_WARNING_RULES = Object.freeze([
   {
     id: 'rockburst_strong',
     metric: 'rockburst_ratio',
-    condition: value => value >= 0.55,
+    condition: value => value >= WARNING_THRESHOLDS.russenes.strong,
     level: 'red',
-    title: '强岩爆风险 (σ_θ/σ_c ≥ 0.55)',
+    title: `强岩爆风险 (σ_θ/σ_c ≥ ${WARNING_THRESHOLDS.russenes.strong})`,
     description: result =>
       `σ_θ/σ_c = ${result.value.toFixed(3)}，岩体可能弹射抛射，伴随巨响和冲击波`
   },
   {
     id: 'rockburst_moderate',
     metric: 'rockburst_ratio',
-    condition: value => value >= 0.3 && value < 0.55,
+    condition: value =>
+      value >= WARNING_THRESHOLDS.russenes.moderate && value < WARNING_THRESHOLDS.russenes.strong,
     level: 'orange',
-    title: '中等岩爆风险 (0.3 ≤ σ_θ/σ_c < 0.55)',
+    title: `中等岩爆风险 (${WARNING_THRESHOLDS.russenes.moderate} ≤ σ_θ/σ_c < ${WARNING_THRESHOLDS.russenes.strong})`,
     description: result =>
       `σ_θ/σ_c = ${result.value.toFixed(3)}，可能出现片帮、弹射，伴随清脆爆裂声`
   },
   {
     id: 'rockburst_weak',
     metric: 'rockburst_ratio',
-    condition: value => value >= 0.2 && value < 0.3,
+    condition: value =>
+      value >= WARNING_THRESHOLDS.russenes.weak && value < WARNING_THRESHOLDS.russenes.moderate,
     level: 'yellow',
-    title: '弱岩爆风险 (σ_θ/σ_c < 0.3)',
+    title: `弱岩爆风险 (σ_θ/σ_c < ${WARNING_THRESHOLDS.russenes.moderate})`,
     description: result => `σ_θ/σ_c = ${result.value.toFixed(3)}，可能有轻微剥落或小片帮`
   }
 ])
@@ -169,7 +232,10 @@ export function detectStressTrend(timeSeriesData, metricKey, ctx = {}) {
   if (!Array.isArray(timeSeriesData) || timeSeriesData.length < 3) return []
 
   const warnings = []
-  const windowSize = Math.min(timeSeriesData.length, ctx.trendWindowSize || 5)
+  const windowSize = Math.min(
+    timeSeriesData.length,
+    ctx.trendWindowSize || WARNING_THRESHOLDS.trend.windowSize
+  )
   const recent = timeSeriesData.slice(-windowSize)
 
   const values = recent.map(d => Number(d?.[metricKey]) || 0)
@@ -188,11 +254,12 @@ export function detectStressTrend(timeSeriesData, metricKey, ctx = {}) {
 
   const avgChangeRate = totalChange / validSteps
   const absRate = Math.abs(avgChangeRate)
-  const rateThreshold = ctx.trendRateThreshold || 0.15
+  const rateThreshold = ctx.trendRateThreshold || WARNING_THRESHOLDS.trend.rate
 
   if (absRate > rateThreshold) {
     const direction = avgChangeRate > 0 ? '上升' : '下降'
-    const level = absRate > rateThreshold * 1.8 ? 'orange' : 'yellow'
+    const level =
+      absRate > rateThreshold * WARNING_THRESHOLDS.trend.significantFactor ? 'orange' : 'yellow'
     warnings.push({
       id: `trend_${metricKey}_${Date.now()}`,
       ruleId: 'stress_trend_change',
@@ -217,13 +284,16 @@ export function detectSpatialClusters(warnings, ctx = {}) {
   if (!Array.isArray(warnings) || warnings.length < 3) return []
 
   const highSeverity = warnings.filter(w => w.level === 'red' || w.level === 'orange')
-  if (highSeverity.length < (ctx.clusterMinCount || 3)) return []
+  if (highSeverity.length < (ctx.clusterMinCount || WARNING_THRESHOLDS.cluster.minCount)) return []
 
   const clusterWarnings = []
-  const groups = groupWarningsByRegion(highSeverity, ctx.regionGrid || 3)
+  const groups = groupWarningsByRegion(
+    highSeverity,
+    ctx.regionGrid || WARNING_THRESHOLDS.cluster.regionGrid
+  )
 
   for (const [region, members] of Object.entries(groups)) {
-    if (members.length >= (ctx.clusterMinCount || 3)) {
+    if (members.length >= (ctx.clusterMinCount || WARNING_THRESHOLDS.cluster.minCount)) {
       const maxLevel = members.some(m => m.level === 'red') ? 'red' : 'orange'
       clusterWarnings.push({
         id: `cluster_${region}_${Date.now()}`,
@@ -375,17 +445,17 @@ export function buildEvaluationContext(safetyContext, config = {}) {
     cohesion: Number.isFinite(config?.cohesion) ? config.cohesion : 2,
     frictionAngle: Number.isFinite(config?.frictionAngle) ? config.frictionAngle : 35,
     thresholds: {
-      safetyScoreCritical: 8.5,
-      safetyScoreHigh: 7.0,
-      safetyScoreWarning: 5.0,
-      utilizationHigh: 0.8,
-      utilizationMedium: 0.6,
+      safetyScoreCritical: WARNING_THRESHOLDS.safetyScore.critical,
+      safetyScoreHigh: WARNING_THRESHOLDS.safetyScore.high,
+      safetyScoreWarning: WARNING_THRESHOLDS.safetyScore.warning,
+      utilizationHigh: WARNING_THRESHOLDS.utilization.high,
+      utilizationMedium: WARNING_THRESHOLDS.utilization.medium,
       ...(config.thresholds || {})
     },
-    trendWindowSize: config.trendWindowSize || 5,
-    trendRateThreshold: config.trendRateThreshold || 0.15,
-    clusterMinCount: config.clusterMinCount || 3,
-    regionGrid: config.regionGrid || 3,
+    trendWindowSize: config.trendWindowSize || WARNING_THRESHOLDS.trend.windowSize,
+    trendRateThreshold: config.trendRateThreshold || WARNING_THRESHOLDS.trend.rate,
+    clusterMinCount: config.clusterMinCount || WARNING_THRESHOLDS.cluster.minCount,
+    regionGrid: config.regionGrid || WARNING_THRESHOLDS.cluster.regionGrid,
     unit: config.unit || 'MPa'
   }
 }

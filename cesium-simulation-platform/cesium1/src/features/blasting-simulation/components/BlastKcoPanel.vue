@@ -6,7 +6,7 @@
       :cut-pattern="cutPattern"
       :section-derived="sectionDerived"
       :selected-preset-key="selectedPresetKey"
-      :site-presets="SITE_PRESETS"
+      :site-presets="sitePresets"
       :explosive-types="EXPLOSIVE_TYPES"
       :explosive-type="explosiveType"
       :advanced-open="advancedOpen"
@@ -45,16 +45,16 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import BlastKcoEditor from './BlastKcoEditor.vue'
 import BlastKcoInsights from './BlastKcoInsights.vue'
 import {
   KCO_SOURCE_MODE,
   calculateKCOParams,
-  SITE_PRESETS,
   EXPLOSIVE_TYPES
 } from '../services/core/computation/kcoModelCore.js'
+import { fetchKcoSitePresets } from '../services/blastingApi.js'
 import { calcTunnelArea } from '../services/core/blastDefaults.js'
 import {
   buildBlastPreviewInsights,
@@ -169,8 +169,20 @@ const kcoXmax = computed(() => {
 
 const selectedPresetKey = ref('')
 
+// 场地预设：数据真源已后端化（backend-py/config/kco_site_presets.json），
+// 运行时经 GET /api/blasting/kco-site-presets 拉取一次；拉取失败时下拉为空，
+// KCO 参数仍可在编辑器中手动输入。
+const sitePresets = ref({})
+onMounted(async () => {
+  try {
+    sitePresets.value = (await fetchKcoSitePresets()) || {}
+  } catch {
+    sitePresets.value = {}
+  }
+})
+
 function applyPreset() {
-  const preset = SITE_PRESETS[selectedPresetKey.value]
+  const preset = sitePresets.value[selectedPresetKey.value]
   if (!preset) return
   for (const key of Object.keys(preset)) {
     if (key === 'label') continue

@@ -22,7 +22,9 @@ export function useMultiObjectiveLhdScatter({ objectives, paretoFront, selectedI
     return opts
   })
   const pairIdx = ref(0)
-  const activePair = computed(() => pairOptions.value[pairIdx.value] || pairOptions.value[0] || null)
+  const activePair = computed(
+    () => pairOptions.value[pairIdx.value] || pairOptions.value[0] || null
+  )
 
   const paretoScatter = computed(() => {
     const front = paretoFront.value

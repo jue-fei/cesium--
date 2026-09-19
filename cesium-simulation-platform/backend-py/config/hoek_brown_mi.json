@@ -1,0 +1,49 @@
+{
+  "_description": "完整岩石 Hoek-Brown 常数 m_i 经验值表（Hoek & Brown, 2018 edition, JRMGE, Table 2，共 21 条岩性）+ inferRockParams 硬岩典型 UCS 分档。此前硬编码在前端 cesium1/src/features/stress-analysis/services/core/safety/index.js 的 HOEK_BROWN_MI，数据真源已迁至本文件，经 GET /api/blasting/hoek-brown-mi 下发；前端保留兜底副本，修改岩性参数请改本文件并同步前端副本。",
+  "mi": {
+    "limestone": 10,
+    "dolomite": 9,
+    "sandstone": 17,
+    "siltstone": 7,
+    "shale": 6,
+    "mudstone": 4,
+    "marble": 9,
+    "quartzite": 20,
+    "gneiss": 28,
+    "schist": 10,
+    "slate": 7,
+    "granite": 32,
+    "diorite": 25,
+    "gabbro": 27,
+    "basalt": 25,
+    "andesite": 25,
+    "rhyolite": 25,
+    "ore_copper": 22,
+    "ore_iron": 24,
+    "ore_gold": 22,
+    "ore_lead_zinc": 20
+  },
+  "miGroupMeta": {
+    "sedimentary": ["limestone", "dolomite", "sandstone", "siltstone", "shale", "mudstone"],
+    "metamorphic": ["marble", "quartzite", "gneiss", "schist", "slate"],
+    "igneous": ["granite", "diorite", "gabbro", "basalt", "andesite", "rhyolite"],
+    "mining": ["ore_copper", "ore_iron", "ore_gold", "ore_lead_zinc"]
+  },
+  "typicalUCS": {
+    "_description": "按岩性 key 给出的硬岩典型单轴抗压强度（MPa）；未命中 key 时使用 defaultTypicalUCS",
+    "granite": 120,
+    "basalt": 120,
+    "gabbro": 120,
+    "quartzite": 120,
+    "gneiss": 120,
+    "diorite": 120,
+    "ore_iron": 80,
+    "ore_copper": 80
+  },
+  "defaultTypicalUCS": 50,
+  "fallback": {
+    "_description": "岩性名无法匹配 mi 表中任何 key 时的回退推断值",
+    "mi": 12,
+    "typicalUCS": 40
+  }
+}

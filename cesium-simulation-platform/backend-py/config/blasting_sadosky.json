@@ -1,0 +1,52 @@
+{
+  "_description": "萨道夫斯基（Sadovsky）标定集单源配置：振动场面板下拉预设 + 平台默认 K/α。此前硬编码在前端 cesium1/src/features/blasting-simulation/services/core/vibrationDefaults.js（SADOSKY_PRESETS / SADOVSKY_DEFAULT_K / SADOVSKY_DEFAULT_ALPHA），现已后端化，经 GET /api/blasting/sadosky-presets 下发；前端仅保留最小兜底常量。修改标定值请改本文件（重启后端生效）。",
+  "presets": [
+    {
+      "key": "preset_default",
+      "label": "平台默认 · 中硬岩（K=200, α=1.5）",
+      "k": 200,
+      "alpha": 1.5,
+      "source": "平台可视化默认（中硬岩近场量级，非文献标定）"
+    },
+    {
+      "key": "preset_tunnel_near_xu",
+      "label": "三棱山隧道近场 r<110m（K=19.3, α=1.082·徐言2020）",
+      "k": 19.3,
+      "alpha": 1.082,
+      "source": "徐言. 基于萨道夫斯基公式分段修正的隧道爆破振动研究. 科学技术创新, 2020(21):103-104；三棱山隧道近场（R<110m）实测回归，拟合精度95%"
+    },
+    {
+      "key": "preset_tunnel_far_xu",
+      "label": "三棱山隧道远场 r>110m（K=1.23, α=0.372·徐言2020）",
+      "k": 1.23,
+      "alpha": 0.372,
+      "source": "徐言 2020（同上）；三棱山隧道远场（R>110m）实测回归，拟合精度81%"
+    },
+    {
+      "key": "preset_open_300_yan",
+      "label": "露天铁矿 300°线（K=165.9, α=1.418·闫常陆2018）",
+      "k": 165.9,
+      "alpha": 1.418,
+      "source": "闫常陆 2018；露天铁矿 300° 线现场测振回归实测标定值"
+    },
+    {
+      "key": "preset_open_285_yan",
+      "label": "露天铁矿 285°线（K=165.8, α=1.476·闫常陆2018）",
+      "k": 165.8,
+      "alpha": 1.476,
+      "source": "闫常陆 2018；露天铁矿 285° 线现场测振回归实测标定值"
+    },
+    {
+      "key": "preset_open_m30_yan",
+      "label": "露天铁矿 -30m 平台（K=236.5, α=1.531·闫常陆2018）",
+      "k": 236.5,
+      "alpha": 1.531,
+      "source": "闫常陆 2018；露天铁矿 -30m 平台现场测振回归实测标定值"
+    }
+  ],
+  "default": {
+    "k": 90,
+    "alpha": 1.58,
+    "source": "场地标定回退（石灰岩/金属矿硬岩现场测振回归，见文档3/4文献：徐言2020/闫常陆2018）；事件/后端未提供 K/α 时 blastingManager 等层使用的平台默认回退值"
+  }
+}

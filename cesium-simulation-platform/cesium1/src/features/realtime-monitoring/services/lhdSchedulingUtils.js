@@ -5,64 +5,34 @@
  * （backend-py/app/services/scheduling/multi_objective.py），并在快照生成阶段
  * 预计算帕累托前沿随 snapshot.factors.optimization 下发；前端不再保留进化算法。
  * 本模块只保留视图展示与派单提交所需的轻量工具：
- *   - LHD_OBJECTIVES / GRADE_FLOOR_PCT：目标定义与品位下限的展示兜底；
+ *   - LHD_OBJECTIVES / GRADE_FLOOR_PCT：目标定义与品位下限的**最小展示兜底**
+ *     （仅在后端未下发时启用；真源在后端 multi_objective.py 的 OBJECTIVES /
+ *     GRADE_FLOOR_PCT，随 snapshot.factors.optimization.objectiveDefs 与
+ *     optStats.gradeFloorPct 下发，消费端优先取下发值）；
  *   - decodeAssignment：把帕累托解（候选索引序列）解码为 apply_assignment 派单列表；
  *   - assignmentZoneStats：按采区汇总方案派车情况（采场卡片/覆盖/品位摘要）。
  */
 
-// 目标定义（与后端 multi_objective.OBJECTIVES 一致；后端下发 objectiveDefs 时以其为准）
+// 目标定义最小兜底（仅作后端未下发 objectiveDefs 时的兜底，真源在后端
+// multi_objective.py OBJECTIVES——含文献 why 字段，随快照 objectiveDefs 下发；
+// 模板以 obj.why || obj.desc 展示，故兜底省略 why 仅保留必需展示字段）。
 const LHD_OBJECTIVES = [
-  {
-    id: 'energy',
-    name: '总能耗',
-    dir: 'min',
-    unit: 'kWh',
-    desc: '全部设备本趟能耗之和',
-    why: '出矿能耗是井下运营成本的核心构成：贾纯纯等(2025，《中国矿业》)以最小运输成本为井下无轨运输首要目标，平台对应"运营成本降低10%"工程指标，最小化能耗即节能调度。'
-  },
-  {
-    id: 'time',
-    name: '总时间',
-    dir: 'min',
-    unit: 'min',
-    desc: '全部设备本趟用时之和',
-    why: '出矿时效决定生产节拍与产能：贾纯纯等(2025，《中国矿业》)将等待时间最小化纳入无轨运输多目标；Hooli 等(2024)实测 LHD 装载40s/卸载15s/调整30s 作为单趟时效校核基准，缩短单趟时间支撑高节拍连续生产。'
-  },
-  {
-    id: 'risk',
-    name: '总风险',
-    dir: 'min',
-    unit: '',
-    desc: '岩爆/炮烟危险暴露之和',
-    why: '深井高应力采区存在岩爆、炮烟等动态危险：王雷等(2025，《矿产保护与利用》)在井下生产调度中引入安全受限约束，本目标引导路径规避高风险巷道段，对应平台"岩爆危险区识别偏差≤5m"指标。'
-  },
-  {
-    id: 'conflict',
-    name: '巷道冲突',
-    dir: 'min',
-    unit: '',
-    desc: '多设备共享同段的冲突惩罚',
-    why: '多台铲运机同时占用同一段巷道会引发拥堵与会车风险：Miao & Zhao(2024，Applied Sciences) 对斜坡道拥堵调度的研究表明协调多车通行可提升运输效率10~20%，本目标度量跨采场共享段的相互干扰，促使设备错峰走线、避免巷道死锁。'
-  },
-  {
-    id: 'grade',
-    name: '品位回收',
-    dir: 'max',
-    unit: '%',
-    desc: '装载点矿石品位加权',
-    why: '优先派往高品位采场可提升入选矿石品位与金属回收价值：贾纯纯等(2025，《中国矿业》)在井下无轨运输调度中引入卸货量/品位容量约束；平台大型矿 A~H 采场品位约 0.4~1.1% Cu，差异即调度空间。'
-  },
+  { id: 'energy', name: '总能耗', dir: 'min', unit: 'kWh', desc: '全部设备本趟能耗之和' },
+  { id: 'time', name: '总时间', dir: 'min', unit: 'min', desc: '全部设备本趟用时之和' },
+  { id: 'risk', name: '总风险', dir: 'min', unit: '', desc: '岩爆/炮烟危险暴露之和' },
+  { id: 'conflict', name: '巷道冲突', dir: 'min', unit: '', desc: '多设备共享同段的冲突惩罚' },
+  { id: 'grade', name: '品位回收', dir: 'max', unit: '%', desc: '装载点矿石品位加权' },
   {
     id: 'balance',
     name: '出矿均衡',
     dir: 'min',
     unit: '',
-    desc: '设备负载与采区服务均衡度（合并原负载均衡/采场均衡/积压清矿）',
-    why: '负载均衡(贾纯纯等2025"期望偏差最小化")、采场出矿均衡(王雷等2025多采场多装备调度)与积压清矿(Wang等2020以采场矿石量为输入)同属"调度均衡性"目标且彼此相关，依据目标降维理论(PCA-NSGA-II, Deb & Saxena 2006)合并为单一均衡目标，缓解高维目标困境。'
+    desc: '设备负载与采区服务均衡度（合并原负载均衡/采场均衡/积压清矿）'
   }
 ]
 
-// 品位下限硬约束（%）
+// 品位下限硬约束（%）——仅作后端未下发时的兜底，真源在后端 multi_objective.py
+// 的 GRADE_FLOOR_PCT（随快照 factors.optimization.optStats.gradeFloorPct 下发）
 const GRADE_FLOOR_PCT = 0.6
 
 /**

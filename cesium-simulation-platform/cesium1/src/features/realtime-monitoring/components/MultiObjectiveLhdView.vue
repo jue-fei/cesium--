@@ -503,8 +503,10 @@
         出矿线，按采场着色/标注；跨采场同时运输的共享巷道冲突由「巷道冲突」目标并算。
         <span class="ref-note"
           >口径：王雷等(2025)、贾纯纯等(2025) 多采场调度/品位容量约束；Wang 等(2020)
-          采场矿石量输入； Freire 等(2023)LHD 15km/h、Hooli 等(2024) 装载40s/卸载15s/调整30s
-          校核时效。设备规模参照大型地下矿（如 Khoemacau 铜矿 10 台
+          采场矿石量输入； Freire 等(2023)LHD {{ FREIRE_2023_LHD_SPEED }}、Hooli 等(2024) 装载{{
+            HOOLI_2024_LOAD_TIME
+          }}/卸载{{ HOOLI_2024_DUMP_TIME }}/调整{{ HOOLI_2024_ADJUST_TIME }}
+          校核时效。设备规模参照大型地下矿（如 Khoemacau 铜矿 {{ KHOEMACAU_LHD_FLEET_SIZE }} 台
           LHD；锦丰金矿多中段出矿）。</span
         >
       </div>
@@ -527,6 +529,16 @@ import { useMultiObjectiveLhdSort } from './useMultiObjectiveLhdSort.js'
 import { useMultiObjectiveLhdScatter } from './useMultiObjectiveLhdScatter.js'
 import { useMultiObjectiveLhdTunnel } from './useMultiObjectiveLhdTunnel.js'
 import TunnelMap3D from './TunnelMap3D.vue'
+
+// ===== 文献口径数值（仅供底部 ref-note 口径文案插值展示，勿改字面口径） =====
+/** Freire 等 (2023)：LHD 运行速度参考值 */
+const FREIRE_2023_LHD_SPEED = '15km/h'
+/** Hooli 等 (2024)：装载 / 卸载 / 调整（换位）时长参考值 */
+const HOOLI_2024_LOAD_TIME = '40s'
+const HOOLI_2024_DUMP_TIME = '15s'
+const HOOLI_2024_ADJUST_TIME = '30s'
+/** 设备规模参考：Khoemacau 铜矿 LHD 台数 */
+const KHOEMACAU_LHD_FLEET_SIZE = 10
 
 defineOptions({ name: 'MultiObjectiveLhdView' })
 

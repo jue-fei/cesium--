@@ -62,7 +62,7 @@
             >封 {{ s.blockReason }}</span
           >
           <span
-            v-else-if="s.rockburst > 0.7"
+            v-else-if="s.rockburst > ROCKBURST_ALERT_THRESHOLD"
             class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300"
           >
             岩爆高发
@@ -116,6 +116,8 @@
 
 <script setup>
 import { computed } from 'vue'
+// 岩爆高发阈值单源：useMultiObjectiveLhdTunnel.js 模块级导出（与 3D 渲染/综合评级同口径）
+import { ROCKBURST_ALERT_THRESHOLD } from '../useMultiObjectiveLhdTunnel.js'
 
 const props = defineProps({
   dynamic: { type: Object, default: () => null }

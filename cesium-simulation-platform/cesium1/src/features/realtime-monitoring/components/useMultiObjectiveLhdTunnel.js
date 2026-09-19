@@ -11,9 +11,10 @@ import { computed } from 'vue'
 import { pathToPoints, deriveRiserMeta } from '../services/undergroundLayout.js'
 import { riskScore, riskLevel, baseRiskScore } from '../services/riskUtils.js'
 
-// 路段状态阈值：岩爆高发 / 拥堵缓行（与 3D 渲染、综合评级共享同一口径）
-const ROCKBURST_ALERT_THRESHOLD = 0.7
-const CONGESTION_ALERT_THRESHOLD = 0.6
+// 路段状态阈值：岩爆高发 / 拥堵缓行（与 3D 渲染、综合评级共享同一口径；
+// 模块级导出单源，scheduling/FactorDynamic.vue 的"岩爆高发"角标亦消费此常量）
+export const ROCKBURST_ALERT_THRESHOLD = 0.7
+export const CONGESTION_ALERT_THRESHOLD = 0.6
 // 路段详情条指标条配色阈值：>HOT 预警色、>MID 关注色、其余正常色
 const METRIC_BAR_HOT_THRESHOLD = 0.6
 const METRIC_BAR_MID_THRESHOLD = 0.3
@@ -35,7 +36,10 @@ export function useMultiObjectiveLhdTunnel({
     const L = layout.value
     if (!L) return []
     const pos = L.nodePositions
-    const defs = [...L.segmentLinks.map(([id, aId, bId]) => ({ id, level: 0, aId, bId })), ...L.deepSegments]
+    const defs = [
+      ...L.segmentLinks.map(([id, aId, bId]) => ({ id, level: 0, aId, bId })),
+      ...L.deepSegments
+    ]
     return defs
       .map(s => {
         const a = pos[s.aId]
@@ -103,7 +107,9 @@ export function useMultiObjectiveLhdTunnel({
     if (!hasParams) {
       const sc = segCoordById.value[id]
       if (sc) {
-        merged._baseScore = baseRiskScore(sc.aId, sc.bId, sc.level, { nLevels: levels.value.length })
+        merged._baseScore = baseRiskScore(sc.aId, sc.bId, sc.level, {
+          nLevels: levels.value.length
+        })
       }
     }
     return merged
@@ -121,8 +127,10 @@ export function useMultiObjectiveLhdTunnel({
   function segState(m) {
     if (m.blocked) return { ...STATE_BLOCK, clazz: 'st-blocked' }
     if (m.passableLoaded === false) return { ...STATE_BAN, clazz: 'st-ban' }
-    if ((m.rockburst || 0) > ROCKBURST_ALERT_THRESHOLD) return { ...STATE_RBURST, clazz: 'st-rburst' }
-    if ((m.congestion || 0) > CONGESTION_ALERT_THRESHOLD) return { ...STATE_CONGEST, clazz: 'st-congest' }
+    if ((m.rockburst || 0) > ROCKBURST_ALERT_THRESHOLD)
+      return { ...STATE_RBURST, clazz: 'st-rburst' }
+    if ((m.congestion || 0) > CONGESTION_ALERT_THRESHOLD)
+      return { ...STATE_CONGEST, clazz: 'st-congest' }
     return { ...STATE_NORMAL, clazz: 'st-ok' }
   }
   function fmtM(v) {

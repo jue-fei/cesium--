@@ -1068,7 +1068,15 @@ function buildKrigingField({
   // 刻意保留的 DEV 诊断钩子：校验结果仅用于断点调试（diagnostics-only），
   // 不影响插值输出，发布构建中该分支会被整体剔除。
   if (import.meta.env.DEV) {
-    validateExactPointValues(framesOut, exactConstraintPoints, exactConstraintSeries, grid, xs, ys, zs)
+    validateExactPointValues(
+      framesOut,
+      exactConstraintPoints,
+      exactConstraintSeries,
+      grid,
+      xs,
+      ys,
+      zs
+    )
   }
 
   const result = {
@@ -1259,7 +1267,15 @@ function buildIdwField({
   // 刻意保留的 DEV 诊断钩子：校验结果仅用于断点调试（diagnostics-only），
   // 不影响插值输出，发布构建中该分支会被整体剔除。
   if (import.meta.env.DEV) {
-    validateExactPointValues(framesOut, exactConstraintPoints, exactConstraintSeries, grid, xs, ys, zs)
+    validateExactPointValues(
+      framesOut,
+      exactConstraintPoints,
+      exactConstraintSeries,
+      grid,
+      xs,
+      ys,
+      zs
+    )
   }
 
   return {
