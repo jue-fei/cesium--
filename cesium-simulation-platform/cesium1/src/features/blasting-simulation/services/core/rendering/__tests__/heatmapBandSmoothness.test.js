@@ -19,7 +19,13 @@ import { dirname, join } from 'node:path'
  */
 
 const testDir = dirname(fileURLToPath(import.meta.url))
-const sceneBuilderSrc = readFileSync(join(testDir, '..', 'sceneBuilder.js'), 'utf8')
+// 源码守卫文本：sceneBuilder.js + 外移的着色器主体（benchField.*.glsl，
+// 由 sceneBuilder 以 ?raw 原文组装）——着色器断言须覆盖 GLSL 本体
+const sceneBuilderSrc = [
+  readFileSync(join(testDir, '..', 'sceneBuilder.js'), 'utf8'),
+  readFileSync(join(testDir, '..', 'benchField.vert.glsl'), 'utf8'),
+  readFileSync(join(testDir, '..', 'benchField.frag.glsl'), 'utf8')
+].join('\n')
 const useBlastingSrc = readFileSync(join(testDir, '..', '..', '..', 'useBlasting.js'), 'utf8')
 const blastingManagerSrc = readFileSync(
   join(testDir, '..', '..', '..', 'blastingManager.js'),

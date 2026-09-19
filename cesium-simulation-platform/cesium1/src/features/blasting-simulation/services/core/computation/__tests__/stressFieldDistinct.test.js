@@ -146,7 +146,12 @@ describe('近场几何修正参数', () => {
 })
 
 describe('shader 应力支与 CPU/后端同口径（源码守卫）', () => {
-  const src = read('../../rendering/sceneBuilder.js')
+  // 源码守卫文本：sceneBuilder.js + 外移的着色器主体（benchField.*.glsl，
+  // 由 sceneBuilder 以 ?raw 原文组装）——着色器断言须覆盖 GLSL 本体
+  const src =
+    read('../../rendering/sceneBuilder.js') +
+    read('../../rendering/benchField.vert.glsl') +
+    read('../../rendering/benchField.frag.glsl')
 
   it('应力支用瞬时场（波前可见）+ 近场项', () => {
     expect(src).toMatch(/float pa = max\(mps, 1e-6\) \* uStressFactor \* nff;/)

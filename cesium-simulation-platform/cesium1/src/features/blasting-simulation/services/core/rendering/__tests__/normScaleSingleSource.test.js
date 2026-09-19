@@ -14,6 +14,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const SCENE_BUILDER = resolve(__dirname, '../sceneBuilder.js')
 
 const src = readFileSync(SCENE_BUILDER, 'utf8')
+// 着色器主体已外移：benchField.vert.glsl / benchField.frag.glsl（sceneBuilder 以 ?raw 原文组装）
+const FRAG_GLSL = readFileSync(resolve(__dirname, '../benchField.frag.glsl'), 'utf8')
 
 /**
  * 回归：归一化标尺（对数下限 / 动态范围 / 膝形压缩拐点）在
@@ -30,6 +32,10 @@ describe('归一化标尺单源（shader / 等值线 / 图例）', () => {
     expect(src).not.toMatch(/5\.6439/)
     expect(src).not.toMatch(/smoothstep\(0\.45,\s*0\.92/)
     expect(src).not.toMatch(/Math\.log2\(50\)/)
+    // 外移后的 GLSL 本体同样不得回退为硬编码（标尺常量只走 SH_NORM_MACROS 前导注入）
+    expect(FRAG_GLSL).not.toMatch(/2\.0e-2/)
+    expect(FRAG_GLSL).not.toMatch(/5\.6439/)
+    expect(FRAG_GLSL).not.toMatch(/smoothstep\(0\.45,\s*0\.92/)
   })
 
   it('着色器通过宏前导串接收标尺常量', () => {
@@ -45,12 +51,8 @@ describe('归一化标尺单源（shader / 等值线 / 图例）', () => {
   })
 
   it('着色器本体使用的标尺标识符都是已定义宏', () => {
-    const start = src.indexOf('const BENCH_FIELD_FRAGMENT_SHADER')
-    const tplStart = src.indexOf('`', src.indexOf('/* glsl */', start))
-    const tplEnd = src.indexOf('\n`', tplStart)
-    const tpl = src.slice(tplStart, tplEnd + 2)
-    // eslint-disable-next-line no-new-func
-    const glsl = new Function('"use strict"; return ' + tpl)()
+    // GLSL 本体外移至 benchField.frag.glsl：直接取原文（与 ?raw 装载内容一致）
+    const glsl = FRAG_GLSL
     // 剥离注释后再扫描，避免把注释里的 PPV/LUT 等词当成引用
     const code = glsl.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
     const defined = new Set([...glsl.matchAll(/#define\s+([A-Z_][A-Z0-9_]*)/g)].map(m => m[1]))

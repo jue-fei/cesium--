@@ -15,18 +15,28 @@
  *  - rockGeometryFactory：岩石几何体池
  *  - BlastEffectManager：粒子特效（火焰/烟雾/火花/冲击波/粉尘）
  *  - BlastPhysicsEngineWorker：碎片物理引擎（Web Worker）
+ *
+ * 组合控制器（本类作为门面 facade 保留全部对外公共 API，方法体一行委托）：
+ *  - BlastInitController：initBlast 粒子/碎片初始化流程
+ *  - SeekController：时间轴 seek/跳变/watchdog
+ *  - PointPicker：点选拾取（PPV 场/岩体射线命中）与拾取点/测点标记
+ *  - VibrationFieldPipeline：振动场纹理管道与场渲染样式转发
+ *  - CameraViewController：相机同步/视角预设/resize/独立模式渲染循环
  */
 import * as THREE from 'three'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { BlastPhysicsEngineWorker } from '../computation/blastPhysicsEngineWorker.js'
-import { generateFragmentSpecs } from './fragmentSpecGenerator.js'
 import { BlastEffectManager } from './blastEffectManager.js'
-import { KCO_SOURCE_MODE, calculateKCOParams } from '../computation/kcoModelCore.js'
-import { createRockGeometryPool, getRockVariantHalfExtents } from './rockGeometryFactory.js'
+import { KCO_SOURCE_MODE } from '../computation/kcoModelCore.js'
+import { createRockGeometryPool } from './rockGeometryFactory.js'
+import { BlastInitController } from './blastInitController.js'
+import { SeekController } from './seekController.js'
+import { PointPicker } from './pointPicker.js'
+import { VibrationFieldPipeline } from './vibrationFieldPipeline.js'
+import { CameraViewController } from './cameraViewController.js'
 import {
   SceneBuilder,
   createFireTexture,
@@ -94,7 +104,7 @@ export class ThreeBlastingRenderer {
       this._ctxLost = true
       this._ctxLossCount++
       this.stopRenderLoop()
-      this._cancelSeek()
+      this._seekController._cancelSeek()
       console.warn('[ThreeBlastingRenderer] WebGL 上下文丢失，已暂停渲染，等待恢复')
     }
     this._onCtxRestored = () => {
@@ -274,6 +284,14 @@ export class ThreeBlastingRenderer {
     )
     this._muckPileEnabled = false
 
+    // ── 职责域控制器（组合模式）：各控制器仅持有门面引用（this.r），
+    // 仿真状态仍全部保存在门面实例上；控制器之间互不引用，仅经门面协作 ──
+    this._initController = new BlastInitController(this)
+    this._seekController = new SeekController(this)
+    this._pointPicker = new PointPicker(this)
+    this._fieldPipeline = new VibrationFieldPipeline(this)
+    this._cameraView = new CameraViewController(this)
+
     // 窗口大小调整
     this._resizeHandler = () => this.resize()
     window.addEventListener('resize', this._resizeHandler)
@@ -336,279 +354,7 @@ export class ThreeBlastingRenderer {
    * @param {number} params.fragmentCount - 碎片数量
    */
   initBlast(params = {}) {
-    this.clear()
-    this._lastBlastParams = { ...params }
-    this.simTime = 0
-    const chargeKg = params.chargeKg || this.chargeKg
-    this.setChargeKg(chargeKg)
-
-    // 性能模式：设置碎片间碰撞开关
-    if (params.enableInterCollision !== undefined && this._physicsEngine?.setEnableInterCollision) {
-      this._physicsEngine.setEnableInterCollision(params.enableInterCollision)
-    }
-
-    // 设置爆破方向（如果提供了掌子面方向）
-    if (params.faceDirection) {
-      this.setFaceDirection(params.faceDirection.x, params.faceDirection.y, params.faceDirection.z)
-    }
-
-    const dir = this.faceDirection.clone()
-    // 投影到水平面（去除垂直分量）并归一化，保证 right 水平、forward 有限；
-    // 与 _computeTunnelBasis 一致——面方向平行于 up 时 cross 会得零向量，
-    // normalize 得 NaN，进而污染爆堆包裹壳几何（computeBoundingSphere 报 NaN）。
-    dir.y = 0
-    if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1)
-    dir.normalize()
-    const up = new THREE.Vector3(0, 1, 0)
-    const right = new THREE.Vector3().crossVectors(dir, up).normalize()
-    const forward = new THREE.Vector3().crossVectors(up, right).normalize()
-
-    // 配置爆堆轮廓渲染器局部基：轴向 forward、侧向 right、竖直 up、爆堆中心、
-    // 底板高度、掌子面轴向距离（裁掉穿模进未爆破岩体的碎片，否则包裹壳
-    // 会被撑进岩体内部、贴不住真实爆堆）
-    this._muckPileOutline?.configure?.({
-      forward,
-      right,
-      up,
-      center: this.center,
-      floorY: this.center.y,
-      faceOffset: FACEOFFSET_FROM_TUNNEL_CENTER,
-      // 隧道断面参数：剔除"卡在隧道外"的碎石，不参与爆堆轮廓
-      section: {
-        width: this.tunnelWidth,
-        wallHeight: this.tunnelWallHeight,
-        archRadius: this.tunnelArchRadius,
-        shape: this.tunnelSection.shape
-      }
-    })
-
-    // 构建掌子面/台阶几何体
-    this._sceneBuilder.buildBenchGeometry()
-    const faceCenter = new THREE.Vector3().copy(this.center).addScaledVector(forward, 3)
-
-    // 同步隧道内部补光
-    this._sceneBuilder.updateTunnelLights(this.center, this.faceDirection, this.tunnelHeight)
-
-    // 隧道截面边界（用于物理引擎碰撞检测）
-    this._tunnelBounds = {
-      right: right.clone(),
-      forward: forward.clone(),
-      center: this.center.clone(),
-      halfWidth: this.tunnelWidth / 2,
-      wallHeight: this.tunnelWallHeight,
-      archRadius: this.tunnelArchRadius,
-      floorY: this.center.y
-    }
-
-    // ── 1. KCO 模型计算 ──
-    const throwDir = forward.clone().negate()
-    const kcoInput = {
-      Q: chargeKg,
-      sourceMode: params.kcoParams?.sourceMode || KCO_SOURCE_MODE.DESIGN,
-      ...(params.kcoParams || {})
-    }
-    const kco = calculateKCOParams(kcoInput)
-
-    // ── 2. 爆破粒子特效 ──
-    this._lastEffectParams = {
-      chargeKg,
-      center: { x: faceCenter.x, y: faceCenter.y, z: faceCenter.z },
-      throwDir: { x: throwDir.x, y: throwDir.y, z: throwDir.z },
-      right: { x: right.x, y: right.y, z: right.z },
-      up: { x: up.x, y: up.y, z: up.z },
-      tunnelSection: {
-        width: this.tunnelWidth,
-        wallHeight: this.tunnelWallHeight,
-        archRadius: this.tunnelArchRadius,
-        shape: this.tunnelSection.shape
-      },
-      kcoOutput: { A: kco.A },
-      // 主爆破粒子（火球/火花/烟雾/粉尘/冲击波）从起爆时刻开始涌现，
-      // 出生前不老化、不渲染（配合 BlastEffectManager 的 bornAt 门控）
-      triggerTime: this.blastTriggerTime
-    }
-    this._effectManager.init(this._lastEffectParams)
-    // 初始化后立即同步当前图层可见性（确保撞击扬尘等跟随用户之前的开关状态）
-    for (const layer of ['fire', 'smoke', 'spark', 'dust', 'shock_wave']) {
-      this._effectManager.setVisible(layer, this.layerVisibility[layer] !== false)
-    }
-
-    // ── 3. KCO 碎片规格生成 ──
-    const faceDesc = {
-      cx: faceCenter.x,
-      cy: faceCenter.y,
-      cz: faceCenter.z,
-      nx: dir.x,
-      ny: dir.y,
-      nz: dir.z,
-      rx: right.x,
-      ry: right.y,
-      rz: right.z,
-      ux: up.x,
-      uy: up.y,
-      uz: up.z,
-      width: this.tunnelWidth,
-      wallHeight: this.tunnelWallHeight,
-      archRadius: this.tunnelArchRadius,
-      shape: this.tunnelSection.shape
-    }
-    // 准备炮孔设计数据（供碎片规格生成器按孔分配碎片、驱动初速与延迟起爆）
-    const holeSpecs = this._buildHoleSpecsForFragmentGen()
-
-    const {
-      specs,
-      positions,
-      velocities,
-      stats: generationStats
-    } = generateFragmentSpecs({
-      kco,
-      face: faceDesc,
-      chargeKg,
-      targetCount: params.fragmentCountTarget || chargeKg * 1.5,
-      countLimit: params.fragmentCountRenderLimit || 1000,
-      holes: holeSpecs,
-      metrics: params.generationMetrics || {},
-      randomSeed: params.randomSeed
-    })
-    this._fragmentSpecs = specs
-    // 爆堆轮廓逐碎片渲染包围盒半轴（变体 AABB 半轴 × dispSize），
-    // 轮廓渲染器据此 + 四元数做精确投影，壳面紧贴可见碎石
-    const variantHalfExtents = getRockVariantHalfExtents()
-    this._muckPileOutline?.setFragmentExtents?.(
-      specs.map(s => {
-        const e = variantHalfExtents[s.variantIndex] || [0.6, 0.6, 0.6]
-        // variant + size 供包裹壳做"真实投影轮廓"掩码（见 muckPileOutlineRenderer）
-        return {
-          hx: e[0] * s.dispSize,
-          hy: e[1] * s.dispSize,
-          hz: e[2] * s.dispSize,
-          variant: s.variantIndex,
-          size: s.dispSize
-        }
-      })
-    )
-    this._fragmentStats = {
-      fragmentCountTarget:
-        generationStats?.fragmentCountTarget ??
-        Math.max(40, Math.floor(params.fragmentCountTarget || chargeKg * 1.5)),
-      fragmentCountGenerated: specs.length,
-      fragmentCountRenderLimit: Math.max(40, Number(params.fragmentCountRenderLimit) || 1000),
-      chargeKg,
-      explosiveType:
-        params.kcoParams?.explosiveType || params.generationMetrics?.explosiveType || 'emulsion',
-      rockDensityKgM3: Number(params.generationMetrics?.rockDensityKgM3) || null,
-      kcoSourceMode: kco.sourceMode,
-      x50Applied: kco.x50,
-      nApplied: kco.n,
-      x80Applied: kco.x80,
-      xmaxApplied: kco.xmax,
-      bApplied: kco.b,
-      x50Computed: kco.computedX50,
-      nComputed: kco.computedN,
-      fragmentMassTargetKg: generationStats?.fragmentMassTargetKg ?? null,
-      fragmentMassGeneratedKg: generationStats?.fragmentMassGeneratedKg ?? null,
-      fragmentMassBlastedKg: generationStats?.fragmentMassBlastedKg ?? null,
-      fragmentMassCoverage: generationStats?.fragmentMassCoverage ?? null,
-      bulkFactor: generationStats?.bulkFactor ?? null,
-      volumeRestoreScale: generationStats?.volumeRestoreScale ?? null,
-      representativeVolumeM3: generationStats?.representativeVolumeM3 ?? null,
-      representativeMassKg: generationStats?.representativeMassKg ?? null,
-      blastVolumeM3: generationStats?.blastVolumeM3 ?? null,
-      estimatedMeanMassKg: generationStats?.estimatedMeanMassKg ?? null,
-      velocityMean: generationStats?.velocityMean ?? null,
-      velocityP95: generationStats?.velocityP95 ?? null,
-      throwDistancePredictedAvg: generationStats?.throwDistancePredictedAvg ?? null,
-      throwDistancePredictedMax: generationStats?.throwDistancePredictedMax ?? null,
-      throwDistanceTargetAvg: generationStats?.throwDistanceTargetAvg ?? null,
-      throwDistanceTargetMax: generationStats?.throwDistanceTargetMax ?? null,
-      velocityScaleApplied: generationStats?.velocityScaleApplied ?? 1,
-      sizeHistogramGenerated: generationStats?.sizeHistogramGenerated ?? null,
-      sizeHistogramTarget: generationStats?.sizeHistogramTarget ?? null,
-      sizeKLDivergence: generationStats?.sizeKLDivergence ?? null,
-      velocityHistogramGenerated: generationStats?.velocityHistogramGenerated ?? null
-    }
-    // 保存碎片初始数据，供 seekTo 异步快进时重新 init Worker
-    this._lastFragmentData = { specs, positions, velocities }
-    // 保存物理边界，供 seekToAsync 使用
-    this._lastPhysicsBounds = {
-      centerX: this.center.x,
-      centerY: this.center.y,
-      centerZ: this.center.z,
-      rightX: right.x,
-      rightY: right.y,
-      rightZ: right.z,
-      forwardX: forward.x,
-      forwardY: forward.y,
-      forwardZ: forward.z,
-      halfWidth: this.tunnelWidth / 2,
-      wallHeight: this.tunnelWallHeight,
-      archRadius: this.tunnelArchRadius,
-      floorY: this.center.y,
-      faceOffset: FACEOFFSET_FROM_TUNNEL_CENTER, // 掌子面到隧道中心的轴向距离(m)
-      shape: this.tunnelSection.shape
-    }
-
-    // ── 4. 物理引擎初始化 ──
-    this._physicsEngine.reset()
-    this._physicsEngine.setTunnelBounds({
-      centerX: this.center.x,
-      centerY: this.center.y,
-      centerZ: this.center.z,
-      rightX: right.x,
-      rightY: right.y,
-      rightZ: right.z,
-      forwardX: forward.x,
-      forwardY: forward.y,
-      forwardZ: forward.z,
-      halfWidth: this.tunnelWidth / 2,
-      wallHeight: this.tunnelWallHeight,
-      archRadius: this.tunnelArchRadius,
-      floorY: this.center.y,
-      faceOffset: FACEOFFSET_FROM_TUNNEL_CENTER,
-      shape: this.tunnelSection.shape
-    })
-    this._physicsEngine.onBodyLanded = (body, impactSpeed) => {
-      this._effectManager.spawnImpactDebris(
-        { x: body.posX, y: body.posY, z: body.posZ },
-        impactSpeed
-      )
-    }
-    this._physicsEngine.init(specs, positions, velocities, {
-      randomSeed: params.randomSeed,
-      blastTriggerTime: this.blastTriggerTime
-    })
-
-    // ── 5. 碎片 InstancedMesh ──
-    this._fragmentRenderer.buildFragmentMesh(specs)
-    // 按隧道断面隐藏"卡在隧道外/拱顶尖角伸出"的实例（口径与爆堆轮廓一致）
-    this._fragmentRenderer.setSectionBounds(this._lastPhysicsBounds)
-    this._fragmentRenderer.setExtentTable(variantHalfExtents)
-
-    // ── 6. 缓存参数 ──
-    this._lastSpecGenParams = { kco, face: faceDesc, chargeKg, fragmentCount: specs.length }
-
-    console.log('[ThreeBlastingRenderer] initBlast (新架构)', {
-      specs: specs.length,
-      kco: {
-        Q: chargeKg,
-        A: kco.A.toFixed(3),
-        x50: kco.x50.toFixed(3),
-        xmax: kco.xmax.toFixed(3),
-        n: kco.n.toFixed(3),
-        b: kco.b.toFixed(3)
-      }
-    })
-
-    // ── 7. 爆破前状态 ──
-    this.blastTriggered = false
-    // 重置实测时长状态（新一次爆破重新观测）
-    this._observedDurationS = null
-    this._landAllAt = null
-    this._settleConfirmFrames = 0
-    this._replayLandCursor = 0
-    this._replayModeActive = false
-    this._fragmentRenderer.updateFragmentMesh()
-    this.active = true
+    this._initController.initBlast(params)
   }
 
   /**
@@ -782,7 +528,7 @@ export class ThreeBlastingRenderer {
     // 振动场已改为直接在岩体表面着色（benchMesh ShaderMaterial），
     // 不再进行 raymarching 体积渲染，因此无需相机移动/上下文宽限的额外隐藏逻辑。
     // 每帧联动岩体表面场着色强度（状态守卫：仅首次进入/退出时真正修改 uniform）
-    this._applyVibrationOcclusion()
+    this._fieldPipeline._applyVibrationOcclusion()
 
     if (this.bloomEnabled && this.bloomComposer && !cameraActive) {
       this.bloomComposer.render()
@@ -806,9 +552,7 @@ export class ThreeBlastingRenderer {
   }
 
   resize() {
-    const width = this.container.clientWidth || window.innerWidth
-    const height = this.container.clientHeight || window.innerHeight
-    this._applySize(width, height)
+    this._cameraView.resize()
   }
 
   /**
@@ -818,22 +562,7 @@ export class ThreeBlastingRenderer {
    * @param {number} height
    */
   resizeTo(width, height) {
-    const w = Math.max(1, width || 0)
-    const h = Math.max(1, height || 0)
-    this._applySize(w, h)
-  }
-
-  _applySize(width, height) {
-    this.renderer.setSize(width, height)
-    this.camera.aspect = width / height
-    this.camera.updateProjectionMatrix()
-    if (this.bloomComposer) {
-      this.bloomComposer.setSize(width, height)
-      // 同步 pixelRatio，防止 EffectComposer 渲染目标分辨率与 renderer 不一致导致模糊
-      this.bloomComposer.setPixelRatio(this.renderer.getPixelRatio())
-    }
-    // 等值线 LineMaterial 像素线宽依赖视口分辨率，随 resize 同步
-    this._sceneBuilder?.setContourResolution?.(width, height)
+    this._cameraView.resizeTo(width, height)
   }
 
   /**
@@ -848,257 +577,7 @@ export class ThreeBlastingRenderer {
    * @param {number} targetTime - 目标模拟时间（秒）
    */
   seekTo(targetTime) {
-    if (!this.active) return
-    const t = Math.max(0, Number(targetTime) || 0)
-    const delta = t - this.simTime
-
-    // 暂停或静止：不推进
-    if (Math.abs(delta) < 0.001) return
-
-    // 回到起点（循环重播）：同步重置，不走异步 Worker 快进。
-    // 异步快进与主线程后续 update() 推进存在竞态——Worker 完成时主线程
-    // simTime 已推进到爆破触发点后，碎片位置与掌子面/特效状态不一致，
-    // 表现为"进度条重新循环但动画没有重播"。
-    if (t === 0 && delta < 0) {
-      this._resetToStart()
-      return
-    }
-
-    // 回退或大跨度前进（>0.5s，相当于跳变）：异步重建并快进
-    if (delta < 0 || delta > 0.5) {
-      this._asyncSeekTo(t)
-      return
-    }
-
-    // 正常增量推进
-    this.update(delta)
-  }
-
-  /**
-   * 同步重置到起爆前初始状态（循环重播回到 t=0 时调用）。
-   * 不走异步 Worker 快进：targetTime=0 时快进 0 步无意义，且避免
-   * 异步快进与主线程 update() 推进的竞态导致动画状态不一致。
-   */
-  _resetToStart() {
-    if (!this._lastBlastParams) {
-      console.warn('[BlastSim] _resetToStart 跳过：无 _lastBlastParams')
-      return
-    }
-    if (!this._lastFragmentData) {
-      console.warn('[BlastSim] _resetToStart 跳过：无 _lastFragmentData')
-      return
-    }
-    this.simTime = 0
-    this._fieldTimeLocked = true
-    this._sceneBuilder?.setContourTime?.(0) // 等值线门控时间同步归零（防重播瞬间残留整幅旧线）
-    this._sceneBuilder?.setFieldSimTime?.(0) // uSimTime 同步归零（解析外推波前门控重放）
-    // 特效重置到 t=0
-    if (this._lastEffectParams) {
-      this._effectManager.clear()
-      this._effectManager.init(this._lastEffectParams)
-      for (const layer of ['fire', 'smoke', 'spark', 'dust', 'shock_wave']) {
-        this._effectManager.setVisible(layer, this.layerVisibility[layer] !== false)
-      }
-    }
-    // 掌子面恢复未爆破状态
-    this.blastTriggered = false
-    this._sceneBuilder.applyBlastState(false)
-    this._landAllAt = null
-
-    // 回放模式：直接从预烘焙关键帧采样 t=0，瞬时完成、无竞态
-    if (this._physicsEngine?.isReplayReady?.()) {
-      this._physicsEngine.applyReplayAtTime(0)
-      this._replayLandCursor = 0
-      this._replayModeActive = true
-      this._fragmentRenderer.updateFragmentMesh()
-      this.renderFrame()
-      this._fieldTimeLocked = false
-      console.log('[BlastSim] 循环重播已重置（回放模式）', {
-        replayDuration: this._physicsEngine.getReplayDurationS?.()
-      })
-      return
-    }
-
-    // 物理引擎原位重置到初始状态：复用已有刚体/凸包，仅重设位置与速度，
-    // 避免 reset+init 重建数千凸包造成的长时间无物理状态（碎石不抛掷）
-    const { specs, positions, velocities } = this._lastFragmentData
-    this._physicsEngine.resetToInitial(specs, positions, velocities)
-    this._physicsEngine.beginStepRecovery()
-    // 立即用初始位置渲染碎片（不等 Worker 推送，避免一帧旧位置闪烁）
-    this._fragmentRenderer.applyInitialPositions(positions)
-    this.renderFrame()
-    console.log('[BlastSim] 循环重播已重置', { fragmentCount: positions.length })
-  }
-
-  /**
-   * 异步重建粒子系统并快进到指定时间（用于时间轴跳变）。
-   *
-   * 主线程：重建特效 + 同步快进 _effectManager 到 targetTime
-   * Worker：后台 init + 循环 step 到 targetTime，完成后推送最终 bodyStates
-   *
-   * 快进期间碎片 InstancedMesh 暂不更新（Worker 未返回最终状态），
-   * Worker 完成后立即渲染正确位置。
-   */
-  _asyncSeekTo(targetTime) {
-    if (!this._lastBlastParams) return
-    // 防止重复触发（用户连续拖动时间轴）。
-    // _seekBlocked 覆盖 RAF 特效快进阶段；seekInProgress 覆盖 Worker 物理快进阶段。
-    if (this._physicsEngine.seekInProgress || this._seekBlocked) return
-
-    // 超时保护：RAF 回调或 Worker 回调丢失时，阻塞标志会永久阻塞后续 seekTo。
-    // 与旧逻辑（在 _asyncSeekTo 开头起 3s 计时的 watchdog）不同：
-    //  - RAF 特效快进阶段用较短 watchdog（该阶段主线程可控，正常 <1s 完成）；
-    //  - Worker 物理快进阶段才真正消耗物理求解时间（Rapier 200+ 碎片 + 碎片间碰撞
-    //    可能需数秒），watchdog 从 Worker 真正开始时起算并放宽到 10s，
-    //    避免"合法但较慢的 seek"被误判超时而强制清除，进而反复重进 _asyncSeekTo。
-    this._startSeekWatchdog('effect', 8000)
-
-    // 不调用 initBlast（避免 clear 清除碎片 InstancedMesh 导致快进期间碎片消失）。
-    // 只重置特效到 t=0 并快进，碎片保持当前位置，Worker 快进完成后更新到目标位置。
-    this.simTime = 0
-    // uSimTime 与播放时钟同步归零（此前只重置等值线时钟）：回跳 seek 后解析外推
-    // 波前门控 gap = uSimTime - arrival 若仍用 seek 前的旧时间，波环位置/时变衰减
-    // 与目标时刻的场纹理脱节。锁住 WS 尾帧的时间信任，uSimTime 由下方快进 tick
-    // 逐帧推进到目标时刻。
-    this._fieldTimeLocked = true
-    this._sceneBuilder?.setContourTime?.(0) // 等值线门控时间同步归零
-    this._sceneBuilder?.setFieldSimTime?.(0)
-    if (this._lastEffectParams) {
-      this._effectManager.clear()
-      this._effectManager.init(this._lastEffectParams)
-      for (const layer of ['fire', 'smoke', 'spark', 'dust', 'shock_wave']) {
-        this._effectManager.setVisible(layer, this.layerVisibility[layer] !== false)
-      }
-    }
-
-    // 按目标时刻同步掌子面/待爆岩体可见状态：
-    // 回退到起爆前应恢复完整掌子面+待爆岩体；跳过起爆点后应显示破碎掌子面+掏槽腔
-    const blastJustTriggered = targetTime >= this.blastTriggerTime
-    this.blastTriggered = blastJustTriggered
-    this._sceneBuilder.applyBlastState(blastJustTriggered)
-
-    // 主线程分块快进特效到 targetTime（requestAnimationFrame，避免长循环阻塞主线程）。
-    // 特效不含物理，单步 0.05s；每帧最多执行 STEPS_PER_FRAME 步（约 16ms 工作量），
-    // 剩余步骤在下一帧 requestAnimationFrame 回调中继续，完成后移交 Worker 物理快进。
-    const fireLight = this._sceneBuilder.fireLight
-    const step = 0.05
-    let remaining = Math.max(0, targetTime)
-    const maxSteps = 800
-    let stepCount = 0
-    const STEPS_PER_FRAME = 16
-
-    // 标记 RAF 阶段进行中，阻止此期间再次进入 _asyncSeekTo
-    this._seekBlocked = true
-
-    // 特效快进完成后启动 Worker 物理快进（保留原有 seekToAsync 调用与回调）。
-    // 回放模式：跳过 Worker 重建/快进，直接采样预烘焙关键帧（瞬时完成、任意倍速）。
-    const startWorkerSeek = () => {
-      this._seekBlocked = false
-      if (this._physicsEngine?.isReplayReady?.()) {
-        this._clearSeekWatchdog()
-        this.simTime = targetTime
-        this._sceneBuilder?.setContourTime?.(targetTime) // 等值线门控时间随 seek 跳变
-        // uSimTime 随 seek 跳变对齐（回放分支无快进 tick，需显式同步），
-        // 同步后解锁恢复 WS 场帧时间的单调信任
-        this._sceneBuilder?.setFieldSimTime?.(targetTime)
-        this._fieldTimeLocked = false
-        this._physicsEngine.applyReplayAtTime(targetTime)
-        this._replayLandCursor = targetTime
-        this._fragmentRenderer.updateFragmentMesh()
-        this.renderFrame()
-        return
-      }
-      // Worker 物理求解阶段单独起 watchdog（放宽到 10s，从真正开始时起算）
-      this._startSeekWatchdog('physics', 10000)
-      // Worker 异步快进物理引擎（后台 init + 循环 step）
-      const { specs, positions, velocities } = this._lastFragmentData
-      const bounds = this._lastPhysicsBounds
-      this._physicsEngine.seekToAsync(targetTime, specs, positions, velocities, bounds, () => {
-        // Worker 完成：清除 watchdog 并渲染一帧
-        this._clearSeekWatchdog()
-        // uSimTime 对齐目标时刻后解锁（快进 tick 已把播放时钟推进到 targetTime）
-        this._sceneBuilder?.setFieldSimTime?.(this.simTime)
-        this._fieldTimeLocked = false
-        this._fragmentRenderer.updateFragmentMesh()
-        this.renderFrame()
-      })
-    }
-
-    const tick = () => {
-      this._seekRafId = null
-      // 每帧最多执行 STEPS_PER_FRAME 步，避免单帧工作量过大阻塞主线程
-      let frameSteps = 0
-      while (remaining > 0 && stepCount < maxSteps && frameSteps < STEPS_PER_FRAME) {
-        const dt = Math.min(step, remaining)
-        this.simTime += dt
-        this._effectManager.update(dt, this.simTime)
-        // 火光同步（加 NaN 守卫，与 update 方法一致）
-        const fireIntensity = this._effectManager.getFireLightIntensity()
-        if (Number.isFinite(fireIntensity)) {
-          fireLight.intensity += (fireIntensity - fireLight.intensity) * 0.6
-          if (fireLight.intensity < 0.01) fireLight.intensity = 0
-        }
-        remaining -= dt
-        stepCount++
-        frameSteps++
-      }
-      // uSimTime 跟随快进播放时钟（每 tick 一次即可）：解析外推波环/波前门控
-      // 与场纹理同步重放，而非停留在 seek 前的旧时刻
-      this._sceneBuilder?.setFieldSimTime?.(this.simTime)
-
-      if (remaining > 0 && stepCount < maxSteps) {
-        // 还有剩余步骤，下一帧继续
-        this._seekRafId = requestAnimationFrame(tick)
-      } else {
-        // 全部完成（或达到步数上限），启动 Worker 物理快进
-        startWorkerSeek()
-      }
-    }
-
-    this._seekRafId = requestAnimationFrame(tick)
-  }
-
-  /**
-   * 启动 seekTo 超时 watchdog。
-   * 仅在 RAF/Worker 回调真正丢失时兜底强制清除阻塞标志，避免永久卡住后续 seek。
-   * @param {'effect'|'physics'} kind - 当前阶段（仅用于日志）
-   * @param {number} ms - 超时时长（毫秒）
-   */
-  _startSeekWatchdog(kind, ms) {
-    this._clearSeekWatchdog()
-    this._seekTimeout = setTimeout(() => {
-      this._seekTimeout = null
-      if (this._seekRafId) {
-        cancelAnimationFrame(this._seekRafId)
-        this._seekRafId = null
-      }
-      this._seekBlocked = false
-      // 解除 seek 时间锁（uSimTime 停在归零值，锁死会让解析场波前永久全关）
-      this._fieldTimeLocked = false
-      if (this._physicsEngine && this._physicsEngine.seekInProgress) {
-        console.warn(`[ThreeBlastingRenderer] seekTo(${kind}) 超时，强制清除阻塞标志`)
-        this._physicsEngine.seekInProgress = false
-      }
-    }, ms)
-  }
-
-  _clearSeekWatchdog() {
-    if (this._seekTimeout) {
-      clearTimeout(this._seekTimeout)
-      this._seekTimeout = null
-    }
-  }
-
-  /** 取消进行中的 seek（上下文丢失等紧急场景），清理所有阻塞标志与定时器 */
-  _cancelSeek() {
-    this._clearSeekWatchdog()
-    if (this._seekRafId) {
-      cancelAnimationFrame(this._seekRafId)
-      this._seekRafId = null
-    }
-    this._seekBlocked = false
-    this._fieldTimeLocked = false
-    if (this._physicsEngine) this._physicsEngine.seekInProgress = false
+    this._seekController.seekTo(targetTime)
   }
 
   /**
@@ -1112,25 +591,7 @@ export class ThreeBlastingRenderer {
    * @param {number} far - 远裁剪面
    */
   syncCamera(position, direction, up, fov, aspect, near, far) {
-    this._lastCameraSyncMs = performance.now()
-    this.camera.fov = fov
-    this.camera.aspect = aspect
-    this.camera.near = near
-    this.camera.far = far
-    this.camera.position.copy(position)
-    this.camera.up.copy(up)
-
-    // 使用方向/上方向直接构造相机姿态，避免大坐标下 lookAt 的精度损失。
-    // 复用预分配 scratch 对象，避免每帧 new 导致 GC 压力
-    const s = this._camScratch
-    s.forward.copy(direction).normalize()
-    s.cameraZ.copy(s.forward).negate()
-    s.cameraX.crossVectors(up, s.cameraZ).normalize()
-    s.cameraY.crossVectors(s.cameraZ, s.cameraX).normalize()
-    s.rotationMatrix.makeBasis(s.cameraX, s.cameraY, s.cameraZ)
-    this.camera.quaternion.setFromRotationMatrix(s.rotationMatrix)
-    this.camera.updateMatrixWorld(true)
-    this.camera.updateProjectionMatrix()
+    this._cameraView.syncCamera(position, direction, up, fov, aspect, near, far)
   }
 
   setBloomEnabled(enabled) {
@@ -1154,68 +615,12 @@ export class ThreeBlastingRenderer {
    * @returns {Function} 用于关闭拾取的 detach 函数
    */
   enablePointPick(handler, opts = {}) {
-    const maxDragPx = opts.maxDragPx ?? 4
-    if (this._pickDetach) this._pickDetach()
-    const canvas = this.renderer.domElement
-    const raycaster = new THREE.Raycaster()
-    const ndc = new THREE.Vector2()
-    const _p0 = { x: 0, y: 0 }
-    let down = false
-
-    const box = () => {
-      const fd = this._vibrationFieldRenderer?.getFieldData?.()
-      if (!fd?.boundsMin || !fd?.boundsMax || !fd?.center) return null
-      const { boundsMin, boundsMax } = fd
-      return new THREE.Box3(
-        new THREE.Vector3(boundsMin[0], boundsMin[1], boundsMin[2]).add(fd.center),
-        new THREE.Vector3(boundsMax[0], boundsMax[1], boundsMax[2]).add(fd.center)
-      )
-    }
-
-    const onDown = e => {
-      down = true
-      _p0.x = e.clientX
-      _p0.y = e.clientY
-    }
-    const onUp = e => {
-      if (!down) return
-      down = false
-      const dx = e.clientX - _p0.x
-      const dy = e.clientY - _p0.y
-      if (Math.hypot(dx, dy) > maxDragPx) return // 是拖拽，非点击
-      const rect = canvas.getBoundingClientRect()
-      ndc.set(
-        ((e.clientX - rect.left) / rect.width) * 2 - 1,
-        -(((e.clientY - rect.top) / rect.height) * 2 - 1)
-      )
-      raycaster.setFromCamera(ndc, this.camera)
-      const b = box()
-      if (!b) {
-        handler(null)
-        return
-      }
-      const hit = new THREE.Vector3()
-      if (!raycaster.ray.intersectBox(b, hit)) {
-        handler(null)
-        return
-      }
-      const sample = this._vibrationFieldRenderer?.sampleAtWorldPoint?.(hit)
-      handler(sample || null)
-    }
-    canvas.addEventListener('pointerdown', onDown)
-    canvas.addEventListener('pointerup', onUp)
-
-    this._pickDetach = () => {
-      canvas.removeEventListener('pointerdown', onDown)
-      canvas.removeEventListener('pointerup', onUp)
-      this._pickDetach = null
-    }
-    return this._pickDetach
+    this._pointPicker.enablePointPick(handler, opts)
   }
 
   /** 关闭点选拾取 */
   disablePointPick() {
-    if (this._pickDetach) this._pickDetach()
+    this._pointPicker.disablePointPick()
   }
 
   /**
@@ -1223,62 +628,19 @@ export class ThreeBlastingRenderer {
    * 相机由用户通过鼠标直接操控 Three.js 画布，不再每帧同步 Cesium 相机。
    */
   startStandaloneMode() {
-    this._standalone = true
-    // 确保画布尺寸正确（不再由 Cesium preRender 的 _syncCamera 调用 resizeTo）
-    this.resize()
-    if (!this._orbitControls) {
-      this._orbitControls = new OrbitControls(this.camera, this.renderer.domElement)
-      this._orbitControls.enableDamping = true
-      this._orbitControls.dampingFactor = 0.08
-      this._orbitControls.maxDistance = 300
-      this._orbitControls.minDistance = 2
-      this._orbitControls.target.copy(this.center)
-      // 鼠标映射与非爆破模式（Cesium 相机）保持一致：
-      // 左键 → 平移（拖拽模型前后左右），中键 → 旋转视角，右键/滚轮 → 缩放
-      this._orbitControls.mouseButtons = {
-        LEFT: THREE.MOUSE.PAN,
-        MIDDLE: THREE.MOUSE.ROTATE,
-        RIGHT: THREE.MOUSE.DOLLY
-      }
-      // 触摸手势：单指平移，双指缩放旋转
-      this._orbitControls.touches = {
-        ONE: THREE.TOUCH.PAN,
-        TWO: THREE.TOUCH.DOLLY_ROTATE
-      }
-      // OrbitControls change 事件 → 更新 _lastCameraSyncMs，
-      // 使 renderFrame 中的相机移动检测生效（跳过 bloom）
-      this._orbitControls.addEventListener('change', () => {
-        this._lastCameraSyncMs = performance.now()
-      })
-    }
-    this.startRenderLoop()
+    this._cameraView.startStandaloneMode()
   }
 
   stopStandaloneMode() {
-    this._standalone = false
-    this.stopRenderLoop()
+    this._cameraView.stopStandaloneMode()
   }
 
   startRenderLoop() {
-    if (this._renderLoopRaf) return
-    const loop = () => {
-      this._renderLoopRaf = requestAnimationFrame(loop)
-      try {
-        if (this._orbitControls) this._orbitControls.update()
-        this.renderFrame()
-      } catch (err) {
-        // 任何组件抛异常都不能中断渲染循环，否则画面冻结且日志丢失
-        console.error('[ThreeBlastingRenderer] 渲染帧异常已捕获:', err)
-      }
-    }
-    this._renderLoopRaf = requestAnimationFrame(loop)
+    this._cameraView.startRenderLoop()
   }
 
   stopRenderLoop() {
-    if (this._renderLoopRaf) {
-      cancelAnimationFrame(this._renderLoopRaf)
-      this._renderLoopRaf = null
-    }
+    this._cameraView.stopRenderLoop()
   }
 
   /**
@@ -1287,19 +649,7 @@ export class ThreeBlastingRenderer {
    * @param {THREE.Vector3|number[]} target - 观察目标点
    */
   setCameraView(position, target) {
-    this.camera.position.set(
-      position.x ?? position[0],
-      position.y ?? position[1],
-      position.z ?? position[2]
-    )
-    const tx = target.x ?? target[0]
-    const ty = target.y ?? target[1]
-    const tz = target.z ?? target[2]
-    this.camera.lookAt(tx, ty, tz)
-    if (this._orbitControls) {
-      this._orbitControls.target.set(tx, ty, tz)
-      this._orbitControls.update()
-    }
+    this._cameraView.setCameraView(position, target)
   }
 
   /**
@@ -1307,23 +657,7 @@ export class ThreeBlastingRenderer {
    * 使用 THREE.Vector3.crossVectors 确保方向正确
    */
   setupCameraView(tunnelLength, wallHeight) {
-    const cameraDist = tunnelLength > 0 ? tunnelLength * 0.7 : 55
-    const eyeHeight = wallHeight > 0 ? wallHeight : 6
-
-    const dir = this.faceDirection.clone().normalize()
-    const up = new THREE.Vector3(0, 1, 0)
-    const right = new THREE.Vector3().crossVectors(dir, up).normalize()
-    const forward = new THREE.Vector3().crossVectors(up, right).normalize()
-
-    // 相机位置：center - forward * cameraDist + up * eyeHeight（隧道内部，掌子面后方）
-    const pos = new THREE.Vector3()
-      .copy(this.center)
-      .addScaledVector(forward, -cameraDist)
-      .addScaledVector(up, eyeHeight)
-    // 观察目标：掌子面中心 = center + forward * 3
-    const target = new THREE.Vector3().copy(this.center).addScaledVector(forward, 3)
-
-    this.setCameraView(pos, target)
+    this._cameraView.setupCameraView(tunnelLength, wallHeight)
   }
 
   /**
@@ -1334,38 +668,7 @@ export class ThreeBlastingRenderer {
    * @param {Object} [opts] - { tunnelLength, wallHeight }，缺省取隧道当前断面
    */
   setCameraViewMode(mode, opts = {}) {
-    const tunnelLength = Number(opts.tunnelLength) > 0 ? Number(opts.tunnelLength) : 0
-    const wallHeight =
-      Number(opts.wallHeight) > 0 ? Number(opts.wallHeight) : this.tunnelWallHeight || 0
-    const cameraDist = tunnelLength > 0 ? tunnelLength * 0.7 : 55
-    const eyeHeight = wallHeight > 0 ? wallHeight : 6
-
-    const dir = this.faceDirection.clone().normalize()
-    const up = new THREE.Vector3(0, 1, 0)
-    const right = new THREE.Vector3().crossVectors(dir, up).normalize()
-    const forward = new THREE.Vector3().crossVectors(up, right).normalize()
-
-    let pos
-    let target
-    if (mode === 'exterior') {
-      // 外部测区视角：后退更远、抬高更高、略带侧偏，能整体看到掌子面、
-      // 抛掷方向与爆堆形成区域
-      pos = new THREE.Vector3()
-        .copy(this.center)
-        .addScaledVector(forward, -cameraDist * 1.6)
-        .addScaledVector(up, eyeHeight * 2.7)
-        .addScaledVector(right, -cameraDist * 0.38)
-      target = new THREE.Vector3().copy(this.center).addScaledVector(forward, 16)
-    } else {
-      // 隧道内部视角：掌子面后方，面朝掌子面（默认）
-      pos = new THREE.Vector3()
-        .copy(this.center)
-        .addScaledVector(forward, -cameraDist)
-        .addScaledVector(up, eyeHeight)
-      target = new THREE.Vector3().copy(this.center).addScaledVector(forward, 3)
-    }
-
-    this.setCameraView(pos, target)
+    this._cameraView.setCameraViewMode(mode, opts)
   }
 
   /**
@@ -1482,7 +785,7 @@ export class ThreeBlastingRenderer {
 
   dispose() {
     this.stopRenderLoop()
-    this._clearSeekWatchdog()
+    this._seekController._clearSeekWatchdog()
     if (this._orbitControls) {
       this._orbitControls.dispose()
       this._orbitControls = null
@@ -1590,35 +893,6 @@ export class ThreeBlastingRenderer {
   }
 
   /**
-   * 构建用于碎片规格生成器的炮孔数据
-   * 从 blastHoleDesign 提取 posX/posY/chargeKg/delayMs/isEmptyHole/holeType，
-   * 转换为 fragmentSpecGenerator 需要的 {x, y, chargeKg, delayMs, isEmpty, holeType} 格式
-   * @returns {Array<Object>|null}
-   */
-  _buildHoleSpecsForFragmentGen() {
-    const blastHoleDesign = this._sceneBuilder.blastHoleDesign
-    if (!Array.isArray(blastHoleDesign) || blastHoleDesign.length === 0) {
-      return null
-    }
-    return blastHoleDesign.map(h => {
-      // 孔型映射：与 sceneBuilder._collectDesignHoles 一致
-      const rawType = (h.holeType || 'production').toLowerCase()
-      let holeType = 'auxiliary'
-      if (h.isEmptyHole) holeType = 'empty'
-      else if (rawType === 'cut' || rawType === 'easing') holeType = 'cut'
-      else if (rawType === 'perimeter') holeType = 'perimeter'
-      return {
-        x: Number(h.posX) || 0,
-        y: Number(h.posY) || 0,
-        chargeKg: Number(h.chargeKg) || 0,
-        delayMs: Number(h.delayMs) || 0,
-        isEmpty: !!h.isEmptyHole,
-        holeType
-      }
-    })
-  }
-
-  /**
    * 注入爆破效果数据（表2：超欠挖/爆破漏斗/最大抛掷距离/半孔率等）
    * 存储后可在渲染时用于：漏斗坑可视化（craterDepth/craterRadius）、
    * 周边孔半孔率标注（halfHoleRatio）、碎块尺寸（fragmentX50）等
@@ -1628,24 +902,7 @@ export class ThreeBlastingRenderer {
     this._sceneBuilder.blastEffect = effect || null
   }
 
-  // ─── PPV 振动场（实时推送的动态热力图）──────────────────────
-
-  /**
-   * 计算隧道局部基向量 (right, up, forward)
-   * 与 initBlast 中一致：forward = faceDirection 投影到水平面后归一化
-   * @returns {{right: THREE.Vector3, up: THREE.Vector3, forward: THREE.Vector3}}
-   */
-  _computeTunnelBasis() {
-    const up = new THREE.Vector3(0, 1, 0)
-    const dir = this.faceDirection.clone()
-    // 投影到水平面（去除垂直分量），保证 right 水平
-    dir.y = 0
-    if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1)
-    dir.normalize()
-    const right = new THREE.Vector3().crossVectors(dir, up).normalize()
-    const forward = new THREE.Vector3().crossVectors(up, right).normalize()
-    return { right, up, forward }
-  }
+  // ─── PPV 振动场（实时推送的动态热力图）：委托 VibrationFieldPipeline ──
 
   /**
    * 初始化（或重建）PPV 振动场体积。
@@ -1657,77 +914,7 @@ export class ThreeBlastingRenderer {
    * @param {number[]} cfg.boundsMax - [x,y,z]
    */
   initVibrationField(cfg) {
-    if (!this._vibrationFieldRenderer) return
-    const { right, up, forward } = this._computeTunnelBasis()
-    const origin = cfg?.origin ?? this._blastOrigin
-    this._vibrationFieldRenderer.init({
-      gridShape: cfg.gridShape,
-      boundsMin: cfg.boundsMin,
-      boundsMax: cfg.boundsMax,
-      center: this.center,
-      right,
-      up,
-      forward,
-      origin
-    })
-    // 将振动场数据纹理/坐标基注入岩体表面着色材质（应力/损伤/PPV 直接渲染在岩体上）
-    this._applyVibrationFieldToBench()
-    // 波场可达半径（= 爆心 → 岩体几何最远顶点）回传给 manager：
-    // 本地模拟器/后端包络必须取同一半径，否则本地兜底接管时会在岩体中部截断
-    const rInfluence = this._sceneBuilder?.influenceRadius ?? 0
-    if (Number(rInfluence) > 0) this.onInfluenceRadiusMeasured?.(Number(rInfluence))
-    // 点选查询的遮挡/轴向延展修正与 shader 同口径：getter 保证岩体重建后取最新洞身参数
-    this._vibrationFieldRenderer?.setHoleGeomProvider?.(() => this._sceneBuilder?._holeGeom || null)
-    // 同步场盒外解析外推（萨道夫斯基）的物理参数与初始时间
-    this._applyFieldPhysics()
-    // 解析外推的波源随爆心注入（掏槽孔质心），保证盒外波前与盒内纹理同源
-    this._sceneBuilder?.applyFieldPhysics?.({
-      origin: Array.isArray(origin) ? origin : [origin.x, origin.y, origin.z]
-    })
-    this._sceneBuilder?.setFieldSimTime?.(this.simTime ?? 0)
-    // 同步初始化振动波粒子特效（使用相同的坐标系基；显隐由独立图层 vibrationParticles 控制）
-    this._vibrationParticles.init({
-      center: this.center,
-      right,
-      up,
-      forward,
-      section: {
-        width: this.tunnelWidth,
-        wallHeight: this.tunnelWallHeight,
-        archRadius: this.tunnelArchRadius,
-        shape: this.tunnelSection.shape
-      }
-    })
-    this._vibrationParticles.setVisible(this.layerVisibility.vibrationParticles !== false)
-    // 同步当前图层可见性
-    this._vibrationFieldRenderer.setVisible(this.layerVisibility.vibrationField !== false)
-    // 联动岩体表面场着色强度
-    this._applyVibrationOcclusion()
-  }
-
-  /**
-   * 将振动场数据纹理/坐标基注入岩体表面着色材质。
-   * 数据由 BlastVibrationFieldRenderer 持有，这里转发给 SceneBuilder 的 benchMesh 材质。
-   */
-  _applyVibrationFieldToBench() {
-    if (!this._sceneBuilder?.setBenchFieldData) return
-    const data = this._vibrationFieldRenderer?.getFieldData?.()
-    if (data) this._sceneBuilder.setBenchFieldData(data)
-  }
-
-  /**
-   * 根据振动场图层的开关状态，联动岩体表面场着色强度。
-   *
-   * 【不再以 hasAnyField 为门控】场着色是逐片元解析计算，不依赖任何场数据或
-   * 场纹理即可出图（数据只用于点选查询与等值线）。此前要求"已收到首帧场数据"
-   * 才切权重，导致开关滞后到数据到达才生效——观感即"打开热力图不是直接渲染，
-   * 而是要加载一段时间"。改为按图层开关直接切目标权重（内部走 FIELD_FADE_MS
-   * 缓动淡入），数据到达时自然接上，无跳变。
-   */
-  _applyVibrationOcclusion() {
-    const on = this.layerVisibility?.vibrationField !== false
-    this._sceneBuilder?.setRockSemiTransparent?.(on)
-    this._sceneBuilder?.updateFieldFade?.()
+    this._fieldPipeline.initVibrationField(cfg)
   }
 
   /**
@@ -1735,55 +922,12 @@ export class ThreeBlastingRenderer {
    * @param {Array} particles - VibrationParticleSystem 的活跃粒子
    */
   updateVibrationParticles(particles) {
-    this._vibrationParticles?.update(particles || [])
+    this._fieldPipeline.updateVibrationParticles(particles)
   }
 
   /** 清空振动波粒子 */
   clearVibrationParticles() {
-    this._vibrationParticles?.clear()
-  }
-
-  /**
-   * 岩体热力图解析外推的时间源统一推进（防回退防闪烁）。
-   *
-   * 热力图（岩面片元着色器的解析外推）的时间由本地播放时钟平滑驱动：
-   * renderer.update() 每帧写 uSimTime = this.simTime，单调推进且支持循环归零重放。
-   * WS 场帧按 ~0.1s 推送、到达常滞后于本地播放时钟（倍速时更甚）；若其 t 直接覆盖，
-   * uSimTime 会回退 → 波前 gap<0、front 过渡项归零 → 整片明灭 / 亮环跳闪
-   * （多源延时场景对时间更敏感，表现最明显）。
-   *
-   * 处理：仅当帧时间超前本地时钟时才前推 uSimTime。这样
-   *  - 正常播放：本地时钟领先 → WS 迟到帧被忽略，时间单调；
-   *  - 被动大屏/本地时钟未推进：WS t 始终超前 simTime → 热力图仍由 WS 帧驱动；
-   *  - 循环/回跳归零：本地时钟归零后自己重写，热力图正常重播。
-   * @param {number} t - 场帧的模拟时间(s)
-   */
-  _advanceFieldSimTime(t) {
-    if (this._fieldTimeLocked) return
-    // 【场时钟统一】本地播放时钟活跃期间（RAF update 正常推进，见 update() 内
-    // _lastLocalFieldClockMs 戳记），忽略 WS 场帧的时间推进：
-    // 后端按墙钟 0.05s/帧匀速推流，本地 RAF 时钟受渲染负载抖动/追帧步进影响，
-    // WS 一旦超前就会把 uSimTime 拽到"未来"——解析波前从掌子面瞬移到岩体深处，
-    // 下一帧 update() 又拉回本地时钟，反复横跳。视觉上即"首轮播放热力图从岩体
-    // 后面开始传播"（WS 推流仅首轮存在；第二遍 WS 已 COMPLETED、纯本地时钟故
-    // 正常）。被动大屏（本地时钟停更 >250ms、无 RAF update）仍由 WS 帧驱动，
-    // 保持原行为。
-    const nowMs = performance.now()
-    if (this._lastLocalFieldClockMs != null && nowMs - this._lastLocalFieldClockMs < 250) {
-      if (t > this.simTime + 0.25 && !this._wsAheadWarned) {
-        this._wsAheadWarned = true
-        console.warn(
-          '[FieldClock] 活动播放期间忽略 WS 场帧时间超前推进（WS 与本地时钟软同步偏差）',
-          {
-            wsT: Number(t.toFixed(3)),
-            localT: Number(this.simTime.toFixed(3)),
-            超前s: Number((t - this.simTime).toFixed(3))
-          }
-        )
-      }
-      return
-    }
-    if (t > this.simTime) this._sceneBuilder?.setFieldSimTime?.(t)
+    this._fieldPipeline.clearVibrationParticles()
   }
 
   /**
@@ -1793,20 +937,17 @@ export class ThreeBlastingRenderer {
    * @param {number} frame
    */
   updateVibrationField(ppv, t, frame) {
-    this._vibrationFieldRenderer?.updateField(ppv, t, frame)
-    this._advanceFieldSimTime(t)
+    this._fieldPipeline.updateVibrationField(ppv, t, frame)
   }
 
   /** 更新 σ_vm 应力场（每个 STRESS 二进制帧调用） */
   updateStressField(sigmaVm, t, frame) {
-    this._vibrationFieldRenderer?.updateStressField(sigmaVm, t, frame)
-    this._advanceFieldSimTime(t)
+    this._fieldPipeline.updateStressField(sigmaVm, t, frame)
   }
 
   /** 更新损伤分区场（每个 DAMAGE 二进制帧调用） */
   updateDamageField(zones, t, frame) {
-    this._vibrationFieldRenderer?.updateDamageField(zones, t, frame)
-    this._advanceFieldSimTime(t)
+    this._fieldPipeline.updateDamageField(zones, t, frame)
   }
 
   /**
@@ -1818,7 +959,7 @@ export class ThreeBlastingRenderer {
    * 任何残留，等价于"Seek 期间阻塞着色器读取旧数据"。
    */
   clearFieldTextures() {
-    this._vibrationFieldRenderer?.clearFieldTextures?.()
+    this._fieldPipeline.clearFieldTextures()
   }
 
   /**
@@ -1826,57 +967,47 @@ export class ThreeBlastingRenderer {
    * @param {Object} params - { chargeKg, k, alpha, beta, visualCp, rho, cp, nu }
    */
   setFieldPhysics(params) {
-    this._fieldPhysicsParams = { ...(this._fieldPhysicsParams || {}), ...params }
-    this._applyFieldPhysics()
-  }
-
-  /** 将缓存的场物理参数下发到 SceneBuilder（采样一致性） */
-  _applyFieldPhysics() {
-    if (!this._fieldPhysicsParams) return
-    this._sceneBuilder?.applyFieldPhysics?.(this._fieldPhysicsParams)
+    this._fieldPipeline.setFieldPhysics(params)
   }
 
   /** 切换振动场显示模式（ppv/stress/damage） */
   setVibrationDisplayMode(mode) {
-    this._vibrationFieldRenderer?.setDisplayMode(mode)
-    // 同步岩体表面着色模式
-    const m = this._vibrationFieldRenderer?.displayModeValue
-    if (m != null) this._sceneBuilder?.setBenchFieldDisplayMode?.(m)
+    this._fieldPipeline.setVibrationDisplayMode(mode)
   }
 
   /** 切换振动场底材"白模"：true=场图层开启时切白模底，false=保留岩石纹理底 */
   setBenchWhiteModel(enabled) {
-    this._sceneBuilder?.setFieldWhiteModel?.(!!enabled)
+    this._fieldPipeline.setBenchWhiteModel(enabled)
   }
 
   /** 开关振动场等力线（等值线）叠加显示 */
   setIsoLine(enabled) {
-    this._sceneBuilder?.setIsoLine?.(!enabled ? { on: false } : { on: true })
+    this._fieldPipeline.setIsoLine(enabled)
   }
 
   /** 设置等值线样式（线宽 px / 统一颜色；color=null 恢复按级别取色） */
   setIsoLineStyle({ width, color } = {}) {
-    this._sceneBuilder?.setIsoLine?.({ width, color })
+    this._fieldPipeline.setIsoLineStyle({ width, color })
   }
 
   /** 设置色彩映射标尺：0=线性，1=对数（默认；适应 PPV/应力幂律衰减） */
   setNormMode(mode) {
-    this._sceneBuilder?.setNormMode?.(mode)
+    this._fieldPipeline.setNormMode(mode)
   }
 
   /** 设置半透明渲染（1=场色上限 0.55 露出岩底，0=实色 0.85） */
   setFieldTranslucent(on) {
-    this._sceneBuilder?.setFieldTranslucent?.(!!on)
+    this._fieldPipeline.setFieldTranslucent(on)
   }
 
   /** 下发矢量箭头场（P1-6：波传播方向可视化；数据来自 blastingManager 逐帧计算） */
   setVectorField(data) {
-    this._sceneBuilder?.setVectorField?.(data || null)
+    this._fieldPipeline.setVectorField(data)
   }
 
   /** 清空/隐藏矢量箭头场 */
   clearVectorField() {
-    this._sceneBuilder?.clearVectorField?.()
+    this._fieldPipeline.clearVectorField()
   }
 
   /**
@@ -1884,32 +1015,32 @@ export class ThreeBlastingRenderer {
    * 含版本号（几何 build/爆后切换/剖切时自增），调用方据此判断是否重提取。
    */
   getContourSurface() {
-    return this._sceneBuilder?.getContourSurface?.() ?? null
+    return this._fieldPipeline.getContourSurface()
   }
 
   /** 波场可达半径（= 爆心 → 岩体几何最远顶点，m；0=岩体尚未构建） */
   getInfluenceRadius() {
-    return this._sceneBuilder?.influenceRadius ?? 0
+    return this._fieldPipeline.getInfluenceRadius()
   }
 
   /** 下发等值线折线组（contourExtractor 输出）构建 Line2 渲染组 */
   setContourPolylines(data) {
-    this._sceneBuilder?.setContourPolylines?.(data)
+    this._fieldPipeline.setContourPolylines(data)
   }
 
   /** 当前热力图渲染参数（displayMode/normMode/满刻度，等值线级别计算同口径） */
   getFieldRenderParams() {
-    return this._sceneBuilder?.getFieldRenderParams?.() ?? null
+    return this._fieldPipeline.getFieldRenderParams()
   }
 
   /** 当前是否已有可渲染的振动场（三场中任意一场有数据即视为已初始化） */
   hasVibrationField() {
-    return !!this._vibrationFieldRenderer?.hasAnyField
+    return this._fieldPipeline.hasVibrationField()
   }
 
   /** 振动场元信息（供 UI 显示当前场时间/帧/网格） */
   getVibrationFieldInfo() {
-    return this._vibrationFieldRenderer?.getFieldInfo?.() ?? null
+    return this._fieldPipeline.getVibrationFieldInfo()
   }
 
   /** 设置爆破场景对象透明度（供爆破模式下外部工具/面板控制） */
@@ -1938,22 +1069,22 @@ export class ThreeBlastingRenderer {
    * @param {{x,y,z}} point 岩体局部坐标
    */
   setSceneSectionPick(axis, point) {
-    return this._sceneBuilder?.setSectionPick?.(axis, point) ?? { enabled: 0 }
+    return this._pointPicker.setSceneSectionPick(axis, point)
   }
 
   /** 显示/隐藏拾取点标记（选轴前给出视觉反馈） */
   setScenePickPointMarker(point) {
-    this._sceneBuilder?.setPickPointMarker?.(point)
+    this._pointPicker.setScenePickPointMarker(point)
   }
 
   /** 绘制监测点（测点）持久标记：维护岩体上已放置测点的粉球+光晕 */
   setMonitorPointMarkers(points) {
-    this._sceneBuilder?.setMonitorPointMarkers?.(points)
+    this._pointPicker.setMonitorPointMarkers(points)
   }
 
   /** 清除拾取式剖切（还原完整岩体并移除轮廓标记） */
   clearSceneSectionPick() {
-    this._sceneBuilder?.clearSectionPick?.()
+    this._pointPicker.clearSceneSectionPick()
   }
 
   /**
@@ -1964,62 +1095,12 @@ export class ThreeBlastingRenderer {
    * @returns {Function} detach 函数（用于停止拾取）
    */
   pickRockPoint(handler, opts = {}) {
-    const maxDragPx = opts.maxDragPx ?? 4
-    if (this._pickDetach) this._pickDetach()
-    const sceneBuilder = this._sceneBuilder
-    const canvas = this.renderer?.domElement
-    if (!canvas || !sceneBuilder) {
-      handler(null)
-      return () => {}
-    }
-    const raycaster = new THREE.Raycaster()
-    const ndc = new THREE.Vector2()
-    const _p0 = { x: 0, y: 0 }
-    let down = false
-
-    const onDown = e => {
-      down = true
-      _p0.x = e.clientX
-      _p0.y = e.clientY
-    }
-    const onUp = e => {
-      if (!down) return
-      down = false
-      const dx = e.clientX - _p0.x
-      const dy = e.clientY - _p0.y
-      if (Math.hypot(dx, dy) > maxDragPx) return
-      const rect = canvas.getBoundingClientRect()
-      ndc.set(
-        ((e.clientX - rect.left) / rect.width) * 2 - 1,
-        -(((e.clientY - rect.top) / rect.height) * 2 - 1)
-      )
-      raycaster.setFromCamera(ndc, this.camera)
-      const meshes = sceneBuilder.getRockMeshes?.() || []
-      for (const m of meshes) {
-        if (!m.visible) continue
-        const hit = raycaster.intersectObject(m, false)[0]
-        if (!hit) continue
-        // 世界命中点 → 岩体局部坐标（几何剖切基于局部坐标）
-        const local = m.worldToLocal(hit.point.clone())
-        handler({ x: local.x, y: local.y, z: local.z, world: hit.point })
-        return
-      }
-      handler(null)
-    }
-    canvas.addEventListener('pointerdown', onDown)
-    canvas.addEventListener('pointerup', onUp)
-
-    this._pickDetach = () => {
-      canvas.removeEventListener('pointerdown', onDown)
-      canvas.removeEventListener('pointerup', onUp)
-      this._pickDetach = null
-    }
-    return this._pickDetach
+    return this._pointPicker.pickRockPoint(handler, opts)
   }
 
   /** 设置振动场 raymarching 步数（性能/精度权衡） */
   setVibrationFieldRaySteps(n) {
-    this._vibrationFieldRenderer?.setRaySteps(n)
+    this._fieldPipeline.setVibrationFieldRaySteps(n)
   }
 
   setLayerVisible(layer, visible) {
@@ -2065,7 +1146,7 @@ export class ThreeBlastingRenderer {
     if (layer === 'vibrationField') {
       this._vibrationFieldRenderer?.setVisible(visible)
       // 联动待爆岩体半透明度，透显应力/损伤云图
-      this._applyVibrationOcclusion()
+      this._fieldPipeline._applyVibrationOcclusion()
     }
   }
 
