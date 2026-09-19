@@ -9,7 +9,6 @@ import {
 } from '../blastingApi.js'
 import { DEFAULT_KCO_PARAMS } from '../core/computation/kcoModelCore.js'
 import { DEFAULT_FRAGMENT_RENDER_LIMIT } from '../core/blastDefaults.js'
-import { matchLiteratureEvent } from '../core/literatureEvents.js'
 import { SADOVSKY_DEFAULT_K, SADOVSKY_DEFAULT_ALPHA } from '../core/vibrationDefaults.js'
 
 // 算法版本号（用于运行时统计可追溯）
@@ -156,12 +155,15 @@ export function createDatasetDbParts(ctx) {
           fragmentCountRenderLimit: DEFAULT_FRAGMENT_RENDER_LIMIT
         }
       }
-      // 文献化萨道夫斯基参数注入：按事件下发场地常数，避免同一套参数通用或上一事件残留。
-      // 事件匹配规则与各事件 K/α 见 core/literatureEvents.js（单源，与设计盖章共用同一映射）；
-      // 无文献标定的事件（005~007）重置默认 K/α，避免残留上一事件参数。
-      const litEvent = matchLiteratureEvent(eventId, nextDataset.event?.name)
+      // 文献化萨道夫斯基参数注入：数据源已后端化（config/blasting_designs/*.json，
+      // 经 /api/blasting/events/{id}/design 的 design.literature 下发），按事件取场地
+      // 常数，避免同一套参数通用或上一事件残留；无文献标定的事件（005~007）重置默认
+      // K/α。事件匹配规则由后端 match_literature_event 承担（与设计盖章同一映射）。
       ctx.vibration.setSadoskyParams(
-        litEvent?.sadosky || { k: SADOVSKY_DEFAULT_K, alpha: SADOVSKY_DEFAULT_ALPHA }
+        nextDataset.design?.literature?.sadosky || {
+          k: SADOVSKY_DEFAULT_K,
+          alpha: SADOVSKY_DEFAULT_ALPHA
+        }
       )
       applyDataset(nextDataset, { autoPlay })
       currentEventId.value = eventId

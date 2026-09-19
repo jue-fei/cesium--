@@ -1,0 +1,72 @@
+[
+  {
+    "key": "nanshan",
+    "holes": 109,
+    "sha256": "22dd6200e3955da4ae29a83fad4ef7d032cd1fdb563f54865f117a7bda21937a",
+    "holeTypes": {
+      "cut": 9,
+      "auxiliary": 42,
+      "perimeter": 58
+    }
+  },
+  {
+    "key": "kunyang",
+    "holes": 43,
+    "sha256": "c07997ce58b7c5f768eba08fda88bd98a513377a8816e563ee747ba12de6303f",
+    "holeTypes": {
+      "cut": 8,
+      "auxiliary": 20,
+      "perimeter": 15
+    }
+  },
+  {
+    "key": "dabalai",
+    "holes": 63,
+    "sha256": "2cb49615ff9daa360169183d2829864367bbaf3933702e26ab00f741a311dd11",
+    "holeTypes": {
+      "cut": 8,
+      "auxiliary": 20,
+      "perimeter": 35
+    }
+  },
+  {
+    "key": "sanlengshan",
+    "holes": 103,
+    "sha256": "91b4b7488c94b1b77264ac6b8181e27985a1a108e3485b6f56b829a88ca94335",
+    "holeTypes": {
+      "cut": 9,
+      "auxiliary": 41,
+      "perimeter": 53
+    }
+  },
+  {
+    "key": "yuyang",
+    "holes": 75,
+    "sha256": "b5e79322c01bc32dcd74ab143637f8c05bddb426e79cd8b531b58da2d0cfd94e",
+    "holeTypes": {
+      "cut": 9,
+      "auxiliary": 24,
+      "perimeter": 42
+    }
+  },
+  {
+    "key": "dongwujun",
+    "holes": 99,
+    "sha256": "6833531a1501e110e9d6997b676ab964f9db86bd0ce57c4c3a3e8a0dd930d9b7",
+    "holeTypes": {
+      "cut": 9,
+      "auxiliary": 44,
+      "perimeter": 46
+    }
+  },
+  {
+    "key": "fengyin",
+    "holes": 49,
+    "sha256": "9283403f36c70884759bf8f64369feabbe8c37c26e538f52cfa574dadec834ec",
+    "holeTypes": {
+      "cut": 17,
+      "auxiliary": 18,
+      "perimeter": 14
+    }
+  }
+]

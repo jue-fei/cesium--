@@ -24,6 +24,7 @@ from app.services.blasting.blast_physics import (
     sadosky_vibration,
 )
 from app.services.blasting.compare import compare_multiple_events
+from app.services.blasting.literature_design_config import build_literature_payload
 from app.schemas import KCOValidateRequest, JwlRequest, VibrationRequest
 from app.security import require_token
 
@@ -536,6 +537,10 @@ def get_event(event_id: str, db: Connection = Depends(get_db)):
             design = _legacy_design_to_camel(row)
             design["holes"] = _legacy_holes_to_camel(row.get("炮孔设计"))
             result = _legacy_result_to_camel(row)
+            # 文献设计注入：按事件匹配静态 JSON（config/blasting_designs），前端只消费渲染
+            literature = build_literature_payload(event_id, event.get("name"))
+            if literature:
+                design["literature"] = literature
             return {"code": 0, "data": {"event": event, "design": design, "result": result}}
 
         cursor.execute(
@@ -569,6 +574,10 @@ def get_event(event_id: str, db: Connection = Depends(get_db)):
     design = _to_camel(design_row, DESIGN_FIELDS)
     design["holes"] = holes
     result = _to_camel(result_row, RESULT_FIELDS)
+    # 文献设计注入：按事件匹配静态 JSON（config/blasting_designs），前端只消费渲染
+    literature = build_literature_payload(event_id, event.get("name"))
+    if literature:
+        design["literature"] = literature
     return {"code": 0, "data": {"event": event, "design": design, "result": result}}
 
 
@@ -662,12 +671,15 @@ def get_design(event_id: str, db: Connection = Depends(get_db)):
             row = cursor.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="爆破设计未找到")
+            design = _legacy_design_to_camel(row)
+            holes = _legacy_holes_to_camel(row.get("炮孔设计"))
+            # 文献设计注入：按事件匹配静态 JSON（config/blasting_designs），前端只消费渲染
+            literature = build_literature_payload(event_id, row.get("名称"))
+            if literature:
+                design["literature"] = literature
             return {
                 "code": 0,
-                "data": {
-                    "design": _legacy_design_to_camel(row),
-                    "holes": _legacy_holes_to_camel(row.get("炮孔设计")),
-                },
+                "data": {"design": design, "holes": holes},
             }
 
         cursor.execute(
@@ -678,8 +690,15 @@ def get_design(event_id: str, db: Connection = Depends(get_db)):
         design_row = cursor.fetchone()
         if not design_row:
             raise HTTPException(status_code=404, detail="爆破设计未找到")
+        # 事件名称仅用于文献设计匹配（event_id 结尾未命中时按关键词兜底）
+        cursor.execute("SELECT name FROM blasting_events WHERE event_id = %s", (event_id,))
+        name_row = cursor.fetchone()
         holes = _get_holes(cursor, event_id)
     design = _to_camel(design_row, DESIGN_FIELDS)
+    # 文献设计注入：按事件匹配静态 JSON（config/blasting_designs），前端只消费渲染
+    literature = build_literature_payload(event_id, (name_row or {}).get("name"))
+    if literature:
+        design["literature"] = literature
     return {"code": 0, "data": {"design": design, "holes": holes}}
 
 

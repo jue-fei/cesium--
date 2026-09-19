@@ -287,11 +287,11 @@ export class BlastingManager {
   }
 
   /**
-   * 按事件选择对应的文献化隧道设计（CO 按 event_id/名称赠送对应文献模型）。
+   * 读取后端注入的文献化隧道设计（CO 按 event_id/名称赠送对应文献模型）。
    * 避免此前"凡 wedge 一律盖章南山"导致 006(Da Balai/昆阳) 与 002(南山) 模型完全相同。
-   * 事件→key 的匹配规则与各事件孔深/利用率/K/α 见 core/literatureEvents.js（单源）。
-   * @returns {{ key: 'nanshan'|'kunyang'|'dabalai'|'sanlengshan'|'yuyang'|'dongwujun'|'fengyin'|null,
-   *    design?: {section, holes}, holeDepth?: number, utilization?: number }}
+   * 数据源已后端化（config/blasting_designs/*.json，经 /api/blasting/events/{id}
+   * 的 design.literature 注入），事件匹配规则由后端 match_literature_event 承担。
+   * @returns {{ key: string|null, design?: {section, holes}, holeDepth?: number, utilization?: number }}
    */
   _resolveLiteratureDesign() {
     return domainOf(this, '_literature', LiteratureDesignService).resolveLiteratureDesign()
