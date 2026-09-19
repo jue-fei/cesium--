@@ -22,7 +22,12 @@
  * 渲染注释：渲染器仅支持 horseshoe/circular/rectangular，此处 ob 用 9.0×7.0m 马蹄形断面
  * 表达。段间隔压缩为 75ms（与 006 昆阳一致），保证抛掷在时间上交叠成连续过程；底层真实
  * 段别为电子雷管毫秒延时的初始/次生掏槽分组，顺序与原案一致。
+ *
+ * 布孔骨架（垂直楔形掏槽 → 环形扩槽/崩落 → 周边光爆，无中心空孔）与
+ * nanshan / sanlengshan / yuyang 同构，统一由 tunnelDesignFactory 参数化实现。
  */
+import { createWedgeCutDesign } from './tunnelDesignFactory.js'
+
 export const DABALAI_SECTION = {
   width: 9.0, // 开挖断面宽（m，估算）
   wallHeight: 2.5, // 直墙高（m）
@@ -36,187 +41,64 @@ export const DABALAI_UTILIZATION = 0.85
 // 段间隔(ms)：与昆阳一致压缩到真实毫秒级量级，使抛掷连续；掏槽孔内微差用 4ms（对应文献电子雷管）
 export const DABALAI_SEG_INTERVAL_MS = 75
 
-// 掏槽核心线高度（掌子面中下部）
-const Y_CUT = 1.8
-// 楔形掏槽：每排为上下两孔对称斜孔向核心线汇拢成 V 形，[孔口横向展布, 距核心线竖向Δy, 倾角°]
-// 初始组=内排(delay 0)，次生组=外排(delay 4ms，电子雷管分段)；2 排×2 侧×上下=8 孔
-const WEDGE_ROWS = [
-  [0.4, 0.5, 9], // 内排（初始组）
-  [1.2, 1.3, 25] // 外排（次生组）
-]
-const WEDGE_CHARGE_KG = 2.4
-
-// 扩槽/崩落层：[半径(相对核心线), 孔数, 单眼药量kg, 雷管段]（段 3/5 由内向外）
-const RELIEF_LAYERS = [
-  [2.4, 12, 1.8, 3],
-  [3.6, 16, 1.5, 5]
-]
-
-// 周边最小抵抗线 / 光爆爆距（m）
-const PERIM_SPACING = 0.6
-
-export function buildDabalaiTunnelDesign(opt = {}) {
-  const sec = DABALAI_SECTION
-  const depth = Number(opt.holeDepth) || DABALAI_HOLE_DEPTH
-  const Hw = sec.wallHeight
-  const R = sec.archRadius
-  const ITV = DABALAI_SEG_INTERVAL_MS
-  const holes = []
-
-  const push = h => {
-    if (!_insideSection(h.posX, h.posY, sec, 0.3)) return
-    holes.push(h)
-    return h
-  }
-
-  // ── ① 楔形掏槽（初始组 4 + 次生组 4 = 8，段 1，掏槽内微差 4ms）────
-  const wedgePush = (row, delayMs) => {
-    for (const side of [-1, 1]) {
-      push({
-        posX: _r1(side * row[0]),
-        posY: _r1(Y_CUT + row[1]),
-        holeType: 'cut',
-        isEmptyHole: false,
-        depth,
-        inclinationAngle: row[2],
-        inclinationAzimuth: -90,
-        chargeKg: WEDGE_CHARGE_KG,
-        chargeLength: depth * 0.7,
-        explosiveType: 'emulsion',
-        detonatorSeries: 1,
-        delayMs,
-        id: `DB-CU-${side > 0 ? 'R' : 'L'}${Math.round(row[0] * 10)}`
-      })
-      push({
-        posX: _r1(side * row[0]),
-        posY: _r1(Y_CUT - row[1]),
-        holeType: 'cut',
-        isEmptyHole: false,
-        depth,
-        inclinationAngle: row[2],
-        inclinationAzimuth: 90,
-        chargeKg: WEDGE_CHARGE_KG,
-        chargeLength: depth * 0.7,
-        explosiveType: 'emulsion',
-        detonatorSeries: 1,
-        delayMs,
-        id: `DB-CL-${side > 0 ? 'R' : 'L'}${Math.round(row[0] * 10)}`
-      })
-    }
-  }
-  wedgePush(WEDGE_ROWS[0], 0) // 内排初始组
-  wedgePush(WEDGE_ROWS[1], 4) // 外排次生组（电子雷管 4ms）
-
-  // ── ② 扩槽/崩落层（段 3→5）─────────────────────
-  for (let ri = 0; ri < RELIEF_LAYERS.length; ri++) {
-    const [r, n, chg, seg] = RELIEF_LAYERS[ri]
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2
-      const x = _r1(Math.cos(a) * r)
-      const y = _r1(Y_CUT + Math.sin(a) * r)
-      const azi = _r1(Math.degrees(Math.atan2(Math.cos(a) * r, Math.sin(a) * r)))
-      push({
-        posX: x,
-        posY: y,
-        holeType: 'auxiliary',
-        isEmptyHole: false,
-        depth,
-        inclinationAngle: 4,
-        inclinationAzimuth: azi,
-        chargeKg: chg,
-        chargeLength: depth * 0.65,
-        explosiveType: 'emulsion',
-        detonatorSeries: seg,
-        delayMs: (seg - 1) * ITV,
-        id: `DB-R${ri + 1}-${i + 1}`
-      })
-    }
-  }
-
-  // ── ③ 周边光爆孔（拱顶 段9 + 边墙 段7 + 底排 段7）────────
-  const R_arch = R - 0.25
-  const archN = Math.max(10, Math.round((Math.PI * R_arch) / PERIM_SPACING))
-  for (let i = 0; i < archN; i++) {
-    const a = Math.PI * (i / (archN - 1))
-    const x = Math.cos(a) * R_arch
-    const y = Hw + Math.sin(a) * R_arch
-    const azi = _r1(Math.degrees(Math.atan2(x, y - Hw)))
-    holes.push({
-      posX: _r1(x),
-      posY: _r1(y),
-      holeType: 'perimeter',
-      isEmptyHole: false,
-      depth,
-      inclinationAngle: 3,
-      inclinationAzimuth: azi,
-      chargeKg: 0.6,
-      chargeLength: depth * 0.6,
-      explosiveType: 'emulsion',
-      detonatorSeries: 9,
-      delayMs: (9 - 1) * ITV,
-      id: `DB-PA${i + 1}`
-    })
-  }
-  const wallX = sec.width / 2 - 0.3
-  for (const side of [-1, 1]) {
-    for (const wyR of [0.35, 0.7]) {
-      holes.push({
-        posX: side * wallX,
-        posY: _r1(Hw * wyR),
-        holeType: 'perimeter',
-        isEmptyHole: false,
-        depth,
-        inclinationAngle: 3,
-        inclinationAzimuth: side > 0 ? 90 : -90,
-        chargeKg: 1.2,
-        chargeLength: depth * 0.6,
-        explosiveType: 'emulsion',
-        detonatorSeries: 7,
-        delayMs: (7 - 1) * ITV,
-        id: `DB-PW${side > 0 ? 'R' : 'L'}${Math.round(wyR * 100)}`
-      })
-    }
-  }
-  const floorN = 9
-  const floorHalf = sec.width / 2 - 1.0
-  for (let i = 0; i < floorN; i++) {
-    holes.push({
-      posX: _r1(((2 * i) / (floorN - 1) - 1) * floorHalf),
-      posY: _r1(0.5),
-      holeType: 'perimeter',
-      isEmptyHole: false,
-      depth,
-      inclinationAngle: 6,
-      inclinationAzimuth: 0,
-      chargeKg: 1.8,
-      chargeLength: depth * 0.7,
-      explosiveType: 'emulsion',
-      detonatorSeries: 7,
-      delayMs: (7 - 1) * ITV,
-      id: `DB-F${i + 1}`
-    })
-  }
-
-  return { section: sec, holes }
-}
-
-function _insideSection(x, y, sec, margin) {
-  if (y < 0) return false
-  const halfW = sec.width / 2 - margin
-  const Hw = sec.wallHeight
-  const RR = sec.archRadius - margin
-  if (y <= Hw) return Math.abs(x) <= halfW
-  const dx = x
-  const dy = y - Hw
-  return dx * dx + dy * dy <= RR * RR
-}
-
-function _r1(v) {
-  return Math.round(v * 10) / 10
-}
-
-if (typeof Math.degrees !== 'function') {
-  Math.degrees = function degreesRad(rad) {
-    return (rad * 180) / Math.PI
+// 达巴莱隧道布孔参数表（喂给 createWedgeCutDesign）
+const DABALAI_CONFIG = {
+  section: DABALAI_SECTION, // 马蹄形断面：宽 9.0m × 总高 7.0m（估算）
+  idPrefix: 'DB', // 炮孔编号前缀
+  holeDepth: DABALAI_HOLE_DEPTH, // 掏槽孔深 3.0m
+  margin: 0.3, // 布孔断面内缩余量 (m)
+  explosiveType: 'emulsion', // 2号岩石乳化炸药
+  yCut: 1.8, // 掏槽核心线高度（掌子面中下部）
+  emptyHoleId: null, // 文献方案无中心空孔（掏槽孔先起爆自行创造自由面）
+  seriesIntervalMs: DABALAI_SEG_INTERVAL_MS, // 段间延时 (ms)：延时 = (段号-1) × 75ms
+  wedge: {
+    // 楔形掏槽：每排为上下两孔对称斜孔向核心线汇拢成 V 形，[孔口横向展布, 距核心线竖向Δy, 倾角°]
+    // 初始组=内排(delay 0)，次生组=外排(delay 4ms，电子雷管分段)；2 排×2 侧×上下=8 孔
+    rows: [
+      [0.4, 0.5, 9], // 内排（初始组）
+      [1.2, 1.3, 25] // 外排（次生组）
+    ],
+    chargeKg: 2.4, // 掏槽单眼装药量 (kg)
+    chargeLengthFactor: 0.7, // 装药长度 = 孔深 × 0.7
+    rowDelays: [0, 4], // 内排初始组 0ms / 外排次生组 4ms（电子雷管精密延时）
+    idStyle: 'spacing' // 编号：DB-CU-<R|L><孔口展布×10>
+  },
+  relief: {
+    // 扩槽/崩落层：[半径(相对核心线), 孔数, 单眼药量kg, 雷管段]（段 3/5 由内向外）
+    layers: [
+      [2.4, 12, 1.8, 3],
+      [3.6, 16, 1.5, 5]
+    ],
+    chargeLengthFactor: 0.65, // 装药长度 = 孔深 × 0.65
+    delayMode: 'series' // 延时 = (段号-1) × 75ms
+  },
+  perimeter: {
+    archInset: 0.25, // 拱部孔落位于轮廓线内侧距离 (m)（光爆距）
+    archMinN: 10, // 拱顶最少孔数
+    spacing: 0.6, // 周边最小抵抗线 / 光爆爆距 (m)
+    archChargeKg: 0.6, // 拱顶单眼药量 (kg)，段 9
+    archChargeLengthFactor: 0.6, // 拱顶装药长度 = 孔深 × 0.6
+    archSegment: 9, // 拱顶雷管段
+    archDelayMs: (9 - 1) * DABALAI_SEG_INTERVAL_MS, // 拱顶延时 (ms)
+    wallOffsetX: 0.3, // 边墙孔距直墙轮廓内缩 (m)
+    wallRatios: [0.35, 0.7], // 边墙孔高度比例（× 直墙高）
+    wallChargeKg: 1.2, // 边墙单眼药量 (kg)，段 7
+    wallChargeLengthFactor: 0.6, // 边墙装药长度 = 孔深 × 0.6
+    wallSegment: 7, // 边墙雷管段
+    wallDelayMs: (7 - 1) * DABALAI_SEG_INTERVAL_MS, // 边墙延时 (ms)
+    floorCount: 9, // 底板孔数（密集均布一排，段 7）
+    floorHalfInset: 1.0, // 底板孔距侧轮廓内缩 (m)
+    floorY: 0.5, // 底板孔高度 (m)
+    floorChargeKg: 1.8, // 底板单眼药量 (kg)
+    floorChargeLengthFactor: 0.7, // 底板装药长度 = 孔深 × 0.7
+    floorSegment: 7, // 底板雷管段
+    floorDelayMs: (7 - 1) * DABALAI_SEG_INTERVAL_MS // 底板延时 (ms)
   }
 }
+
+/**
+ * 生成达巴莱隧道掌子面布孔（楔形掏槽精密延时 + 环形扩槽/崩落孔 + 周边光爆孔）。
+ * 返回 { section, holes }，holes 与库表 blasting_design_holes 字段一致。
+ * @param {Object} [opt] 可选：{ holeDepth }
+ */
+export const buildDabalaiTunnelDesign = createWedgeCutDesign(DABALAI_CONFIG)

@@ -2,14 +2,8 @@ import * as Cesium from 'cesium'
 import { CesiumThreeBridge } from './core/rendering/cesiumThreeBridge.js'
 import { blastingSceneTools } from '@/services/fusion/blastingSceneTools.js'
 import {
-  LocalVibrationSimulator,
-  VibrationParticleSystem,
   VibrationComputeClient,
-  buildChargeSources,
-  resolveChargePosition,
   computeSurfacePeakField,
-  computeMonitorTimeHistory,
-  computePointVector,
   computePpvDecayProfile,
   tunnelFaceBoostFactor,
   nearFieldRadius,
@@ -17,13 +11,6 @@ import {
   NEAR_FIELD_GAIN
 } from './core/computation/localVibrationSimulator.js'
 import { extractContours, computeContourLevels } from './core/computation/contourExtractor.js'
-import { buildNanshanTunnelDesign } from './core/computation/nanshanTunnelDesign.js'
-import { buildKunyangTunnelDesign } from './core/computation/kunyangTunnelDesign.js'
-import { buildDabalaiTunnelDesign } from './core/computation/dabalaiTunnelDesign.js'
-import { buildSanlengshanTunnelDesign } from './core/computation/sanlengshanTunnelDesign.js'
-import { buildYuyangTunnelDesign } from './core/computation/yuyangTunnelDesign.js'
-import { buildDongwujunTunnelDesign } from './core/computation/dongwujunTunnelDesign.js'
-import { buildFengyinTunnelDesign } from './core/computation/fengyinTunnelDesign.js'
 import {
   DEFAULT_TUNNEL_WIDTH,
   DEFAULT_TUNNEL_WALL_HEIGHT,
@@ -31,9 +18,11 @@ import {
   DEFAULT_FRAGMENT_RENDER_LIMIT,
   calcTunnelArea
 } from './core/blastDefaults.js'
-import { INDUSTRIAL_BANDS_DEFAULT } from './core/rendering/vibrationColorScales.js'
 import { SADOVSKY_DEFAULT_K, SADOVSKY_DEFAULT_ALPHA } from './core/vibrationDefaults.js'
-import { matchLiteratureEvent } from './core/literatureEvents.js'
+import { LiteratureDesignService } from './blasting/literatureDesign.js'
+import { UndergroundViewController } from './blasting/undergroundView.js'
+import { BlastSourceResolver } from './blasting/blastSources.js'
+import { LocalVibrationOrchestrator } from './blasting/localVibrationOrchestrator.js'
 
 /**
  * 将 { lon, lat, height } 形式的位置转换为 Cesium.Cartesian3
@@ -107,19 +96,18 @@ const DEFAULT_RENDER_CONFIG = {
   threeJsParticleScale: 1.0
 }
 
-// 文献事件 key → 隧道设计构建器（事件匹配规则见 core/literatureEvents.js）
-const LITERATURE_DESIGN_BUILDERS = {
-  nanshan: buildNanshanTunnelDesign,
-  kunyang: buildKunyangTunnelDesign,
-  dabalai: buildDabalaiTunnelDesign,
-  sanlengshan: buildSanlengshanTunnelDesign,
-  yuyang: buildYuyangTunnelDesign,
-  dongwujun: buildDongwujunTunnelDesign,
-  fengyin: buildFengyinTunnelDesign
+// ─── 组合域对象（职责拆分，见 services/blasting/）────────────────────
+// BlastingManager 保留为门面：公共 API 逐个保留（一行委托），具体职责由域对象承担——
+//   · LiteratureDesignService   文献设计盖章域（blasting/literatureDesign.js）
+//   · UndergroundViewController 地下视角/相机域（blasting/undergroundView.js）
+//   · BlastSourceResolver       爆源解析域（blasting/blastSources.js）
+//   · LocalVibrationOrchestrator 本地振动场编排域（blasting/localVibrationOrchestrator.js）
+// 域对象懒创建并缓存在实例字段上（不占原型成员）：兼容测试用
+// Object.create(BlastingManager.prototype) 裸实例（不运行构造函数），首次委托时才创建；
+// 域对象经 this.m 反向访问门面共享状态，域间互不引用。
+function domainOf(mgr, slot, Ctor) {
+  return mgr[slot] || (mgr[slot] = new Ctor(mgr))
 }
-
-// WS 振动场帧陈旧判定阈值（ms）：超过该时长未收到帧则回退本地模拟
-const WS_STALE_MS = 2000
 
 // 爆心位置始终尊重 DB 中各事件的地理坐标（曾提供 UNIFY_BLAST_CENTER 统一爆心开关，恒为 false 已移除）
 
@@ -155,9 +143,8 @@ export class BlastingManager {
     // three.js 高质量粒子渲染桥接器（懒初始化）
     this.threeBridge = null
     this.threeContainer = null
-    // 地下视角状态：地下事件（centerHeight<0）需禁用地形碰撞检测，否则相机被推回地表
-    this._undergroundSavedState = null
-    this._undergroundActive = false
+    // 地下视角状态（_undergroundSavedState/_undergroundActive）已迁至
+    // UndergroundViewController（services/blasting/undergroundView.js）
 
     // ── 本地振动场模拟（WS 不可用时自行模拟实时数据）──────────
     // 与 blastingWsConnector 推送同构：用相同物理模型（萨道夫斯基/弹性反演/Persson 损伤）
@@ -192,9 +179,6 @@ export class BlastingManager {
     this._contourDirty = false // 在途期间指纹又变化 → 完成后补算
     this._contourStats = null // 最近一次提取诊断 stats（面板显示）
     this._contourDensity = 12 // 色带分档数（等值线条数 = density-1）
-    // 上次热力图重算的墙钟时刻：与模拟时间节流共用（高倍速下重算频率仍被墙钟封顶，
-    // 避免"模拟时间节流×倍速"把主线程重算压到每帧一次导致时序卡顿、与时间轴失同步）
-    this._vibLastUpdateWallMs = 0
     // WS 应力/损伤帧最近到达时间（新鲜度检测：WS 帧新鲜时本地兜底让位，避免交替写入闪烁）
     this._lastWsStressMs = 0
     this._lastWsDamageMs = 0
@@ -202,7 +186,8 @@ export class BlastingManager {
     // 按当前模拟时间在每一帧线性混合后写纹理，使显示平滑跟随 t（消除"旧场停留→猛跳"的闪烁）
     this._fieldPrev = null // { t, ppv, sigmaVm } —— 上一帧精确场
     this._fieldCur = null // { t, ppv, sigmaVm } —— 最近一帧精确场
-    this._vibLerpBuf = null // { ppv, sigma } —— 插值输出复用 scratch（避免逐帧分配大数组）
+    //（插值输出复用 scratch _vibLerpBuf 已随插值逻辑迁至 LocalVibrationOrchestrator）
+    // 上次热力图重算的墙钟时刻（_vibLastUpdateWallMs）同样迁至 LocalVibrationOrchestrator
     // 动画总时长（秒）：优先取渲染器实测/回放时长（全部落地+保持3s），
     // 未就绪时回退数据集 simulationDurationS（默认 10s）。
     this._durationS = null
@@ -314,16 +299,7 @@ export class BlastingManager {
    *    design?: {section, holes}, holeDepth?: number, utilization?: number }}
    */
   _resolveLiteratureDesign() {
-    const ev = this.dataset?.event
-    const lit = matchLiteratureEvent(ev?.event_id, ev?.name)
-    if (!lit) return { key: null, design: null }
-    const builder = LITERATURE_DESIGN_BUILDERS[lit.key]
-    return {
-      key: lit.key,
-      design: builder ? builder() : null,
-      holeDepth: lit.holeDepth,
-      utilization: lit.utilization
-    }
+    return domainOf(this, '_literature', LiteratureDesignService).resolveLiteratureDesign()
   }
 
   /**
@@ -332,24 +308,7 @@ export class BlastingManager {
    * 故在此统一覆盖，保证 3D 模型与 UI 全程读取同一套数据（断面/布孔/孔深/进尺一致）。
    */
   _stampLiteratureDesignIfNeeded() {
-    const design = this.dataset?.design
-    if (!this._useLiteratureDesign || !design) return
-    const lit = this._resolveLiteratureDesign()
-    if (!lit.design) return
-    const { section: s, holes } = lit.design
-    const depth = lit.holeDepth ?? 3.0
-    const utilization = lit.utilization ?? 0.85
-    design.tunnelWidth = s.width
-    design.tunnelWallHeight = s.wallHeight
-    design.tunnelArchRadius = s.archRadius
-    design.tunnelTotalHeight = s.totalHeight
-    design.tunnelShape = s.shape
-    design.holeDepth = depth
-    design.utilization = utilization
-    design.advanceLength = depth * utilization
-    design.holeDiameter = design.holeDiameter || 0.04
-    design.holes = holes
-    this._literatureStamped = lit.key
+    domainOf(this, '_literature', LiteratureDesignService).stampLiteratureDesignIfNeeded()
   }
 
   /**
@@ -364,13 +323,7 @@ export class BlastingManager {
    * @param {'interior'|'exterior'} mode - 视角模式
    */
   setCameraViewMode(mode) {
-    const renderer = this._threeRenderer
-    if (!renderer?.setCameraViewMode) return
-    const design = this.dataset?.design || {}
-    renderer.setCameraViewMode(mode, {
-      tunnelLength: Number(design.tunnelLength) || 0,
-      wallHeight: Number(design.tunnelWallHeight) || 0
-    })
+    domainOf(this, '_undergroundView', UndergroundViewController).setCameraViewMode(mode)
   }
 
   /**
@@ -390,51 +343,12 @@ export class BlastingManager {
    * 使地下视角移动控制与露天爆破一致。
    */
   _applyUndergroundViewIfNeeded() {
-    if (!this.viewer?.scene) return
-    const centerHeight = Number(this.dataset?.event?.centerHeight || 0)
-    const isUnderground = centerHeight < 0
-    const globe = this.viewer.scene.globe
-    const controller = this.viewer.scene.screenSpaceCameraController
-    if (!globe || !controller) return
-
-    if (isUnderground && !this._undergroundActive) {
-      // 保存原始状态（仅首次进入地下模式时保存，避免覆盖默认值）
-      this._undergroundSavedState = {
-        collisionDetection: controller.enableCollisionDetection,
-        depthTestAgainstTerrain: globe.depthTestAgainstTerrain,
-        translucencyEnabled: globe.translucency.enabled,
-        frontFaceAlpha: globe.translucency.frontFaceAlpha,
-        backFaceAlpha: globe.translucency.backFaceAlpha
-      }
-      // 关闭地形碰撞检测：相机可在地下自由移动，不再被推回地表
-      controller.enableCollisionDetection = false
-      // 关闭地形深度测试：地下实体（爆心标记等）不被地形遮挡
-      globe.depthTestAgainstTerrain = false
-      // 地球半透明：可透过地表看到地下隧道与爆破效果
-      globe.translucency.enabled = true
-      globe.translucency.frontFaceAlpha = 0.2
-      globe.translucency.backFaceAlpha = 0.2
-      this._undergroundActive = true
-    } else if (!isUnderground && this._undergroundActive) {
-      // 切换回地表事件：恢复默认相机控制
-      this._restoreSurfaceView()
-    }
+    domainOf(this, '_undergroundView', UndergroundViewController).applyUndergroundViewIfNeeded()
   }
 
   /** 恢复地表视角的默认相机控制（关闭地下模式） */
   _restoreSurfaceView() {
-    if (!this._undergroundActive || !this.viewer?.scene) return
-    const globe = this.viewer.scene.globe
-    const controller = this.viewer.scene.screenSpaceCameraController
-    const s = this._undergroundSavedState
-    if (s) {
-      controller.enableCollisionDetection = s.collisionDetection
-      globe.depthTestAgainstTerrain = s.depthTestAgainstTerrain
-      globe.translucency.enabled = s.translucencyEnabled
-      globe.translucency.frontFaceAlpha = s.frontFaceAlpha
-      globe.translucency.backFaceAlpha = s.backFaceAlpha
-    }
-    this._undergroundActive = false
+    domainOf(this, '_undergroundView', UndergroundViewController).restoreSurfaceView()
   }
 
   /**
@@ -685,12 +599,7 @@ export class BlastingManager {
    * 相机位于隧道内部（掌子面后方），朝向掌子面观察
    */
   _jumpToCameraView() {
-    const renderer = this._threeRenderer
-    if (!renderer?.setupCameraView) return
-    const design = this.dataset?.design || {}
-    const tunnelLen = Number(design.tunnelLength) || 0
-    const wallH = Number(design.tunnelWallHeight) || 0
-    renderer.setupCameraView(tunnelLen, wallH)
+    domainOf(this, '_undergroundView', UndergroundViewController).jumpToCameraView()
   }
 
   /** 销毁 three.js 桥接器 */
@@ -786,82 +695,7 @@ export class BlastingManager {
    * 使用 WS 显式边界（后端 y 边界非对称 [-0.2h, 1.2h]），使本地采样点与 WS 网格完全对齐。
    */
   _syncLocalVibrationSimGrid(cfg) {
-    if (!cfg?.gridShape) return
-    const sim = this._localVibrationSim
-    if (sim) {
-      const [nx, ny, nz] = cfg.gridShape
-      const sameShape =
-        sim.nx === nx &&
-        sim.ny === ny &&
-        sim.nz === nz &&
-        sim.boundsMin?.[0] === cfg.boundsMin?.[0] &&
-        sim.boundsMin?.[1] === cfg.boundsMin?.[1] &&
-        sim.boundsMin?.[2] === cfg.boundsMin?.[2] &&
-        sim.boundsMax?.[0] === cfg.boundsMax?.[0] &&
-        sim.boundsMax?.[1] === cfg.boundsMax?.[1] &&
-        sim.boundsMax?.[2] === cfg.boundsMax?.[2]
-      if (sameShape) return
-    }
-    // 重建模拟器：使用外部网格参数，保证数组长度匹配
-    const params = this.getPpvStreamParams()
-    if (!params) return
-    const [nx, ny, nz] = cfg.gridShape
-    const sizeX = (cfg.boundsMax?.[0] ?? 0) - (cfg.boundsMin?.[0] ?? 0)
-    const sizeY = (cfg.boundsMax?.[1] ?? 0) - (cfg.boundsMin?.[1] ?? 0)
-    const sizeZ = (cfg.boundsMax?.[2] ?? 0) - (cfg.boundsMin?.[2] ?? 0)
-    this._localVibrationSim = new LocalVibrationSimulator({
-      chargeKg: params.chargeKg,
-      // 物理口径全量透传（与 _ensureLocalVibrationSim 初始创建一致）：重建路径漏传
-      // K/α/包络会使模拟器回落默认 K=30/α=1.5、门控关闭 → 暂停或
-      // 推流结束后本地接管（拖动进度条）时场值比 WS 模式暗约 3 倍且中远场超程
-      // ——"Seek 后热力图骤暗/跳变"的根因（见 syncLocalSimParams.test.js）。
-      K: params.k,
-      alpha: params.alpha,
-      influenceRadius: this._vibInfluenceRadius,
-      tunnelWidth: Math.max(1, sizeX || params.tunnelWidth),
-      tunnelHeight: Math.max(1, sizeY || params.tunnelHeight),
-      lengthZ: Math.max(1, sizeZ || 40),
-      nx: Math.max(2, nx),
-      ny: Math.max(2, ny),
-      nz: Math.max(2, nz),
-      // 爆心 = 掏槽孔质心（与 WS blastCenter 一致，保证本地兜底与后端推送同源）
-      origin: this._computeBlastOrigin(),
-      // 多装药源：由实际炮孔布孔推算，驱动多应力波叠加（楔形掏槽微差起爆馆形干涉波场）
-      sources: this._computeBlastSources(),
-      // 隧道马蹄形轮廓自由面（与 GPU/初始 sim 同口径）
-      tunnelFace: this._tunnelFaceConfig(
-        this._threeRenderer,
-        Math.max(1, sizeX || params.tunnelWidth),
-        cfg.boundsMin?.[1] ?? 0
-      ),
-      // 显式边界：采样点与 WS 网格逐点对齐，避免应力/损伤云图错位
-      boundsMin: cfg.boundsMin,
-      boundsMax: cfg.boundsMax
-    })
-    // 补齐粒子系统与发射状态（_ensureLocalVibrationSim 因 sim 已存在会跳过创建，
-    // 缺失时 stepLocalVibration 访问 _particleEmitState 会抛 TypeError 中断帧更新链）
-    if (!this._localParticleSystem) {
-      this._localParticleSystem = new VibrationParticleSystem(600)
-    }
-    if (!this._particleEmitState) {
-      this._particleEmitState = { emittedUntil: -1, lastT: -1 }
-    }
-    // 重置节流状态与时间轴标记，使下一帧立即按新网格计算
-    this._vibFieldLastUpdate = -1
-    this._vibLastStepT = -1
-    this._vibLastUpdateWallMs = 0
-    // 重建 sim 后废弃旧 Worker 配置与在途计算（避免旧网格结果与新纹理长度不匹配）
-    this._vibComputeClient.dispose()
-    this._vibComputeReqInFlight = false
-    this._vibComputePending = null
-    // 等值线峰值场随 sim 重建作废（源位置/参数已变，新 Worker 需重新收 contourConfig）
-    this._contourBuiltFp = null
-    this._contourConfiguredVersion = -1
-    this._contourInFlight = false
-    this._contourDirty = false
-    // 显示满量程展开因子回归基准：重建后的新事件由 _buildAndPushContours 依新峰值
-    // 场 P99.9 重新计算，不再沿用旧事件的实测 autoscale
-    this._fieldAutoScale = 1
+    domainOf(this, '_vibration', LocalVibrationOrchestrator).syncSimGrid(cfg)
   }
 
   /**
@@ -1060,20 +894,7 @@ export class BlastingManager {
    * @returns {Object|null} 同 computeMonitorTimeHistory 输出
    */
   samplePointHistory(local) {
-    const sources = this._computeBlastSources()
-    if (!sources || !sources.length) return null
-    const duration = this.getDurationS() || Number(this.dataset?.result?.simulationDurationS) || 10
-    const rockParams = this.dataset?.event?.rockParams || {}
-    const dt = 0.005
-    const n = Math.max(16, Math.floor(duration / dt))
-    const times = new Float32Array(n)
-    for (let i = 0; i < n; i++) times[i] = i * dt
-    return computeMonitorTimeHistory(
-      [Number(local?.[0]) || 0, Number(local?.[1]) || 0, Number(local?.[2]) || 0],
-      sources,
-      times,
-      this._monitorParams(rockParams)
-    )
+    return domainOf(this, '_vibration', LocalVibrationOrchestrator).samplePointHistory(local)
   }
 
   /**
@@ -1084,81 +905,7 @@ export class BlastingManager {
    * @param {boolean} [force=true] - true=即便未开启也强制按当前几何重算并下发
    */
   _pushVectorFieldNow(force = true) {
-    const renderer = this._threeRenderer
-    if (!renderer) return
-    if (!this._vibVectorFieldOn) {
-      renderer.clearVectorField?.()
-      return
-    }
-    const sim = this._localVibrationSim
-    if (!sim || !sim.gridXyz) return
-    const t = Math.max(0, Number(this._vibLastStepT) || 0)
-    const origin = sim.params.origin || [0, 0, 0]
-    const [bmin, bmax] = [sim.boundsMin, sim.boundsMax]
-    const W = Math.max(0.5, bmax[0] - bmin[0])
-    const H = Math.max(0.5, bmax[1] - bmin[1])
-    const D = Math.max(0.5, bmax[2] - bmin[2])
-    const faceZ = Math.max(bmin[2], origin[2])
-    // 采样密度（保持箭头不重叠、可读）
-    const NX = 10
-    const NY = 8
-    const NZ = 12
-    const pts = []
-    // 水平切片 y = originY（拱部/底板看岩体横截面）
-    for (let i = 0; i < NX; i++) {
-      const x = bmin[0] + ((i + 0.5) / NX) * W
-      for (let k = 0; k < NZ; k++) {
-        const z = Math.max(faceZ, bmin[2] + ((k + 0.5) / NZ) * D)
-        pts.push([x, origin[1], z])
-      }
-    }
-    // 竖直切片 x = originX
-    for (let j = 0; j < NY; j++) {
-      const y = bmin[1] + ((j + 0.5) / NY) * H
-      for (let k = 0; k < NZ; k++) {
-        const z = Math.max(faceZ, bmin[2] + ((k + 0.5) / NZ) * D)
-        pts.push([origin[0], y, z])
-      }
-    }
-    const sources = this._computeBlastSources()
-    if (!sources || !sources.length) {
-      renderer.clearVectorField?.()
-      return
-    }
-    const opt = {
-      K: this._sadoskyK ?? SADOVSKY_DEFAULT_K,
-      alpha: this._sadoskyAlpha ?? SADOVSKY_DEFAULT_ALPHA,
-      beta:
-        Number(this.dataset?.event?.rockParams?.attenuationP) || this.dataset?.event?.beta || 0.02,
-      visualBeta: 0.8,
-      visualCp: 35,
-      minStandoff: 0.5,
-      reflections: this._vibReflectOn
-        ? [{ axis: 'z', value: faceZ, coeff: this._vibReflectCoeff }]
-        : null
-    }
-    const n = pts.length
-    const originArr = new Float32Array(n * 3)
-    const dirArr = new Float32Array(n * 3)
-    const scaleArr = new Float32Array(n)
-    let magMax = 0
-    const mags = new Float32Array(n)
-    for (let i = 0; i < n; i++) {
-      const p = pts[i]
-      const v = computePointVector(p, sources, t, opt)
-      originArr[i * 3] = p[0]
-      originArr[i * 3 + 1] = p[1]
-      originArr[i * 3 + 2] = p[2]
-      dirArr[i * 3] = v.vx
-      dirArr[i * 3 + 1] = v.vy
-      dirArr[i * 3 + 2] = v.vz
-      mags[i] = v.mag
-      if (v.mag > magMax) magMax = v.mag
-    }
-    // 模长归一化：当前帧最大模 → 满长（0 全场未到达时给一个小参考刻度避免除零）
-    const ref = Math.max(magMax, this._lastFieldRefs?.ppvRefMps ?? 0.15, 1e-4)
-    for (let i = 0; i < n; i++) scaleArr[i] = mags[i] / ref
-    renderer.setVectorField?.({ origin: originArr, dir: dirArr, scale: scaleArr })
+    domainOf(this, '_vibration', LocalVibrationOrchestrator).pushVectorFieldNow(force)
   }
 
   /**
@@ -1261,33 +1008,7 @@ export class BlastingManager {
    * @returns {number[]} [x, y, z] 网格局部坐标（米）
    */
   _computeBlastOrigin() {
-    const renderer = this._threeRenderer
-    const totalH =
-      Math.max(1, Number(renderer?.tunnelHeight)) ||
-      DEFAULT_TUNNEL_WALL_HEIGHT + DEFAULT_TUNNEL_ARCH_RADIUS
-    const faceOffset = Number(renderer?.faceOffset) || 3
-    // 优先 _effectiveHoles（楔形掏槽对齐 Da Balai 布孔），缺省回退 DB/回退布孔
-    const holes = Array.isArray(this._effectiveHoles)
-      ? this._effectiveHoles
-      : Array.isArray(this.dataset?.design?.holes)
-        ? this.dataset.design.holes
-        : []
-    // 掏槽孔（DB 孔型 'cut'/'easing'，含中心空孔——空孔位于掏槽组中心，参与定位质心）
-    const cut = holes.filter(h => {
-      const t = String(h?.holeType || 'production').toLowerCase()
-      return t === 'cut' || t === 'easing'
-    })
-    if (cut.length > 0) {
-      let sx = 0
-      let sy = 0
-      for (const h of cut) {
-        sx += Number(h?.posX) || 0
-        sy += Number(h?.posY) || 0
-      }
-      return [sx / cut.length, sy / cut.length, faceOffset]
-    }
-    // 回退：中央掏槽（空孔在 (0, H/2)，见 sceneBuilder._collectFallbackHoles）
-    return [0, totalH * 0.5, faceOffset]
+    return domainOf(this, '_blastSources', BlastSourceResolver).computeBlastOrigin()
   }
 
   /**
@@ -1302,136 +1023,7 @@ export class BlastingManager {
    * @returns {Array|null} [{x,y,z,chargeKg,delayMs,id}]；无事件/无装药孔时 null（退化为单源）
    */
   _computeBlastSources() {
-    const renderer = this._threeRenderer
-    const faceOffset = Number(renderer?.faceOffset) || 3
-    const totalH =
-      Math.max(1, Number(renderer?.tunnelHeight)) ||
-      DEFAULT_TUNNEL_WALL_HEIGHT + DEFAULT_TUNNEL_ARCH_RADIUS
-
-    // 炮孔来源：优先 _effectiveHoles（_initThreeBridge 按楔形掏槽对齐 Da Balai 布孔），
-    // 其次 DB design.holes；缺省时回退到 SceneBuilder 生成的布孔
-    // （getBlastDesign().holes 即楔形掏槽/菱形/辅助/周边孔集），使多源应力波
-    // 叠加始终由"当前实际布孔"驱动，而非缺省退化为单源同心圆。
-    let holes = Array.isArray(this._effectiveHoles)
-      ? this._effectiveHoles
-      : Array.isArray(this.dataset?.design?.holes)
-        ? this.dataset.design.holes
-        : []
-    if (holes.length === 0) {
-      const rbHoles = renderer?.getBlastDesign?.()?.holes
-      if (Array.isArray(rbHoles)) holes = rbHoles
-    }
-    if (holes.length === 0) return null
-
-    // 掏槽孔质心（楔形孔向内收敛的核心）
-    const cut = holes.filter(h => {
-      const t = String(h?.holeType || h?.type || 'production').toLowerCase()
-      return t === 'cut' || t === 'easing'
-    })
-    let cx = 0
-    let cy = 0
-    if (cut.length > 0) {
-      let sx = 0
-      let sy = 0
-      for (const h of cut) {
-        // SceneBuilder 回退孔位用 x/y，DB 用 posX/posY，两种字段都归一化
-        sx += Number(h?.posX ?? h?.x) || 0
-        sy += Number(h?.posY ?? h?.y) || 0
-      }
-      cx = sx / cut.length
-      cy = sy / cut.length
-    } else {
-      cy = totalH * 0.5
-    }
-
-    // 归一化孔位 schema：resolveChargePosition 读取 posX/posY、isEmptyHole、
-    // holeType、inclinationAngle；SceneBuilder 回退孔位用 x/y、isEmpty、type、inclination
-    const normalized = holes.map(h => ({
-      posX: Number(h?.posX ?? h?.x) || 0,
-      posY: Number.isFinite(Number(h.posY))
-        ? Number(h.posY)
-        : Number.isFinite(Number(h.y))
-          ? Number(h.y)
-          : cy,
-      holeType: h?.holeType ?? h?.type ?? 'production',
-      type: h?.holeType ?? h?.type ?? 'production',
-      isEmptyHole: !!(h?.isEmptyHole ?? h?.isEmpty),
-      isEmpty: !!(h?.isEmptyHole ?? h?.isEmpty),
-      depth: Number(h?.depth) || Number(this.dataset?.design?.holeDepth) || 2.5,
-      inclinationAngle: Number(h?.inclinationAngle ?? h?.inclination) || 0,
-      azimuth: Number(h?.inclinationAzimuth ?? h?.azimuth) || 0,
-      chargeKg: Number(h?.chargeKg) || 0,
-      chargeLength: Number(h?.chargeLength) || 0,
-      delayMs: Number(h?.delayMs) || 0,
-      id: h?.id
-    }))
-
-    // A5：应力波源 = 全部装药孔（全孔矢量叠加）。
-    // 【全源修复】旧版只送掏槽组 + 掌子面四向极端代表孔（上限 16）：002 南山 69 个
-    // 装药孔仅 12 个进入叠加（有效药量 24.75kg / 全量 115kg），415/418ms 周边光爆段
-    // 整体缺席 → 场值整体偏低、低值等值线贴可见门控阈值被大面积切除（等值线断点
-    // 主因，isoline-lab/verify-nanshan.mjs 数值复现），波场观感呈"几个波的简单叠加"
-    // 而非全孔矢量干涉。旧 16 上限是 Worker 卸载前保护主线程的历史值；现 GPU 逐
-    // 片元叠加与 Worker 卸载的本地模拟均可承受全孔数（96 槽位已扩容）。
-    // 安全阀：极端设计超 96 孔时按装药量降序截断，与 sceneBuilder MAX_SOURCES=96
-    // 同口径，保证 GPU 解析场与 CPU 网格场两路看到的源集一致。
-    const MAX_SRCS = 96
-    let charged = normalized.filter(h => !h.isEmptyHole && Number(h.chargeKg) > 0)
-    // 【兜底】DB 只给了总装药量、未给单孔药量时，把总药量均摊到全部非空孔，
-    // 保证多源矢量叠加不静默退化成单源同心圆（干涉条纹丢失的根因之一）。
-    if (charged.length === 0) {
-      const nonEmpty = normalized.filter(h => !h.isEmptyHole)
-      const totalKg = Number(this.dataset?.event?.chargeKg) || 0
-      if (nonEmpty.length > 0 && totalKg > 0) {
-        const per = totalKg / nonEmpty.length
-        charged = nonEmpty.map(h => ({ ...h, chargeKg: per }))
-        console.warn('[BlastingManager] 炮孔缺单孔药量，已按总装药量均摊以保留多源干涉', {
-          孔数: nonEmpty.length,
-          总药量kg: totalKg,
-          单孔kg: Number(per.toFixed(3))
-        })
-      }
-    }
-    const srcHoles =
-      charged.length > MAX_SRCS
-        ? [...charged].sort((a, b) => Number(b.chargeKg) - Number(a.chargeKg)).slice(0, MAX_SRCS)
-        : charged
-
-    const sources = buildChargeSources(
-      srcHoles,
-      faceOffset,
-      { x: cx, y: cy },
-      {
-        // 默认让显示/计算源与事件炮孔孔口一致；装药段中点仅作显式对比模式。
-        sourcePositionMode: 'collar',
-        // 事件默认严格使用设计表中的 delayMs；只有 UI 显式设置 delayJitterMs>0
-        // 才叠加概率误差。
-        // 雷管延期误差（韩亮 2019 逐段概率模型）：σ_base(t)=0.017·t+3.483ms，
-        // UI 的 delayJitterMs 作为 100ms 段的锚定缩放（默认 5ms 与旧常数口径衔接，
-        // 长段别按回归式比例放大）；0=关闭（复现精确设计延期）。确定性抖动：
-        // GPU 着色器/局部模拟/等值线/点采样共用同一批抖动后源。
-        jitterModel: this._delayJitterMs > 0 ? 'han2019' : 'off',
-        detonatorType: 'nonel',
-        delayJitterMs: this._delayJitterMs,
-        rngSeed: this._rngSeed
-      }
-    )
-    // 【诊断】源数决定波场是否有多孔干涉：=1 时必然是完美同心圆（用户可见的
-    // "波纹是同心圆、干涉条纹丢失"）。这里打印一次便于在控制台直接定位。
-    if (sources.length !== this._lastLoggedSourceCount) {
-      this._lastLoggedSourceCount = sources.length
-      console.warn('[BlastingManager] 多装药源解析完成', {
-        布孔总数: holes.length,
-        装药源数: sources.length,
-        延时范围ms: sources.length
-          ? [
-              Math.min(...sources.map(s => Number(s.delayMs) || 0)),
-              Math.max(...sources.map(s => Number(s.delayMs) || 0))
-            ]
-          : null
-      })
-    }
-    return sources.length > 0 ? sources : null
+    return domainOf(this, '_blastSources', BlastSourceResolver).computeBlastSources()
   }
 
   /**
@@ -1586,68 +1178,7 @@ export class BlastingManager {
    * 仅传入可解析字段，缺省项保留 SceneBuilder 内置默认，不会覆盖为无效值。
    */
   _pushFieldPhysics() {
-    const renderer = this._threeRenderer
-    if (!renderer) return
-    const params = this.getPpvStreamParams()
-    if (!params) return
-    const design = this.dataset?.design || {}
-    const rockParams = this.dataset?.event?.rockParams || {}
-    const sources = this._computeBlastSources()
-    const refs = this._computeAutoFieldRefs(params, sources, design, rockParams)
-    // 【绝对量程】不再叠加实测自愈值（EMA 已移除）：满刻度在仿真开始前由
-    // _computeAutoFieldRefs 一次性解析扫描并固定（PPV=近场峰值、应力=场最大值），
-    // 整场播放/拖动/回卷期间恒定 —— 图例区间与等值线级别因此全程有效。
-    // 旧 EMA 随帧改满刻度会导致图例/等值线级别同步漂移，与工程图惯例相悖。
-    renderer.setFieldPhysics?.({
-      chargeKg: params.chargeKg,
-      k: this._sadoskyK ?? SADOVSKY_DEFAULT_K,
-      alpha: this._sadoskyAlpha ?? SADOVSKY_DEFAULT_ALPHA,
-      beta: Number(rockParams.attenuationP) || this.dataset?.event?.beta || 0.02,
-      visualCp: 35,
-      rho: Number(design.rockDensity) || 2650,
-      cp: Number(rockParams.pWaveSpeed) || 4500,
-      nu: Number(design.poissonRatio) ?? Number(rockParams.poissonRatio) ?? 0.25,
-      // 自动量程：色标满刻度跟随岩体代表性峰值（避免全场饱和品红）
-      ppvRefMps: refs.ppvRefMps,
-      stressRefMPa: refs.stressRefMPa,
-      // 应力近场几何修正 F(r)=1+A·(r_nf/r)²：使应力场（峰值判据场）与振速场
-      // （瞬时波形）空间结构不同；r_nf 由装药量反算，与 CPU/后端同一口径。
-      // 工业风格：离散色阶档数（与等值线密度同源，12~16）+ 总开关
-      normBands: this._contourDensity ?? INDUSTRIAL_BANDS_DEFAULT,
-      industrialStyle: true,
-      stressNearFieldR: this._stressNearFieldR || 0,
-      stressNearFieldGain: this._stressNearFieldGain || 0,
-      // 爆心（掏槽孔质心）：解析外推波前以该点为源，与场盒内纹理数据一致
-      origin: this._computeBlastOrigin(),
-      // 掌子面自由面反射（镜象源法）：反射面 z=掌子面（grid 局部系），与
-      // CPU/Worker 多源模型（sim.params.reflections）同一物理口径。
-      faceZ: Number(renderer?.faceOffset) || 3,
-      reflectOn: this._vibReflectOn,
-      reflectCoeff: this._vibReflectCoeff,
-      // 波包子波载波频率（Hz，0=纯包络）：控制热力图干涉条纹的空间密度
-      carrierHz: this._vibCarrierHz,
-      // 损伤半径由 PPV 阈值纯物理计算得出（不设人工硬上限）；波场可达半径已改由
-      // 渲染侧按岩体几何实测下发（sceneBuilder._syncInfluenceRadius），此处不覆盖。
-      // 半透明渲染（1=场色上限 0.55 露出岩底）
-      translucent: this._vibTranslucent ? 1 : 0,
-      // 隧道马蹄形轮廓自由面（SDF 放大）：与 GPU tunnelFaceSdf / CPU tunnelFaceBoostFactor 同口径。
-      // floorY=底板 grid 局部 y；archH=直墙高。coeff=0.6、λ=1.2（自由面近全反射的柔和近似）
-      faceBoostCoeff: this._vibFaceBoostCoeff ?? 0.85,
-      faceBoostLambda: this._vibFaceBoostLambda ?? 0.7,
-      tunnelFloorY: Number(renderer?.center?.y) || 0,
-      tunnelArchH: Math.max(1, Number(renderer?.tunnelWallHeight) || DEFAULT_TUNNEL_WALL_HEIGHT),
-      // 多装药源（各炮孔装药段）：驱动岩面非同心圆干涉波场；null 时着色器退化为单源
-      sources,
-      // 显示侧动态满量程展开因子：固定满刻度锚在近场峰值（应力）时全场塌缩成
-      // 低端深蓝。这里先按解析代表分布给一个保守展开基线，等值线峰值场 P99.9
-      // 到达后由 _buildAndPushContours 以实测分布精细化（见 _fieldAutoScale）。
-      normAutoScale:
-        this._fieldAutoScale ?? this._analyticAutoscale(params, sources, design, rockParams)
-    })
-    // 矢量箭头场显隐状态在场景重建后同步（几何对象会重建）
-    this._pushVectorFieldNow(false)
-    // 场景重建/参数变更后重挂已放置测点的 3D 标记（新 benchMesh 上）
-    this._syncMonitorMarkers()
+    domainOf(this, '_vibration', LocalVibrationOrchestrator).pushFieldPhysics()
   }
 
   /**
@@ -1817,16 +1348,7 @@ export class BlastingManager {
   /** 关闭"场点拾取" */
 
   setLocalVibrationEnabled(enabled) {
-    this._localVibrationEnabled = !!enabled
-    if (this._localVibrationEnabled) {
-      // 恢复本地模式：清除 WS 新鲜度标记，本地应力/损伤兜底立即恢复写入
-      this._lastWsStressMs = 0
-      this._lastWsDamageMs = 0
-    } else {
-      // 停用时清理粒子（避免残留上一轮的波前粒子）
-      this._threeRenderer?.clearVibrationParticles?.()
-      this._particleEmitState = { emittedUntil: -1, lastT: -1 }
-    }
+    domainOf(this, '_vibration', LocalVibrationOrchestrator).setEnabled(enabled)
   }
 
   /**
@@ -1834,47 +1356,7 @@ export class BlastingManager {
    */
 
   _ensureLocalVibrationSim() {
-    if (this._localVibrationSim) return this._localVibrationSim
-    const params = this.getPpvStreamParams()
-    if (!params) return null
-    // 让场边界完整覆盖岩体断面（而非对称包裹爆心）：岩体 horseshoe 断面
-    // 底部对齐 y=floorY、顶部到 floorY+totalH；旧版默认用对称 [-H/2, H/2]，
-    // 导致岩体上半部（拱顶+上部直墙）落在场外→"外围一圈无颜色"。
-    // 分辨率按完整断面高度调高竖向（ny），使热力色带在拱高方向更细致。
-    const renderer = this._threeRenderer
-    const tsec = renderer?.tunnelSection
-    const W = Math.max(1, Number(tsec?.width) || params.tunnelWidth)
-    const totalH = Math.max(1, Number(renderer?.tunnelHeight) || params.tunnelHeight)
-    const floorY = renderer?.center?.y ?? 0
-    const depthZ = 40
-    const sim = new LocalVibrationSimulator({
-      chargeKg: params.chargeKg,
-      // 场地标定（石灰岩/金属矿硬岩现场测振回归 K=90、α=1.58，见文档 3/4 文献）
-      K: params.k,
-      alpha: params.alpha,
-      tunnelWidth: W,
-      tunnelHeight: totalH,
-      lengthZ: depthZ,
-      // 网格 64×80×128≈65 万点：波场细节（多源干涉瓣/波前环）需要足够的采样密度，
-      // x 向步长 = W/64 ≈ 0.28m、y 向 ≈ 0.19m、z 向 0.31m——原先 48×64×96
-      // （x 步长 0.375m）下细密的干涉结构会被粗网格抹平。计算走 Worker，
-      // 三线性插值+逐片元采样下视觉更连续。
-      nx: 64,
-      ny: 80,
-      nz: 128,
-      // 爆心 = 掏槽孔质心（掌子面上），应力波/损伤从实际爆破位置扩散
-      origin: this._computeBlastOrigin(),
-      // 多装药源：由实际炮孔布孔推算，驱动多应力波叠加（楔形掏槽微差起爆的干涉波场）
-      sources: this._computeBlastSources(),
-      boundsMin: [-W / 2, floorY, 0],
-      boundsMax: [W / 2, floorY + totalH, depthZ]
-    })
-    this._localVibrationSim = sim
-    this._localParticleSystem = new VibrationParticleSystem(600)
-    this._particleEmitState = { emittedUntil: -1, lastT: -1 }
-    // 初次创建后即注入场地物理参数，驱动场盒外解析外推波前（与场盒内同一物理曲线）
-    this._pushFieldPhysics()
-    return sim
+    return domainOf(this, '_vibration', LocalVibrationOrchestrator).ensureLocalVibrationSim()
   }
 
   /**
@@ -1890,95 +1372,7 @@ export class BlastingManager {
    */
 
   stepLocalVibration(time, frame) {
-    const renderer = this._threeRenderer
-    if (!renderer) return
-    const sim = this._ensureLocalVibrationSim()
-    if (!sim) return
-    // 防御：sim 可能被 _syncLocalVibrationSimGrid 直接替换（绕过 _ensureLocalVibrationSim），
-    // 此时粒子系统/发射状态可能未创建；缺失会导致下方访问抛 TypeError，中断整个 setFrame 链
-    if (!this._localParticleSystem) this._localParticleSystem = new VibrationParticleSystem(600)
-    if (!this._particleEmitState) this._particleEmitState = { emittedUntil: -1, lastT: -1 }
-
-    const t = Math.max(0, Number(time) || 0)
-    // 起爆前（波前未到达）不初始化/不更新，避免全 0 体积占位
-    const blastTriggerTime = Number(renderer.blastTriggerTime) || 0.1
-
-    // ── 时间轴一致性：识别回卷/前跳（拖进度条、循环回卷、seek 跳变）──
-    // 旧实现只按 _vibFieldLastUpdate 做正向节流：时间回退时 t−last<0 恒小于
-    // interval → 热力图/损伤峰值停在跳变前的时刻，与时间轴脱节（循环回卷后
-    // 甚至要等一整圈才能恢复刷新）。发现跳变立即强制：清掉旧波前粒子并重置
-    // 发射状态、清空粒子、置 _vibFieldLastUpdate=-1 使本帧重算目标时刻。
-    const rewind = t < this._vibLastStepT - 1e-4
-    const jumpForward =
-      this._vibLastStepT >= 0 && t - this._vibLastStepT > this._vibFieldUpdateInterval * 1.5
-    if (rewind || jumpForward) {
-      renderer.clearVibrationParticles?.()
-      this._particleEmitState = { emittedUntil: -1, lastT: -1 }
-      // 【Seek 清屏】清空三张场纹理：回卷/前跳时 GPU 里驻留的旧帧（尤其是
-      // 峰值/损伤的"未来帧最大值"）会在新帧落地前被读到 → 糊成色块。
-      renderer.clearFieldTextures?.()
-      // 清空插值缓冲：seek 后旧场已不适用，等待下一次全量重算重建双缓冲
-      this._fieldPrev = null
-      this._fieldCur = null
-      this._vibFieldLastUpdate = -1 // 强制下一段立即按目标时刻重算
-    }
-    this._vibLastStepT = t
-
-    if (t < blastTriggerTime) {
-      if (this._particleEmitState.emittedUntil >= 0) {
-        // 回到起爆前（循环回卷）：清空粒子
-        renderer.clearVibrationParticles?.()
-        this._particleEmitState = { emittedUntil: -1, lastT: -1 }
-      }
-      return
-    }
-
-    // 发射波前粒子：起爆后一段窗口内持续发射，粒子沿径向扩散（模拟振动传播）
-    const emitWindowEnd = blastTriggerTime + 0.6
-    const dt = this._particleEmitState.lastT >= 0 ? t - this._particleEmitState.lastT : 0
-    this._particleEmitState.lastT = t
-    if (t <= emitWindowEnd && this._particleEmitState.emittedUntil < t) {
-      // 按时间比例发射：每 0.05s 发射一批（约 80 个），粒子寿命短，形成波前扩散效果
-      const batch = Math.min(80, Math.max(20, Math.floor(80 * (dt / 0.05))))
-      const cp = sim.params.cp
-      this._localParticleSystem?.emitBurst(t, batch, cp)
-      this._particleEmitState.emittedUntil = t
-    }
-
-    // 推进粒子（年龄/位移/衰减）并推送渲染器（与 WS 状态无关，始终可见）
-    if (this._localParticleSystem) {
-      // 钳制物理步长：seek 跳变时 dt 可能很大，避免粒子瞬间飞出视野
-      const stepDt = Math.min(Math.max(0, dt), 0.1)
-      this._localParticleSystem.update(t, Math.max(0.016, stepDt || 0.016))
-      renderer.updateVibrationParticles?.(this._localParticleSystem.activeParticles)
-    }
-
-    // 首次进入起爆后：初始化振动场体积（粒子系统由 renderer.initVibrationField 同步初始化）
-    if (!renderer.hasVibrationField?.()) {
-      const gridInfo = sim.getGridInfo()
-      renderer.initVibrationField?.(gridInfo)
-    }
-
-    // 计算节流：全量重算三场 + 上传 3 个 Data3DTexture 是主线程重负载。
-    // 双重节流：①模拟时间间隔（默认 0.2s）保证低倍速下波形平滑；②墙钟间隔
-    // （120ms）给高倍速封顶——高倍速时模拟时间飞驰，若只按模拟时间节流，
-    // 重算频率 ×倍速 会被压到每帧一次，主线程卡顿导致播放与热力图时序错乱。
-    const nowMsThrottle = performance.now()
-    const wallOk = nowMsThrottle - this._vibLastUpdateWallMs >= 120
-    if (
-      this._vibFieldLastUpdate >= 0 &&
-      t - this._vibFieldLastUpdate < this._vibFieldUpdateInterval &&
-      !wallOk
-    ) {
-      return
-    }
-    this._vibFieldLastUpdate = t
-    this._vibLastUpdateWallMs = nowMsThrottle
-
-    // 计算当前时刻三场数据并推送渲染器。
-    // 优先走 Worker 异步卸载（多源矢量叠加很重，逐帧跑会卡死主线程）；
-    // Worker 不可用时回退主线程同步计算（旧逻辑，数据量小时可接受）。
-    this._dispatchVibrationCompute(t, frame, renderer)
+    domainOf(this, '_vibration', LocalVibrationOrchestrator).step(time, frame)
   }
 
   /**
@@ -1996,33 +1390,7 @@ export class BlastingManager {
    */
 
   _dispatchVibrationCompute(t, frame, renderer) {
-    const sim = this._localVibrationSim
-    if (!sim || !renderer) return
-
-    if (this._vibComputeClient.ensure(sim)) {
-      // Worker 可用 → 异步卸载
-      if (this._vibComputeReqInFlight) {
-        this._vibComputePending = { t, frame } // 只在途一次，完成后补算最新
-        return
-      }
-      this._vibComputeReqInFlight = true
-      const reqId = ++this._vibComputeReqId
-      this._vibComputeClient.compute(t, reqId).then(res => {
-        this._vibComputeReqInFlight = false
-        if (res) this._applyVibrationFields(res.ppv, res.sigmaVm, res.zones, res.t, frame, renderer)
-        // 期间到达了更新的目标帧 → 续算（只补最后一帧，避免堆积）
-        if (this._vibComputePending) {
-          const pending = this._vibComputePending
-          this._vibComputePending = null
-          this._dispatchVibrationCompute(pending.t, pending.frame, renderer)
-        }
-      })
-      return
-    }
-
-    // Worker 不可用 → 主线程同步回退（旧路径）
-    const result = sim.computeAtTime(t)
-    this._applyVibrationFields(result.ppv, result.sigmaVm, result.zones, t, frame, renderer)
+    domainOf(this, '_vibration', LocalVibrationOrchestrator).dispatchCompute(t, frame, renderer)
   }
 
   /**
@@ -2045,15 +1413,11 @@ export class BlastingManager {
    * @returns {{coeff:number, lambda:number, halfW:number, floorY:number, archH:number}|null}
    */
   _tunnelFaceConfig(renderer, width, floorY) {
-    const coeff = Number(this._vibFaceBoostCoeff ?? 0.85)
-    if (!(coeff > 0.001)) return null
-    return {
-      coeff,
-      lambda: this._vibFaceBoostLambda ?? 0.7,
-      halfW: Math.max(0.5, (Number(width) || 18) / 2),
-      floorY: Number(floorY) || 0,
-      archH: Math.max(1, Number(renderer?.tunnelWallHeight) || DEFAULT_TUNNEL_WALL_HEIGHT)
-    }
+    return domainOf(this, '_vibration', LocalVibrationOrchestrator).tunnelFaceConfig(
+      renderer,
+      width,
+      floorY
+    )
   }
 
   /**
@@ -2061,15 +1425,7 @@ export class BlastingManager {
    * 与体积场/热力图同一物理模型口径（K/α/视觉衰减/波速）。
    */
   _monitorParams(rockParams = {}) {
-    return {
-      K: this._sadoskyK ?? SADOVSKY_DEFAULT_K,
-      alpha: this._sadoskyAlpha ?? SADOVSKY_DEFAULT_ALPHA,
-      beta: Number(rockParams.attenuationP) || this.dataset?.event?.beta || 0.02,
-      visualBeta: this._localVibrationSim?.params?.visualBeta ?? 0.8,
-      cp: Number(rockParams.pWaveSpeed) || 4500,
-      visualCp: 35,
-      minStandoff: 0.5
-    }
+    return domainOf(this, '_vibration', LocalVibrationOrchestrator).monitorParams(rockParams)
   }
 
   /**
@@ -2089,32 +1445,14 @@ export class BlastingManager {
   }
 
   _applyVibrationFields(ppv, sigmaVm, zones, t, frame, renderer) {
-    if (!renderer) return
-    // 双缓冲记录：为逐帧时间插值保留最近两帧精确场（t 递增时 prev→cur→新cur）
-    if (ppv) {
-      this._fieldPrev = this._fieldCur
-      this._fieldCur = { t, ppv, sigmaVm }
-    }
-    // PPV 场：仅在本地模拟模式（WS 不可用）下更新。
-    // WS 模式下 PPV 由后端实时帧推送，避免本地与 WS 数据交替写入造成闪烁。
-    if (this._localVibrationEnabled) {
-      renderer.updateVibrationField?.(this._smoothField3d(ppv, this._vibGridShape), t, frame)
-      // 【PPV 不做分位扫描】PPV 能量不像应力那样极度集中于近场，解析 rRef=4m
-      // 代表值已给出正确梯度；P99.7 是近源峰值(≈5m/s)，当满刻度会让中远场饱和成红
-      // （用户实测"外围纯红"）。应力保留 P99.7 扫描（其能量高度集中于近场）。
-    }
-    // 应力场：本地兜底更新同样参与绝对量程启动扫描（P99.7 分位，锁定后恒定）
-    this._fixFieldRefOnce('stress', sigmaVm)
-    // 应力场与损伤场：本地兜底更新，但 WS 帧新鲜（2s 内）时让位。
-    // 本地模拟用 visualCp≈35m/s（可视波前），WS 用 cp=4500m/s（物理波前），
-    // 两数据源交替写同一纹理会导致云图闪烁/回跳，故以 WS 优先、本地兜底。
-    const nowMs = performance.now()
-    if (nowMs - (this._lastWsStressMs || 0) > WS_STALE_MS) {
-      renderer.updateStressField?.(this._smoothField3d(sigmaVm, this._vibGridShape), t, frame)
-    }
-    if (nowMs - (this._lastWsDamageMs || 0) > WS_STALE_MS) {
-      renderer.updateDamageField?.(zones, t, frame)
-    }
+    domainOf(this, '_vibration', LocalVibrationOrchestrator).applyFields(
+      ppv,
+      sigmaVm,
+      zones,
+      t,
+      frame,
+      renderer
+    )
   }
 
   // ─── 等值线提取管线（峰值场 MS 提取 + Line2 渲染下发） ──
@@ -2305,17 +1643,7 @@ export class BlastingManager {
    * @returns {number}
    */
   _p99Autoscale(values, ref) {
-    const vals = []
-    for (let i = 0; i < values.length; i++) {
-      const v = values[i]
-      if (v > 1e-9) vals.push(v)
-    }
-    if (!vals.length) return 1
-    vals.sort((a, b) => a - b)
-    const idx = Math.min(vals.length - 1, Math.floor(vals.length * 0.999))
-    const p99 = vals[idx]
-    if (!(p99 > 0)) return 1
-    return Math.min(80, Math.max(1, ref / (p99 * 1.12)))
+    return domainOf(this, '_vibration', LocalVibrationOrchestrator).p99Autoscale(values, ref)
   }
 
   /**
@@ -2330,39 +1658,7 @@ export class BlastingManager {
    * @param {object} renderer - three.js 渲染器
    */
   _applyVibrationInterpolation(t, frame, renderer) {
-    if (!this._localVibrationEnabled || !renderer) return
-    const prev = this._fieldPrev
-    const cur = this._fieldCur
-    if (!prev || !cur || prev.t >= cur.t) return
-    if (t < prev.t || t > cur.t) return // 窗口外：显示最新场即可（已写入），无需重复上传
-
-    const count = cur.ppv.length
-    if (prev.ppv.length !== count || !prev.sigmaVm || !cur.sigmaVm) return
-    if (prev.sigmaVm.length !== cur.sigmaVm.length) return
-
-    if (!this._vibLerpBuf) this._vibLerpBuf = { ppv: null, sigma: null }
-    if (!this._vibLerpBuf.ppv || this._vibLerpBuf.ppv.length !== count)
-      this._vibLerpBuf.ppv = new Float32Array(count)
-    if (!this._vibLerpBuf.sigma || this._vibLerpBuf.sigma.length !== cur.sigmaVm.length)
-      this._vibLerpBuf.sigma = new Float32Array(cur.sigmaVm.length)
-
-    const frac = (t - prev.t) / (cur.t - prev.t)
-    const p0 = prev.ppv
-    const p1 = cur.ppv
-    const s0 = prev.sigmaVm
-    const s1 = cur.sigmaVm
-    const ppvBuf = this._vibLerpBuf.ppv
-    const sigBuf = this._vibLerpBuf.sigma
-    for (let i = 0; i < count; i++) {
-      ppvBuf[i] = p0[i] + (p1[i] - p0[i]) * frac
-      sigBuf[i] = s0[i] + (s1[i] - s0[i]) * frac
-    }
-
-    renderer.updateVibrationField?.(ppvBuf, t, frame)
-    const nowMs = performance.now()
-    if (nowMs - (this._lastWsStressMs || 0) > WS_STALE_MS) {
-      renderer.updateStressField?.(sigBuf, t, frame)
-    }
+    domainOf(this, '_vibration', LocalVibrationOrchestrator).applyInterpolation(t, frame, renderer)
   }
 
   /**
