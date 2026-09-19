@@ -19,6 +19,18 @@ import {
 import { isInsideSection } from '../computation/sectionShape.js'
 // mulberry32（漏斗形状可复现 RNG）：单源在 utils/rng.js
 import { mulberry32 } from '../utils/rng.js'
+// 程序化 Canvas 纹理工厂（火/烟/火星/岩面）：拆分至 textureFactories.js。
+// 本类 import 供材质创建使用，并原样 re-export 保持既有外部导入路径（threeBlastingRenderer）不变。
+import {
+  createFireTexture,
+  createSmokeTexture,
+  createSparkTexture,
+  createRockTexture
+} from './textureFactories.js'
+export { createFireTexture, createSmokeTexture, createSparkTexture, createRockTexture }
+// 回退布孔设计数据生成（菱形掏槽+辅助+周边）：外移至 computation/fallbackHoleLayout.js，
+// 本类仅保留一行适配调用（designParams/kcoParams/tunnelHeight 由调用侧组装为纯函数入参）。
+import { buildFallbackHoles } from '../computation/fallbackHoleLayout.js'
 import {
   PPV_COLOR_STOPS_LINEAR,
   STRESS_COLOR_STOPS_LINEAR,
@@ -218,112 +230,6 @@ function _hsvToRgb(h, s, v) {
     default:
       return [v, p, q]
   }
-}
-
-// ─── 粒子纹理生成（程序化，无需外部资源） ──────────────
-export function createFireTexture() {
-  const size = 128
-  const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
-  const ctx = canvas.getContext('2d')
-  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
-  gradient.addColorStop(0, 'rgba(255,255,255,1)')
-  gradient.addColorStop(0.2, 'rgba(255,220,120,0.9)')
-  gradient.addColorStop(0.5, 'rgba(255,120,20,0.6)')
-  gradient.addColorStop(0.8, 'rgba(180,40,10,0.2)')
-  gradient.addColorStop(1, 'rgba(0,0,0,0)')
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, size, size)
-  const tex = new THREE.CanvasTexture(canvas)
-  tex.needsUpdate = true
-  return tex
-}
-
-export function createSmokeTexture() {
-  const size = 128
-  const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
-  const ctx = canvas.getContext('2d')
-  // 噪声烟雾纹理
-  const imageData = ctx.createImageData(size, size)
-  const data = imageData.data
-  for (let i = 0; i < size; i++) {
-    for (let j = 0; j < size; j++) {
-      const dx = i - size / 2
-      const dy = j - size / 2
-      const dist = Math.sqrt(dx * dx + dy * dy) / (size / 2)
-      const noise = Math.random() * 0.3 + 0.7
-      const alpha = Math.max(0, (1 - dist) * noise)
-      const idx = (i * size + j) * 4
-      data[idx] = 80 + Math.random() * 40
-      data[idx + 1] = 80 + Math.random() * 40
-      data[idx + 2] = 80 + Math.random() * 40
-      data[idx + 3] = alpha * 255
-    }
-  }
-  ctx.putImageData(imageData, 0, 0)
-  const tex = new THREE.CanvasTexture(canvas)
-  tex.needsUpdate = true
-  return tex
-}
-
-export function createSparkTexture() {
-  const size = 64
-  const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
-  const ctx = canvas.getContext('2d')
-  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
-  gradient.addColorStop(0, 'rgba(255,255,200,1)')
-  gradient.addColorStop(0.3, 'rgba(255,200,50,0.8)')
-  gradient.addColorStop(1, 'rgba(255,100,0,0)')
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, size, size)
-  const tex = new THREE.CanvasTexture(canvas)
-  tex.needsUpdate = true
-  return tex
-}
-
-// ─── 程序化岩石纹理（用于掌子面/台阶） ─────────────────
-export function createRockTexture() {
-  const size = 512
-  const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
-  const ctx = canvas.getContext('2d')
-  // 基础颜色：亮棕灰色
-  ctx.fillStyle = '#9a8a78'
-  ctx.fillRect(0, 0, size, size)
-  // 添加岩石纹理：随机亮色块
-  for (let i = 0; i < 350; i++) {
-    const x = Math.random() * size
-    const y = Math.random() * size
-    const r = Math.random() * 20 + 5
-    const gray = 120 + Math.random() * 80
-    ctx.fillStyle = `rgba(${gray},${gray * 0.85},${gray * 0.7},${Math.random() * 0.5})`
-    ctx.beginPath()
-    ctx.arc(x, y, r, 0, Math.PI * 2)
-    ctx.fill()
-  }
-  // 添加裂纹
-  ctx.strokeStyle = 'rgba(80,60,40,0.25)'
-  ctx.lineWidth = 1
-  for (let i = 0; i < 15; i++) {
-    ctx.beginPath()
-    ctx.moveTo(Math.random() * size, Math.random() * size)
-    for (let j = 0; j < 5; j++) {
-      ctx.lineTo(Math.random() * size, Math.random() * size)
-    }
-    ctx.stroke()
-  }
-  const tex = new THREE.CanvasTexture(canvas)
-  tex.wrapS = THREE.RepeatWrapping
-  tex.wrapT = THREE.RepeatWrapping
-  tex.repeat.set(2, 2)
-  tex.needsUpdate = true
-  return tex
 }
 
 /**
@@ -2850,253 +2756,19 @@ uniform float uArrFade;`
     )
   }
 
-  // ─── 回退模式：硬编码典型布孔（菱形掏槽 + 辅助 + 周边）
+  // ─── 回退模式：硬编码典型布孔（菱形掏槽 + 辅助 + 周边）──
+  // 布孔设计数据生成已外移至 computation/fallbackHoleLayout.js（buildFallbackHoles 纯函数），
+  // 此处仅做参数组装适配：designParams/kcoParams/tunnelHeight 由本类读取后传入。
   _collectFallbackHoles(cy0, W, Hw, R) {
-    // ─ 参数化：B/S/q/cutPattern 从 designParams/kcoParams 读取 ─
-    const B = Math.max(0.3, Number(this.designParams?.burden) || Number(this.kcoParams?.B) || 1.5)
-    const S = Math.max(0.3, Number(this.designParams?.spacing) || Number(this.kcoParams?.S) || 2.0)
-    const q = Math.max(0.05, Number(this.kcoParams?.q) || 0.8)
-    const cutPattern = this.designParams?.cutPattern || 'wedge'
-    const holeDepth = Math.max(0.5, Number(this.designParams?.holeDepth) || 2.5)
-    const realDia = Number(this.designParams?.holeDiameter) || 0.04
-    const visRadius = Math.max(0.025, realDia * 1.2) // 与 _collectDesignHoles 一致：按真实孔径细钉
-    const emptyVisRadius = visRadius * 1.3
-    const totalH = this.tunnelHeight
-
-    // 单孔药量 = q × B × S × holeDepth × 孔型系数
-    const chargeKg = factor => q * B * S * holeDepth * factor
-
-    const holes = []
-    let series = 1
-    const nextSeries = () => {
-      series = (series % 20) + 1
-      return series
-    }
-
-    // ─ 1. 掏槽孔（按 cutPattern 分发） ─
-    const cutR = B * 0.6 // 抵抗线驱动，替代硬编码 1.0
-    // 中心空孔（所有掏槽形式共用）
-    holes.push({
-      x: 0,
-      y: cy0,
-      type: 'cut',
-      isEmpty: true,
-      depth: holeDepth,
-      visRadius: emptyVisRadius,
-      inclination: 0,
-      azimuth: 0,
-      chargeKg: 0,
-      chargeLength: 0,
-      explosiveType: 'emulsion',
-      detonatorSeries: 1,
-      delayMs: 0,
-      id: 'CUT-EMPTY'
+    return buildFallbackHoles({
+      W,
+      Hw,
+      R,
+      totalH: this.tunnelHeight,
+      cy0,
+      designParams: this.designParams,
+      kcoParams: this.kcoParams
     })
-
-    if (cutPattern === 'spiral') {
-      // 螺旋掏槽：4 孔螺旋递进，半径从 B×0.4 到 B×0.7
-      const spiralSteps = 4
-      for (let i = 0; i < spiralSteps; i++) {
-        const r = B * (0.4 + 0.1 * i)
-        const a = (i / spiralSteps) * Math.PI * 2
-        holes.push({
-          x: Math.cos(a) * r,
-          y: cy0 + Math.sin(a) * r,
-          type: 'cut',
-          isEmpty: false,
-          depth: holeDepth,
-          visRadius,
-          inclination: 0,
-          azimuth: 0,
-          chargeKg: chargeKg(1.2),
-          chargeLength: holeDepth * 0.8,
-          explosiveType: 'emulsion',
-          detonatorSeries: nextSeries(),
-          delayMs: 50 * (i + 1),
-          id: `CUT-S${i + 1}`
-        })
-      }
-    } else if (cutPattern === 'wedge') {
-      // 楔形掏槽（Da Balai 文献模式）：2~3 排斜孔 V 形开口，角度 70→60°
-      // 掏槽孔分"初始(primary) + 辅助(secondary)"两批，消除耦合延时 Δt（文献最优 4~8ms，
-      // 现场取 Δt=4ms），且**初始掏槽孔减量装药**（微差延迟爆破减振机理的核心）：
-      //   primary 减量 0.7× 先起爆 → 生成初始爆破自由面；
-      //   secondary 1.0× 延时 Δt 后起爆 → 朝自由面充分破碎、降低围岩约束。
-      // 各孔日期延时而分布在 0~Δt 内（2ms 步进），使掏出孔组应力波在孔底汇拢处
-      // 相长干涉、错相位处相消 → 应力场呈多源干涉斑块，而非单一同心圆。
-      const wedgeN = 3
-      // 延时方案：孔内微差按 [0, 2, 4] ms 递进（secondary 落在文献最优延时窗 4ms）
-      const wedgeCutDelayMs = [0, 2, 4]
-      // 装药系数：初始孔减量(0.7×未爆抛)，随批次接近完整(1.0×)
-      const wedgeChargeFactor = [0.7, 0.85, 1.0]
-      for (let i = 0; i < wedgeN; i++) {
-        const offset = B * (0.5 + 0.15 * i)
-        for (const side of [-1, 1]) {
-          holes.push({
-            x: side * offset,
-            y: cy0,
-            type: 'cut',
-            isEmpty: false,
-            depth: holeDepth,
-            visRadius,
-            // 倾角 = 偏离孔轴法向(垂直掌子面)的小角，使孔底在洞深处向隧洞中心汇拢：
-            //   之前用 70°~74° 接近平行掌子面，孔底竖向偏移过大导致装药"出掌子面"。
-            //   改为按 offset/depth 换算的向心角（首排更陡向核心）。
-            inclination: i === 0 ? 18 : [17, 21, 26][i],
-            // 方位：右孔朝 -x、左孔朝 +x 内倾，形成 V 形楔形掏槽；勿用 ±90（右孔朝上/左孔朝下散开）。
-            azimuth: side > 0 ? 180 : 0,
-            chargeKg: chargeKg(wedgeChargeFactor[i] * 1.2),
-            chargeLength: holeDepth * 0.8,
-            explosiveType: 'emulsion',
-            detonatorSeries: nextSeries(),
-            delayMs: wedgeCutDelayMs[i],
-            id: `CUT-W${i + 1}-${side > 0 ? 'R' : 'L'}`
-          })
-        }
-      }
-    } else {
-      // 菱形掏槽（默认）：4 孔 + 1 空孔
-      const cutPos = [
-        [cutR, cy0],
-        [-cutR, cy0],
-        [0, cy0 + cutR],
-        [0, cy0 - cutR]
-      ]
-      cutPos.forEach((p, i) => {
-        holes.push({
-          x: p[0],
-          y: p[1],
-          type: 'cut',
-          isEmpty: false,
-          depth: holeDepth,
-          visRadius,
-          inclination: 0,
-          azimuth: 0,
-          chargeKg: chargeKg(1.2),
-          chargeLength: holeDepth * 0.8,
-          explosiveType: 'emulsion',
-          detonatorSeries: nextSeries(),
-          delayMs: 100 * (i + 2),
-          id: `CUT-${i + 1}`
-        })
-      })
-    }
-
-    // ─ 2. 辅助孔（圈数/半径/孔数由 B/S/断面驱动） ─
-    const cutZone = 2 * cutR
-    const maxR = Math.min(W, totalH) * 0.45
-    const ringCount = Math.max(1, Math.ceil((maxR - cutZone) / (2 * B)))
-    for (let ring = 1; ring <= ringCount; ring++) {
-      const r = cutZone + 2 * B * ring
-      if (r > maxR) break
-      const n = Math.max(6, Math.floor((2 * Math.PI * r) / S))
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2
-        const x = Math.cos(a) * r
-        const y = cy0 + Math.sin(a) * r
-        if (this._isInsideTunnelSection(x, y, W, Hw, R)) {
-          holes.push({
-            x,
-            y,
-            type: 'auxiliary',
-            isEmpty: false,
-            depth: holeDepth,
-            visRadius,
-            inclination: 0,
-            azimuth: 0,
-            chargeKg: chargeKg(1.0),
-            chargeLength: holeDepth * 0.7,
-            explosiveType: 'emulsion',
-            detonatorSeries: nextSeries(),
-            delayMs: series * 100,
-            id: `AUX-${ring}-${i}`
-          })
-        }
-      }
-    }
-    // ─ 3. 周边孔（间距 = 0.8 × S，光面爆破经验） ─
-    const perimSpacing =
-      Number(this.designParams?.perimeterSpacing) > 0
-        ? Number(this.designParams.perimeterSpacing)
-        : 0.8 * S
-    let perimSeries = series
-    for (let y = 1.0; y <= Hw - 0.3; y += perimSpacing) {
-      for (const x of [-W / 2 + 0.35, W / 2 - 0.35]) {
-        holes.push({
-          x,
-          y,
-          type: 'perimeter',
-          isEmpty: false,
-          depth: holeDepth,
-          visRadius,
-          inclination: 3,
-          azimuth: x > 0 ? 90 : -90,
-          chargeKg: chargeKg(0.5),
-          chargeLength: holeDepth * 0.6,
-          explosiveType: 'emulsion',
-          detonatorSeries: perimSeries,
-          delayMs: perimSeries * 100,
-          id: `PER-W-${perimSeries}`
-        })
-        perimSeries = (perimSeries % 20) + 1
-      }
-    }
-    const archN = Math.max(8, Math.floor((Math.PI * R) / perimSpacing))
-    for (let i = 1; i < archN; i++) {
-      const a = Math.PI - (i / archN) * Math.PI
-      const x = Math.cos(a) * R
-      const y = Hw + Math.sin(a) * R
-      holes.push({
-        x,
-        y,
-        type: 'perimeter',
-        isEmpty: false,
-        depth: holeDepth,
-        visRadius,
-        inclination: 3,
-        azimuth: (Math.atan2(x, y - Hw) * 180) / Math.PI,
-        chargeKg: chargeKg(0.5),
-        chargeLength: holeDepth * 0.6,
-        explosiveType: 'emulsion',
-        detonatorSeries: perimSeries,
-        delayMs: perimSeries * 100,
-        id: `PER-A-${perimSeries}`
-      })
-      perimSeries = (perimSeries % 20) + 1
-    }
-    holes.push({
-      x: -W / 2 + 0.4,
-      y: 0.5,
-      type: 'perimeter',
-      isEmpty: false,
-      depth: holeDepth,
-      visRadius,
-      inclination: 5,
-      azimuth: -90,
-      chargeKg: chargeKg(0.5),
-      chargeLength: holeDepth * 0.7,
-      explosiveType: 'emulsion',
-      detonatorSeries: perimSeries,
-      delayMs: perimSeries * 100,
-      id: 'PER-BL'
-    })
-    holes.push({
-      x: W / 2 - 0.4,
-      y: 0.5,
-      type: 'perimeter',
-      isEmpty: false,
-      depth: holeDepth,
-      visRadius,
-      inclination: 5,
-      azimuth: 90,
-      chargeKg: chargeKg(0.5),
-      chargeLength: holeDepth * 0.7,
-      explosiveType: 'emulsion',
-      detonatorSeries: perimSeries,
-      delayMs: perimSeries * 100,
-      id: 'PER-BR'
-    })
-    return holes
   }
 
   // ─── 构建钻孔几何体（按类型分组共享材质/几何，性能优化）──
@@ -3383,9 +3055,8 @@ uniform float uArrFade;`
   }
 
   // ─── 断面内判断 ──────────────────────────────────────
-  _isInsideTunnelSection(x, y, W, Hw, R) {
-    return isInsideSection({ width: W, wallHeight: Hw, archRadius: R }, x, y, 0.2)
-  }
+  // _isInsideTunnelSection 已随回退布孔设计外移至 computation/fallbackHoleLayout.js；
+  // 掌子面轮廓过滤仍用下方 _insideFaceProfile（isInsideSection，margin=0）。
 
   // ─── 爆破触发（切换掌子面可见性） ────────────────────
   triggerBlast() {

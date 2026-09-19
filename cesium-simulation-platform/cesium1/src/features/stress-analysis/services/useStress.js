@@ -152,7 +152,12 @@ function createStressRuntimeContext({ viewer, geologyStore, tileset, showMessage
   }
 }
 
-function buildStressServiceResult({ runtime, computedState, setKnownPointStressVisible, setWhiteModel }) {
+function buildStressServiceResult({
+  runtime,
+  computedState,
+  setKnownPointStressVisible,
+  setWhiteModel
+}) {
   const state = buildStressState({
     config,
     currentTime,
@@ -258,5 +263,10 @@ export default function useStress() {
     runtime.playback.cleanupPlayback()
     destroyKnownPointStressOverlay()
   })
-  return buildStressServiceResult({ runtime, computedState, setKnownPointStressVisible, setWhiteModel })
+  return buildStressServiceResult({
+    runtime,
+    computedState,
+    setKnownPointStressVisible,
+    setWhiteModel
+  })
 }

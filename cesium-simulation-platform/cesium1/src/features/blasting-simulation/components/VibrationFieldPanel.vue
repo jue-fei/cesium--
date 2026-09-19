@@ -363,10 +363,7 @@ import {
   industrialBandCount,
   industrialLegendItems
 } from '../services/core/rendering/vibrationColorScales.js'
-import {
-  LOCAL_SIM_DEFAULT_K,
-  LOCAL_SIM_DEFAULT_ALPHA
-} from '../services/core/vibrationDefaults.js'
+import { LOCAL_SIM_DEFAULT_K, LOCAL_SIM_DEFAULT_ALPHA } from '../services/core/vibrationDefaults.js'
 import { fetchSadoskyPresets } from '../services/blastingApi.js'
 
 defineOptions({ name: 'VibrationFieldPanel' })

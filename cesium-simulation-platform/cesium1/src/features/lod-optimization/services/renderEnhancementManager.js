@@ -101,8 +101,7 @@ export function createRenderEnhancementManager() {
       if (originalSceneSettings.enableLighting !== null)
         scene.globe.enableLighting = originalSceneSettings.enableLighting
       if (originalSceneSettings.dynamicAtmosphereLighting !== null)
-        scene.globe.dynamicAtmosphereLighting =
-          originalSceneSettings.dynamicAtmosphereLighting
+        scene.globe.dynamicAtmosphereLighting = originalSceneSettings.dynamicAtmosphereLighting
       if (originalSceneSettings.dynamicAtmosphereLightingFromSun !== null)
         scene.globe.dynamicAtmosphereLightingFromSun =
           originalSceneSettings.dynamicAtmosphereLightingFromSun
@@ -112,8 +111,7 @@ export function createRenderEnhancementManager() {
         scene.shadowMap.enabled = originalShadowSettings.enabled
       if (originalShadowSettings.softShadows !== null)
         scene.shadowMap.softShadows = originalShadowSettings.softShadows
-      if (originalShadowSettings.size !== null)
-        scene.shadowMap.size = originalShadowSettings.size
+      if (originalShadowSettings.size !== null) scene.shadowMap.size = originalShadowSettings.size
       if (originalShadowSettings.darkness !== null)
         scene.shadowMap.darkness = originalShadowSettings.darkness
     }
@@ -148,8 +146,7 @@ export function createRenderEnhancementManager() {
 
     // globe 光照（影响地形）
     scene.globe.enableLighting = active
-    scene.globe.dynamicAtmosphereLighting =
-      active && cfg.dynamicAtmosphereLighting
+    scene.globe.dynamicAtmosphereLighting = active && cfg.dynamicAtmosphereLighting
     if (active && !cfg.dynamicAtmosphereLighting) {
       scene.globe.dynamicAtmosphereLightingFromSun = false
     }
@@ -218,10 +215,7 @@ export function createRenderEnhancementManager() {
     if (currentLightingShader && tileset.customShader === currentLightingShader) {
       // 只更新 uniform 值
       try {
-        currentLightingShader.setUniform(
-          'u_lightIntensity',
-          Math.max(0.1, brightness) * 0.8
-        )
+        currentLightingShader.setUniform('u_lightIntensity', Math.max(0.1, brightness) * 0.8)
       } catch (e) {
         // 安全忽略
       }
@@ -332,9 +326,7 @@ export function createRenderEnhancementManager() {
     const tileset = findTileset()
     if (tileset) {
       try {
-        tileset.shadows = active
-          ? Cesium.ShadowMode.ENABLED
-          : Cesium.ShadowMode.DISABLED
+        tileset.shadows = active ? Cesium.ShadowMode.ENABLED : Cesium.ShadowMode.DISABLED
       } catch (e) {
         // 安全忽略
       }
@@ -351,9 +343,7 @@ export function createRenderEnhancementManager() {
     // 仅保存 enabled 状态，等退出外部模块后由 applyToTileset 恢复。
     const tileset = findTileset()
     const externalShaderActive =
-      tileset &&
-      tileset.customShader &&
-      currentLightingShader !== tileset.customShader
+      tileset && tileset.customShader && currentLightingShader !== tileset.customShader
 
     if (!externalShaderActive) {
       applyLightingConfig()

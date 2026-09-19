@@ -888,8 +888,8 @@
             <div class="text-sm text-text-muted w-[92px] shrink-0">等值线密度</div>
             <el-slider
               class="flex-1 min-w-0"
-              :min="2"
-              :max="40"
+              :min="CONTOUR_LEVELS_MIN"
+              :max="CONTOUR_LEVELS_MAX"
               :step="1"
               :model-value="heatmapContourLevels"
               @update:model-value="onContourLevelsChange"
@@ -902,8 +902,8 @@
             <div class="text-sm text-text-muted w-[92px] shrink-0">等值线宽度</div>
             <el-slider
               class="flex-1 min-w-0"
-              :min="0.003"
-              :max="0.12"
+              :min="CONTOUR_WIDTH_MIN"
+              :max="CONTOUR_WIDTH_MAX"
               :step="0.003"
               :model-value="heatmapContourWidth"
               @update:model-value="onContourWidthChange"
@@ -968,7 +968,13 @@ defineOptions({ name: '应力分析面板' })
 import StressChartSvg from './StressChartSvg.vue'
 import StressPointTensorDetails from './StressPointTensorDetails.vue'
 import WarningList from './WarningList.vue'
-import { useStressPanelController } from '../services/panel/useStressPanelController.js'
+import {
+  useStressPanelController,
+  CONTOUR_LEVELS_MIN,
+  CONTOUR_LEVELS_MAX,
+  CONTOUR_WIDTH_MIN,
+  CONTOUR_WIDTH_MAX
+} from '../services/panel/useStressPanelController.js'
 import { getColormapPresetOptions } from '../services/panel/stressHeatmapPanelState.js'
 
 const colormapPresetOptions = getColormapPresetOptions()
@@ -1103,18 +1109,10 @@ const {
   contourValueRows,
   onUndo,
   onRedo,
+  onContourLevelsChange,
+  onContourWidthChange,
   applyHeatmapPanelTuning,
   applyHeatmapPreset,
   formatNumber
 } = useStressPanelController()
-
-function onContourLevelsChange(v) {
-  heatmapContourLevels.value = Math.max(2, Math.min(40, Number(v) || 24))
-  applyHeatmapPanelTuning()
-}
-
-function onContourWidthChange(v) {
-  heatmapContourWidth.value = Math.max(0.003, Math.min(0.12, Number(v) || 0.015))
-  applyHeatmapPanelTuning()
-}
 </script>

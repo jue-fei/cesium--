@@ -711,10 +711,7 @@ export function useLodPanelController() {
   // ---- 渲染增强（AO / 太阳光照 / 阴影）----
   const setRenderEnhancementEnabled = enabled => {
     renderEnhancement.setEnabled(enabled)
-    showMessage(
-      enabled ? '已开启渲染增强' : '已关闭渲染增强',
-      enabled ? 'success' : 'info'
-    )
+    showMessage(enabled ? '已开启渲染增强' : '已关闭渲染增强', enabled ? 'success' : 'info')
   }
 
   const setRenderEffectEnabled = (effectKey, enabled) => {

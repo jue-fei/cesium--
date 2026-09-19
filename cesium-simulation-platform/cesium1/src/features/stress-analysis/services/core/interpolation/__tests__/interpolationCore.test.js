@@ -32,7 +32,13 @@ function fieldQuadratic(x, y) {
 }
 
 function fieldSmooth(x, y) {
-  return 5 + 0.4 * x - 0.3 * y + 3 * Math.sin(0.9 * x) * Math.cos(0.8 * y) + 1.5 * Math.cos(0.5 * (x + y))
+  return (
+    5 +
+    0.4 * x -
+    0.3 * y +
+    3 * Math.sin(0.9 * x) * Math.cos(0.8 * y) +
+    1.5 * Math.cos(0.5 * (x + y))
+  )
 }
 
 // 平滑"高斯峰 + 缓变趋势"场：普通克里金在趋势残差上重建更准，对比 IDW 优势显著
@@ -142,7 +148,14 @@ describe('普通克里金 Kriging', () => {
     const points = xs.map((vx, i) => ({ x: vx, y: ys[i], z: zs[i] }))
 
     // IDW 对照：固定幂指数 2、8 个最近邻、非自适应
-    const idwParams = { power: 2, neighborCount: 8, adaptivePower: false, robustFilter: false, neighborPolicy: 'nearest', sectorCount: 8 }
+    const idwParams = {
+      power: 2,
+      neighborCount: 8,
+      adaptivePower: false,
+      robustFilter: false,
+      neighborPolicy: 'nearest',
+      sectorCount: 8
+    }
     const idwRMSE = evaluateFieldRMSE(points, values, tx, ty, tz, fieldBumps, (x, y, z) =>
       idwInterpolateSingle(x, y, z, points, values, idwParams)
     )
@@ -209,7 +222,12 @@ describe('普通克里金 Kriging', () => {
     // 两个完全重合的点 + 一个远点 → 病态/近奇异系统
     const variogram = train3D([1, 2, 5], [0, 0, 8], [0, 0, 0], [0, 0, 0], 'exponential', 1e-10)
     expect(variogram).not.toBeNull()
-    for (const [px, py] of [[0, 0], [1, 1], [4, 3], [8, 0]]) {
+    for (const [px, py] of [
+      [0, 0],
+      [1, 1],
+      [4, 3],
+      [8, 0]
+    ]) {
       const v = predict3D(px, py, 0, variogram)
       expect(Number.isFinite(v)).toBe(true)
     }

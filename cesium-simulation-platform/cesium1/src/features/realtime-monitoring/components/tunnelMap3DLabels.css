@@ -1,0 +1,86 @@
+.lbl {
+  color: #e6edf5;
+  background: rgba(10, 15, 24, 0.72);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  pointer-events: none;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+.lbl-node {
+  font-weight: 700;
+  background: rgba(10, 15, 24, 0.82);
+}
+/* 采矿区（采矿点）标签：金色高亮发光 */
+.lbl-muck {
+  color: #ffd77a;
+  font-size: 12.5px;
+  background: rgba(46, 32, 4, 0.85);
+  border: 1px solid rgba(255, 201, 87, 0.75);
+  box-shadow:
+    0 0 8px rgba(255, 190, 60, 0.45),
+    0 0 16px rgba(255, 190, 60, 0.25);
+}
+/* 出口（卸载点/井口）标签：红色高亮发光 */
+.lbl-dump {
+  color: #ffb4a8;
+  font-size: 12.5px;
+  background: rgba(56, 12, 8, 0.85);
+  border: 1px solid rgba(255, 129, 117, 0.75);
+  box-shadow:
+    0 0 8px rgba(255, 99, 88, 0.45),
+    0 0 16px rgba(255, 99, 88, 0.25);
+}
+/* 竖井/斜井（上下层连接段）标签：与普通段同风格，虚边区分竖向连接 */
+.lbl-riser {
+  color: #b8c7dd;
+  background: rgba(18, 26, 40, 0.82);
+  border: 1px dashed rgba(148, 163, 184, 0.6);
+  font-size: 11px;
+}
+.lbl-seg {
+  font-size: 11px;
+  color: #cbd5e1;
+  opacity: 0.92;
+}
+/* 采场出矿线标签：采场色描边，标识"该色路线属于哪个采区" */
+.lbl-zone-route {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #ffd77a;
+  background: rgba(20, 24, 34, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+.lbl-seg-deep {
+  font-size: 9.5px;
+  color: #8fa3bd;
+  opacity: 0.62;
+}
+.lbl-eq {
+  color: #ffd77a;
+  font-weight: 700;
+  background: rgba(25, 18, 4, 0.78);
+  border-color: rgba(255, 215, 122, 0.45);
+}
+.lbl-axis {
+  font-weight: 700;
+  background: transparent;
+  border: none;
+  font-size: 13px;
+}
+.lbl-axis.axis-x {
+  color: #ff6b5e;
+}
+.lbl-axis.axis-y {
+  color: #4cd964;
+}
+.lbl-axis.axis-z {
+  color: #4a9eff;
+}

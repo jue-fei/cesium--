@@ -20,10 +20,9 @@
           </div>
           <div class="flex items-center gap-1">
             <span v-if="p.blastCycle" class="text-[10px] text-gray-500">{{ p.blastCycle }}</span>
-            <span
-              class="text-[9px] px-1.5 py-0.5 rounded"
-              :class="sourceCls(p.source)"
-            >{{ sourceLabel(p.source) }}</span>
+            <span class="text-[9px] px-1.5 py-0.5 rounded" :class="sourceCls(p.source)">{{
+              sourceLabel(p.source)
+            }}</span>
           </div>
         </div>
 

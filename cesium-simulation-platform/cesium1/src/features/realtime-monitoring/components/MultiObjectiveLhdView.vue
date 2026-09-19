@@ -166,9 +166,7 @@
                   <b class="seg-detail-id">{{ cnId(activeSegId) }}</b>
                   <span class="seg-detail-name">{{ activeSegMeta.name || '—' }}</span>
                   <span class="seg-detail-risk" :class="riskOf(activeSegMeta).clazz">
-                    {{ riskOf(activeSegMeta).label }} · 评分{{
-                      riskOf(activeSegMeta).score
-                    }}
+                    {{ riskOf(activeSegMeta).label }} · 评分{{ riskOf(activeSegMeta).score }}
                   </span>
                   <span class="seg-detail-status" :class="segState(activeSegMeta).clazz">
                     {{ segState(activeSegMeta).label }}
@@ -176,9 +174,7 @@
                   <button class="seg-detail-close" title="关闭" @click="activeSegId = ''">×</button>
                 </div>
                 <div
-                  v-if="
-                    activeSegMeta.blocked || activeSegMeta.passableLoaded === false
-                  "
+                  v-if="activeSegMeta.blocked || activeSegMeta.passableLoaded === false"
                   class="seg-detail-alert"
                 >
                   <span v-if="activeSegMeta.blocked">⚠ 本路段封锁中，暂不通车</span>
@@ -202,9 +198,7 @@
                   </div>
                   <div class="sd-item">
                     <span>炮烟</span
-                    ><b :class="barColor(activeSegMeta.smoke)">{{
-                      pct(activeSegMeta.smoke)
-                    }}</b>
+                    ><b :class="barColor(activeSegMeta.smoke)">{{ pct(activeSegMeta.smoke) }}</b>
                   </div>
                   <div class="sd-item">
                     <span>拥堵</span
@@ -499,13 +493,15 @@
       </div>
       <div class="action-note">
         能耗 · 时效 · 安全 · 协同 · 负载 · 回收 · 采场均衡 · 积压 八要素 → NSGA-III 求帕累托前沿，
-        硬约束：采区全覆盖（有矿采场至少一车）+ 品位下限 {{ gradeFloorPct }}%。候选路线均为「采矿点 → 出口」重载
-        出矿线，按采场着色/标注；跨采场同时运输的共享巷道冲突由「巷道冲突」目标并算。
+        硬约束：采区全覆盖（有矿采场至少一车）+ 品位下限 {{ gradeFloorPct }}%。候选路线均为「采矿点
+        → 出口」重载 出矿线，按采场着色/标注；跨采场同时运输的共享巷道冲突由「巷道冲突」目标并算。
         <span class="ref-note"
           >口径：王雷等(2025)、贾纯纯等(2025) 多采场调度/品位容量约束；Wang 等(2020)
           采场矿石量输入； Freire 等(2023)LHD {{ FREIRE_2023_LHD_SPEED }}、Hooli 等(2024) 装载{{
             HOOLI_2024_LOAD_TIME
-          }}/卸载{{ HOOLI_2024_DUMP_TIME }}/调整{{ HOOLI_2024_ADJUST_TIME }}
+          }}/卸载{{ HOOLI_2024_DUMP_TIME }}/调整{{
+            HOOLI_2024_ADJUST_TIME
+          }}
           校核时效。设备规模参照大型地下矿（如 Khoemacau 铜矿 {{ KHOEMACAU_LHD_FLEET_SIZE }} 台
           LHD；锦丰金矿多中段出矿）。</span
         >

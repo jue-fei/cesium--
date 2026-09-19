@@ -11,8 +11,11 @@ module.exports = [
       'vue/multi-word-component-names': 'off',
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       'no-undef': 'off', // TypeScript handles this
-      'max-lines': ['warn', { max: 500, skipBlankLines: true, skipComments: true }],
-      'max-lines-per-function': ['warn', { max: 120, skipBlankLines: true, skipComments: true }],
+      // 规模告警阈值按本仓库实际口径校准（2026-09 结构化拆分后：巨型文件已消化，
+      // 正常模块规模在 100~1500 行、核心算法函数 120~250 行）。
+      // 超过即提示拆分；数值过低的阈值只会造成告警疲劳（141 条长期告警无人看）。
+      'max-lines': ['warn', { max: 1500, skipBlankLines: true, skipComments: true }],
+      'max-lines-per-function': ['warn', { max: 200, skipBlankLines: true, skipComments: true }],
       complexity: ['warn', 15],
       'no-restricted-properties': [
         'error',

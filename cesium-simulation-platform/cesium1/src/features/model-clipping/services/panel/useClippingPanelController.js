@@ -292,6 +292,30 @@ export function useClippingPanelController() {
     ]
   })
 
+  // ── 面板视图派生：模板直接消费的聚合/提示状态 ──
+  // 当前切割面三轴旋转聚合（滑杆行按 {X,Y,Z} 渲染）
+  const rotationMap = computed(() => ({
+    X: currentPlaneRotationX.value,
+    Y: currentPlaneRotationY.value,
+    Z: currentPlaneRotationZ.value
+  }))
+
+  // 拾取式切割流程提示文案
+  const pickHint = computed(() => {
+    if (pickSectionActive.value) return '请在岩体表面点击选取切割点'
+    if (sectionPicked.value && !blastEnabled.value) return '已拾取切割点，请选择切割轴方向'
+    if (blastEnabled.value) return `已沿 ${pickedAxis.value} 轴切割，可切换轴或重新拾取`
+    return '请先在岩体表面拾取切割点'
+  })
+
+  // 拾取式切割流程提示配色（warn/ok/info/muted）
+  const hintTone = computed(() => {
+    if (pickSectionActive.value) return 'warn'
+    if (blastEnabled.value) return 'ok'
+    if (sectionPicked.value) return 'info'
+    return 'muted'
+  })
+
   return {
     clippingEnabled,
     clippingPlanes,
@@ -344,6 +368,10 @@ export function useClippingPanelController() {
     sectionPicked: computed(() => !!pickedPoint.value),
     startPickSection,
     changePickAxis,
-    cancelPickSection
+    cancelPickSection,
+    // 视图派生（模板直接消费）
+    rotationMap,
+    pickHint,
+    hintTone
   }
 }
