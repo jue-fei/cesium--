@@ -268,14 +268,17 @@ export class VibrationFieldDomain {
     try {
       const sp = sim.params || {}
       const shaping = surface.shaping || {}
+      // 与 Worker 路径（vibrationComputeWorker {...p}）完全同参：展开 sim.params
+      // 而非手工挑字段——此前漏传 beta/visualBeta/peakMethod/influenceRadius/
+      // reflections，事件 attenuationP≠0.02 或开启反射时两路径等值线口径分叉，
+      // 且被 computeSurfacePeakField 的默认值兜底掩盖。展开式传参从构造上保证
+      // 两条路径永不漂移。
       const r = computeSurfacePeakField(surface.positions, {
-        K: sp.K,
-        alpha: sp.alpha,
-        minStandoff: sp.minStandoff,
-        visualCp: sp.visualCp,
+        ...sp,
         chargeKg: sim.chargeKg,
-        sources: Array.isArray(sp.sources) ? sp.sources : null,
+        sources: Array.isArray(sp.sources) ? sp.sources : [],
         origin: Array.isArray(sp.origin) ? sp.origin : (shaping.origin ?? [0, 0, 0]),
+        reflections: sp.reflections, // 掌子面自由面反射（与 Worker 路径同口径）
         holeRadius: shaping.holeRadius,
         holeLen: shaping.holeLen,
         lateralAttn: shaping.lateralAttn

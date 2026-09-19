@@ -51,7 +51,7 @@ export class BlastInitController {
     // 性能模式：设置碎片间碰撞开关
     if (
       params.enableInterCollision !== undefined &&
-      this.r._physicsEngine?.setEnableInterCollision
+      this.r._physicsEngine.setEnableInterCollision
     ) {
       this.r._physicsEngine.setEnableInterCollision(params.enableInterCollision)
     }
@@ -104,7 +104,7 @@ export class BlastInitController {
     // 配置爆堆轮廓渲染器局部基：轴向 forward、侧向 right、竖直 up、爆堆中心、
     // 底板高度、掌子面轴向距离（裁掉穿模进未爆破岩体的碎片，否则包裹壳
     // 会被撑进岩体内部、贴不住真实爆堆）
-    this.r._muckPileOutline?.configure?.({
+    this.r._muckPileOutline.configure({
       forward,
       right,
       up,
@@ -254,7 +254,7 @@ export class BlastInitController {
     // 爆堆轮廓逐碎片渲染包围盒半轴（变体 AABB 半轴 × dispSize），
     // 轮廓渲染器据此 + 四元数做精确投影，壳面紧贴可见碎石
     const variantHalfExtents = getRockVariantHalfExtents()
-    this.r._muckPileOutline?.setFragmentExtents?.(
+    this.r._muckPileOutline.setFragmentExtents(
       specs.map(s => {
         const e = variantHalfExtents[s.variantIndex] || [0.6, 0.6, 0.6]
         // variant + size 供包裹壳做"真实投影轮廓"掩码（见 muckPileOutlineRenderer）

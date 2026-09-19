@@ -598,7 +598,7 @@ export class LocalVibrationOrchestrator {
       K: this.m._sadoskyK ?? SADOVSKY_DEFAULT_K,
       alpha: this.m._sadoskyAlpha ?? SADOVSKY_DEFAULT_ALPHA,
       beta: Number(rockParams.attenuationP) || this.m.dataset?.event?.beta || 0.02,
-      visualBeta: this.m._localVibrationSim?.params?.visualBeta ?? 0.8,
+      visualBeta: this.m._localVibrationSim?.params.visualBeta,
       cp: Number(rockParams.pWaveSpeed) || 4500,
       visualCp: 35,
       minStandoff: 0.5

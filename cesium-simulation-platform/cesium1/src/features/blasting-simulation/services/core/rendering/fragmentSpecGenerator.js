@@ -928,7 +928,7 @@ function _settleFragmentPositions({ face, specs, positions, holeGroups, rng }) {
  *   massScaleFactor:number, scaledMassKg:number }}
  */
 function _computeStats({ specs, velocities, metrics, kco, targetVisibleMassKg, generatedMassKg }) {
-  const safeXmaxForHist = Math.max(0.1, Number(metrics.fragmentXmax) || Number(kco?.xmax) || 2.0)
+  const safeXmaxForHist = Math.max(0.1, Number(metrics.fragmentXmax) || Number(kco.xmax) || 2.0)
   const sizeBinWidth = safeXmaxForHist / SIZE_BIN_COUNT
   const sizeBinEdges = Array.from({ length: SIZE_BIN_COUNT + 1 }, (_, i) => i * sizeBinWidth)
 
@@ -943,10 +943,10 @@ function _computeStats({ specs, velocities, metrics, kco, targetVisibleMassKg, g
   // 目标块度直方图（Swebrec 理论分布，使用相同分箱边界）
   const safeX50ForHist = Math.max(
     0.01,
-    Math.min(safeXmaxForHist * 0.99, Number(metrics.fragmentX50) || Number(kco?.x50) || 0.5)
+    Math.min(safeXmaxForHist * 0.99, Number(metrics.fragmentX50) || Number(kco.x50) || 0.5)
   )
-  const safeBForHist = Math.max(0.1, Number(metrics.fragmentB) || Number(kco?.b) || 2.0)
-  const safeNForHist = Number(metrics.fragmentN) || Number(kco?.n) || 1.2
+  const safeBForHist = Math.max(0.1, Number(metrics.fragmentB) || Number(kco.b) || 2.0)
+  const safeNForHist = Number(metrics.fragmentN) || Number(kco.n) || 1.2
   const sizeHistogramTarget = generateSwebrecHistogram(
     safeX50ForHist,
     safeXmaxForHist,

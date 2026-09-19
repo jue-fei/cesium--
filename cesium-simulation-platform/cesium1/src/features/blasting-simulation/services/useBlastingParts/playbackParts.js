@@ -98,27 +98,27 @@ export function createPlaybackParts(ctx) {
         // 纹理清零保证目标帧落地前不显示任何残留（不糊成色块）。
         setSeekLockFrame(clamped)
         setSeekLockDropped(0)
-        getManager()?.clearVibrationFieldTextures?.()
+        getManager()?.clearVibrationFieldTextures()
         getWs().sendSeek(clamped)
       } else {
         // 同一帧重复拖拽：仍需清屏（纹理可能已被旧游标帧污染）
-        getManager()?.clearVibrationFieldTextures?.()
+        getManager()?.clearVibrationFieldTextures()
       }
     } else if (isSeek) {
       // 本地模式：同样清屏，由本地模拟器下一 tick 重算填充
-      getManager()?.clearVibrationFieldTextures?.()
+      getManager()?.clearVibrationFieldTextures()
     }
     // 同步渲染器时长信号（回放就绪/实测达成时进度条随之延长，
     // 与每个事件的实际动画时长绑定：全落地 + 保持 3s）
-    const d = getManager()?.getDurationS?.()
+    const d = getManager()?.getDurationS()
     if (d != null && Number.isFinite(d) && d > 0 && d !== effectiveDurationS.value) {
       effectiveDurationS.value = d
     }
     // 始终刷新振动场元信息：无论 WS 是否连接，本地模拟与 WS 数据均通过同一渲染器接口
     // 更新场纹理，UI 需即时反映当前帧的 PPV/应力/损伤就绪状态
-    ctx.vibration.vibrationFieldInfo.value = getManager()?.getVibrationFieldInfo?.() || null
+    ctx.vibration.vibrationFieldInfo.value = getManager()?.getVibrationFieldInfo() || null
     // 等值线提取诊断随元信息一并回读（提取为指纹缓存，常规帧为上次结果）
-    ctx.vibration.contourStats.value = getManager()?.getVibrationContourStats?.() ?? null
+    ctx.vibration.contourStats.value = getManager()?.getVibrationContourStats() ?? null
     // 递增脏标记，使 threeStats 重新求值
     // 节流到 200ms（5Hz），避免高倍速播放时 Vue 响应式风暴阻塞主线程
     const now = performance.now()
@@ -129,7 +129,7 @@ export function createPlaybackParts(ctx) {
     }
     // 爆堆轮廓开启时逐帧回读安息角/堆高/堆宽/堆长（渲染器节流重建，读不到时为 null）
     if (muckPileOutlineEnabled.value) {
-      muckPileMeasure.value = getManager()?.getMuckPileMeasure?.() ?? null
+      muckPileMeasure.value = getManager()?.getMuckPileMeasure() ?? null
     }
   }
 
@@ -143,7 +143,7 @@ export function createPlaybackParts(ctx) {
     setPlaybackLastTime(0)
     isPlaying.value = false
     setPendingWsDataset(null)
-    getWs()?.stopStream?.()
+    getWs()?.stopStream()
     getManager()?.setLocalVibrationEnabled(true)
   }
 

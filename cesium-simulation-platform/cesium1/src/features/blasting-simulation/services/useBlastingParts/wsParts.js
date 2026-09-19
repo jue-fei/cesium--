@@ -58,14 +58,14 @@ export function createWsParts(ctx) {
       detonatorSeries: h.detonatorSeries,
       chargeKg: h.chargeKg
     }))
-    const ppvParams = getManager()?.getPpvStreamParams?.() || {}
+    const ppvParams = getManager()?.getPpvStreamParams() || {}
     ppvParams.explosiveType =
       kcoParams.value?.explosiveType || ds?.event?.explosiveType || 'emulsion'
     // 多装药源（各炮孔装药段位置/药量/延时）：后端据此计算多应力波矢量叠加，
     // 非单一同心圆波场，符合真实掏槽微差起爆的波场干涉效果。
     // 【坐标系】getStreamBlastSources 已把源 z 平移到后端"掌子面 z=0"网格系
     // （与 ppvParams.blastCenter 同口径），GPU/本地模拟仍用 g 系源不受影响。
-    ppvParams.sources = getManager()?.getStreamBlastSources?.() || null
+    ppvParams.sources = getManager()?.getStreamBlastSources() || null
     // JWL+FDTD 在 build_ppv_grid 的 1.5m 分辨率网格上无法解析爆腔（R0≈0.28m < 1 格），
     // 实测 PPV 输出 ~1e-11 m/s（低于前端可见阈值 8 个数量级），三场（PPV/应力/损伤）
     // 全部不可见。降级萨道夫斯基近似（与本地模拟器同物理模型，量级正常），
@@ -73,14 +73,12 @@ export function createWsParts(ctx) {
     ppvParams.useJwl = false
     // 损伤半径由 PPV 阈值纯物理计算得出（见 computeMultiSourcePeakDamageZones），
     // 不设人工硬上限。influenceRadius=波场可达半径，已按岩体几何自动取。
-    const bd = getManager()?.getDamageBoundary?.() || {}
+    const bd = getManager()?.getDamageBoundary() || {}
     ppvParams.influenceRadius =
-      Number(bd.influenceRadius) > 0
-        ? bd.influenceRadius
-        : getManager()?.getInfluenceRadius?.() || 60
+      Number(bd.influenceRadius) > 0 ? bd.influenceRadius : getManager()?.getInfluenceRadius() || 60
     // 掌子面自由面反射（镜象源法）：与本地模拟/GPU 岩面同一物理口径——后端展开
     // 镜象源后，WS 场与本地兜底场在近掌子面处一致（反射放大 + 直达/反射干涉）
-    ppvParams.reflections = getManager()?.getVibrationReflections?.() || null
+    ppvParams.reflections = getManager()?.getVibrationReflections() || null
     if (ds?.event?.rockParams) {
       ppvParams.rockParams = ds.event.rockParams
     }
@@ -154,7 +152,7 @@ export function createWsParts(ctx) {
         mgr?.setLocalVibrationEnabled(false)
       }
       // 每帧刷新振动场元信息，使 UI 即时反映 PPV 就绪状态
-      ctx.vibration.vibrationFieldInfo.value = mgr?.getVibrationFieldInfo?.() || null
+      ctx.vibration.vibrationFieldInfo.value = mgr?.getVibrationFieldInfo() || null
     })
     // σ_vm 应力场二进制帧：与 PPV 同时刻推送，更新应力纹理
     ws.on(FrameType.STRESS_FIELD, payload => {
@@ -165,7 +163,7 @@ export function createWsParts(ctx) {
       mgr.ensureVibrationField({ gridShape, boundsMin, boundsMax })
       mgr.updateStressField(sigmaVm, t, frame)
       // 每帧刷新振动场元信息，使 UI 即时反映应力就绪状态
-      ctx.vibration.vibrationFieldInfo.value = mgr?.getVibrationFieldInfo?.() || null
+      ctx.vibration.vibrationFieldInfo.value = mgr?.getVibrationFieldInfo() || null
     })
     // 损伤分区二进制帧：与 PPV 同时刻推送，更新损伤纹理
     ws.on(FrameType.DAMAGE_FIELD, payload => {
@@ -176,7 +174,7 @@ export function createWsParts(ctx) {
       mgr.ensureVibrationField({ gridShape, boundsMin, boundsMax })
       mgr.updateDamageField(zones, t, frame)
       // 每帧刷新振动场元信息，使 UI 即时反映损伤就绪状态
-      ctx.vibration.vibrationFieldInfo.value = mgr?.getVibrationFieldInfo?.() || null
+      ctx.vibration.vibrationFieldInfo.value = mgr?.getVibrationFieldInfo() || null
     })
     ws.on(FrameType.COMPLETED, () => {
       // 后端推送完成 ≠ 本地动画播放完成。
@@ -222,7 +220,7 @@ export function createWsParts(ctx) {
     abLoop.value = { a: null, b: null, enabled: false }
     loadProgress.value = 0
     // 清理场点拾取
-    getManager()?.disablePpvPick?.()
+    getManager()?.disablePpvPick()
     ctx.vibration.ppvPickEnabled.value = false
     ctx.vibration.pickedPpv.value = null
   }

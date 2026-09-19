@@ -83,16 +83,16 @@ export class VibrationFieldPipeline {
     const rInfluence = this.r._sceneBuilder?.influenceRadius ?? 0
     if (Number(rInfluence) > 0) this.r.onInfluenceRadiusMeasured?.(Number(rInfluence))
     // 点选查询的遮挡/轴向延展修正与 shader 同口径：getter 保证岩体重建后取最新洞身参数
-    this.r._vibrationFieldRenderer?.setHoleGeomProvider?.(
+    this.r._vibrationFieldRenderer.setHoleGeomProvider(
       () => this.r._sceneBuilder?._holeGeom || null
     )
     // 同步场盒外解析外推（萨道夫斯基）的物理参数与初始时间
     this._applyFieldPhysics()
     // 解析外推的波源随爆心注入（掏槽孔质心），保证盒外波前与盒内纹理同源
-    this.r._sceneBuilder?.applyFieldPhysics?.({
+    this.r._sceneBuilder.applyFieldPhysics({
       origin: Array.isArray(origin) ? origin : [origin.x, origin.y, origin.z]
     })
-    this.r._sceneBuilder?.setFieldSimTime?.(this.r.simTime ?? 0)
+    this.r._sceneBuilder.setFieldSimTime(this.r.simTime ?? 0)
     // 同步初始化振动波粒子特效（使用相同的坐标系基；显隐由独立图层 vibrationParticles 控制）
     this.r._vibrationParticles.init({
       center: this.r.center,
@@ -118,8 +118,8 @@ export class VibrationFieldPipeline {
    * 数据由 BlastVibrationFieldRenderer 持有，这里转发给 SceneBuilder 的 benchMesh 材质。
    */
   _applyVibrationFieldToBench() {
-    if (!this.r._sceneBuilder?.setBenchFieldData) return
-    const data = this.r._vibrationFieldRenderer?.getFieldData?.()
+    if (!this.r._sceneBuilder.setBenchFieldData) return
+    const data = this.r._vibrationFieldRenderer.getFieldData()
     if (data) this.r._sceneBuilder.setBenchFieldData(data)
   }
 
@@ -134,8 +134,8 @@ export class VibrationFieldPipeline {
    */
   _applyVibrationOcclusion() {
     const on = this.r.layerVisibility?.vibrationField !== false
-    this.r._sceneBuilder?.setRockSemiTransparent?.(on)
-    this.r._sceneBuilder?.updateFieldFade?.()
+    this.r._sceneBuilder.setRockSemiTransparent(on)
+    this.r._sceneBuilder.updateFieldFade()
   }
 
   /**
@@ -191,7 +191,7 @@ export class VibrationFieldPipeline {
       }
       return
     }
-    if (t > this.r.simTime) this.r._sceneBuilder?.setFieldSimTime?.(t)
+    if (t > this.r.simTime) this.r._sceneBuilder.setFieldSimTime(t)
   }
 
   /**
@@ -226,7 +226,7 @@ export class VibrationFieldPipeline {
    * 任何残留，等价于"Seek 期间阻塞着色器读取旧数据"。
    */
   clearFieldTextures() {
-    this.r._vibrationFieldRenderer?.clearFieldTextures?.()
+    this.r._vibrationFieldRenderer.clearFieldTextures()
   }
 
   /**
@@ -241,7 +241,7 @@ export class VibrationFieldPipeline {
   /** 将缓存的场物理参数下发到 SceneBuilder（采样一致性） */
   _applyFieldPhysics() {
     if (!this.r._fieldPhysicsParams) return
-    this.r._sceneBuilder?.applyFieldPhysics?.(this.r._fieldPhysicsParams)
+    this.r._sceneBuilder.applyFieldPhysics(this.r._fieldPhysicsParams)
   }
 
   /** 切换振动场显示模式（ppv/stress/damage） */
@@ -249,42 +249,42 @@ export class VibrationFieldPipeline {
     this.r._vibrationFieldRenderer?.setDisplayMode(mode)
     // 同步岩体表面着色模式
     const m = this.r._vibrationFieldRenderer?.displayModeValue
-    if (m != null) this.r._sceneBuilder?.setBenchFieldDisplayMode?.(m)
+    if (m != null) this.r._sceneBuilder.setBenchFieldDisplayMode(m)
   }
 
   /** 切换振动场底材"白模"：true=场图层开启时切白模底，false=保留岩石纹理底 */
   setBenchWhiteModel(enabled) {
-    this.r._sceneBuilder?.setFieldWhiteModel?.(!!enabled)
+    this.r._sceneBuilder.setFieldWhiteModel(!!enabled)
   }
 
   /** 开关振动场等力线（等值线）叠加显示 */
   setIsoLine(enabled) {
-    this.r._sceneBuilder?.setIsoLine?.(!enabled ? { on: false } : { on: true })
+    this.r._sceneBuilder.setIsoLine(!enabled ? { on: false } : { on: true })
   }
 
   /** 设置等值线样式（线宽 px / 统一颜色；color=null 恢复按级别取色） */
   setIsoLineStyle({ width, color } = {}) {
-    this.r._sceneBuilder?.setIsoLine?.({ width, color })
+    this.r._sceneBuilder.setIsoLine({ width, color })
   }
 
   /** 设置色彩映射标尺：0=线性，1=对数（默认；适应 PPV/应力幂律衰减） */
   setNormMode(mode) {
-    this.r._sceneBuilder?.setNormMode?.(mode)
+    this.r._sceneBuilder.setNormMode(mode)
   }
 
   /** 设置半透明渲染（1=场色上限 0.55 露出岩底，0=实色 0.85） */
   setFieldTranslucent(on) {
-    this.r._sceneBuilder?.setFieldTranslucent?.(!!on)
+    this.r._sceneBuilder.setFieldTranslucent(!!on)
   }
 
   /** 下发矢量箭头场（P1-6：波传播方向可视化；数据来自 blastingManager 逐帧计算） */
   setVectorField(data) {
-    this.r._sceneBuilder?.setVectorField?.(data || null)
+    this.r._sceneBuilder.setVectorField(data || null)
   }
 
   /** 清空/隐藏矢量箭头场 */
   clearVectorField() {
-    this.r._sceneBuilder?.clearVectorField?.()
+    this.r._sceneBuilder.clearVectorField()
   }
 
   /**
@@ -292,22 +292,22 @@ export class VibrationFieldPipeline {
    * 含版本号（几何 build/爆后切换/剖切时自增），调用方据此判断是否重提取。
    */
   getContourSurface() {
-    return this.r._sceneBuilder?.getContourSurface?.() ?? null
+    return this.r._sceneBuilder.getContourSurface() ?? null
   }
 
   /** 波场可达半径（= 爆心 → 岩体几何最远顶点，m；0=岩体尚未构建） */
   getInfluenceRadius() {
-    return this.r._sceneBuilder?.influenceRadius ?? 0
+    return this.r._sceneBuilder.influenceRadius ?? 0
   }
 
   /** 下发等值线折线组（contourExtractor 输出）构建 Line2 渲染组 */
   setContourPolylines(data) {
-    this.r._sceneBuilder?.setContourPolylines?.(data)
+    this.r._sceneBuilder.setContourPolylines(data)
   }
 
   /** 当前热力图渲染参数（displayMode/normMode/满刻度，等值线级别计算同口径） */
   getFieldRenderParams() {
-    return this.r._sceneBuilder?.getFieldRenderParams?.() ?? null
+    return this.r._sceneBuilder.getFieldRenderParams() ?? null
   }
 
   /** 当前是否已有可渲染的振动场（三场中任意一场有数据即视为已初始化） */
@@ -317,7 +317,7 @@ export class VibrationFieldPipeline {
 
   /** 振动场元信息（供 UI 显示当前场时间/帧/网格） */
   getVibrationFieldInfo() {
-    return this.r._vibrationFieldRenderer?.getFieldInfo?.() ?? null
+    return this.r._vibrationFieldRenderer.getFieldInfo() ?? null
   }
 
   /** 设置振动场 raymarching 步数（性能/精度权衡） */

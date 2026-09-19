@@ -189,7 +189,7 @@ export function createDatasetDbParts(ctx) {
       return
     }
     // 获取 three.js 运行时统计
-    const stats = getManager()?.getThreeStats?.() || {}
+    const stats = getManager()?.getThreeStats() || {}
 
     // 步骤1：设计结果字段写入 blasting_result
     // 保留现有 dataset.result 字段（fragmentX50/N/xmax/b、throwDistance、crater 等）

@@ -115,9 +115,9 @@ export function createRenderParts(ctx) {
   // 状态 muckPileOutlineEnabled/muckPileMeasure 为模块级单例（见文件头部"单例可变状态"块）
   const toggleMuckPileOutline = () => {
     muckPileOutlineEnabled.value = !muckPileOutlineEnabled.value
-    getManager()?.setMuckPileOutlineEnabled?.(muckPileOutlineEnabled.value)
+    getManager()?.setMuckPileOutlineEnabled(muckPileOutlineEnabled.value)
     if (muckPileOutlineEnabled.value) {
-      const measure = getManager()?.getMuckPileMeasure?.() ?? null
+      const measure = getManager()?.getMuckPileMeasure() ?? null
       muckPileMeasure.value = measure
       showMessage(
         measure?.height != null
@@ -197,17 +197,17 @@ export function createRenderParts(ctx) {
   // 块度分布统计（按 physSize 分组）：依赖 statsVersion 以便 replayBlast 后刷新
   const fragmentDistribution = computed(() => {
     statsVersion.value // 建立响应式依赖
-    return getManager()?.getFragmentDistribution?.() || null
+    return getManager()?.getFragmentDistribution() || null
   })
 
   // 高亮指定块度范围的碎片（FragmentDistribution 子组件以 { min, max } 对象形式 emit）
   const highlightFragmentsBySize = ({ min, max }) => {
-    getManager()?.highlightFragmentsBySize?.(Number(min), Number(max))
+    getManager()?.highlightFragmentsBySize(Number(min), Number(max))
   }
 
   // 清除碎片高亮，恢复原始颜色
   const clearFragmentHighlight = () => {
-    getManager()?.clearFragmentHighlight?.()
+    getManager()?.clearFragmentHighlight()
   }
 
   // 重置 KCO 参数为默认值
@@ -266,24 +266,24 @@ export function createRenderParts(ctx) {
       mgr.setLayersVisible(current)
     }
     // 白模开关同样在场景重建后保持用户设置
-    mgr?.setWhiteModelEnabled?.(ctx.vibration.whiteModelEnabled.value)
+    mgr?.setWhiteModelEnabled(ctx.vibration.whiteModelEnabled.value)
     // 等力线开关在场景重建后保持用户设置
-    mgr?.setIsoLineEnabled?.(ctx.vibration.isoLineEnabled.value)
+    mgr?.setIsoLineEnabled(ctx.vibration.isoLineEnabled.value)
     // 标尺在材质重建（uniform 回默认值）后同样保持用户设置
-    mgr?.setVibrationNormMode?.(ctx.vibration.normMode.value)
+    mgr?.setVibrationNormMode(ctx.vibration.normMode.value)
     // 载波频率同属材质 uniform，重建后一并重放
-    mgr?.setVibrationCarrierHz?.(ctx.vibration.carrierHz.value)
-    mgr?.setVibrationVectorField?.(ctx.vibration.vectorFieldOn.value)
-    mgr?.setVibrationTranslucent?.(ctx.vibration.translucentEnabled.value)
+    mgr?.setVibrationCarrierHz(ctx.vibration.carrierHz.value)
+    mgr?.setVibrationVectorField(ctx.vibration.vectorFieldOn.value)
+    mgr?.setVibrationTranslucent(ctx.vibration.translucentEnabled.value)
     // 场景(重)建后：保持雷管误差设置、并同步监测点列表（与重建后的管理器状态一致）
     mgr?.setDelayJitter?.(ctx.vibration.delayJitter.value)
     ctx.vibration.refreshMonitorPoints()
     // 场景(重)建后立刻刷新振动场元信息，使"振动场"面板的模式按钮/就绪徽标
     // 无需等待播放帧或 WS 推送即可用（本地解析场三模式随时可切换）
-    ctx.vibration.vibrationFieldInfo.value = mgr?.getVibrationFieldInfo?.() || null
-    blastDesign.value = mgr?.getBlastDesign?.() || null
+    ctx.vibration.vibrationFieldInfo.value = mgr?.getVibrationFieldInfo() || null
+    blastDesign.value = mgr?.getBlastDesign() || null
     // 主动触发一次等值线构建（等值线不应依赖播放推进才可见——C 修复）
-    mgr?.refreshContours?.()
+    mgr?.refreshContours()
   }
 
   return {

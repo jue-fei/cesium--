@@ -45,14 +45,14 @@ export function createVibrationParts(ctx) {
   const whiteModelEnabled = ref(true)
   const setWhiteModelEnabled = enabled => {
     whiteModelEnabled.value = enabled === undefined ? !whiteModelEnabled.value : !!enabled
-    getManager()?.setWhiteModelEnabled?.(whiteModelEnabled.value)
+    getManager()?.setWhiteModelEnabled(whiteModelEnabled.value)
   }
 
   // 半透明渲染（D：1=热力场上限 0.55 露出岩底轮廓，0=实色 0.85）
   const translucentEnabled = ref(false)
   const setTranslucentEnabled = enabled => {
     translucentEnabled.value = enabled === undefined ? !translucentEnabled.value : !!enabled
-    getManager()?.setVibrationTranslucent?.(translucentEnabled.value)
+    getManager()?.setVibrationTranslucent(translucentEnabled.value)
   }
 
   // 自动量程（色标满刻度跟随岩体代表性峰值）：供振动场图例实时显示当前 PPV/应力上限。
@@ -60,7 +60,7 @@ export function createVibrationParts(ctx) {
   const fieldRange = computed(() => {
     sadoskyParams.value
     dataset.value
-    return getManager()?.getFieldRange?.() ?? null
+    return getManager()?.getFieldRange() ?? null
   })
 
   // 等力线（等值线）叠加显示开关：默认关闭，避免正面近视角下
@@ -68,7 +68,7 @@ export function createVibrationParts(ctx) {
   const isoLineEnabled = ref(false)
   const setIsoLineEnabled = enabled => {
     isoLineEnabled.value = enabled === undefined ? !isoLineEnabled.value : !!enabled
-    getManager()?.setIsoLineEnabled?.(isoLineEnabled.value)
+    getManager()?.setIsoLineEnabled(isoLineEnabled.value)
   }
 
   // ─── 损伤边界（P0-1）────────────
@@ -80,8 +80,8 @@ export function createVibrationParts(ctx) {
   // 无需重启后端或重开推流
   const pushLiveFieldParams = () => {
     if (!(wsConnected.value && getWsVibrationStarted() && getWs())) return
-    getWs()?.updateFieldParams?.({
-      influenceRadius: getManager()?.getInfluenceRadius?.() ?? 60
+    getWs()?.updateFieldParams({
+      influenceRadius: getManager()?.getInfluenceRadius() ?? 60
     })
   }
 
@@ -90,13 +90,13 @@ export function createVibrationParts(ctx) {
   const vectorFieldOn = ref(false)
   const setVectorFieldOn = on => {
     vectorFieldOn.value = on === undefined ? !vectorFieldOn.value : !!on
-    getManager()?.setVibrationVectorField?.(vectorFieldOn.value)
+    getManager()?.setVibrationVectorField(vectorFieldOn.value)
   }
 
   // 仿真 PPV 衰减 vs 萨道夫斯基公式对比（P2-8 验证，经由 blastingManager API）
   const ppvDecayData = computed(() => {
     if (!dataset.value) return null
-    return getManager()?.getPpvDecayData?.() ?? null
+    return getManager()?.getPpvDecayData() ?? null
   })
 
   // 雷管起爆延期误差（蒙特卡洛） ─────────────────────────────
@@ -151,7 +151,7 @@ export function createVibrationParts(ctx) {
   const setVibrationNormMode = mode => {
     const v = Number(mode) > 0 ? 1 : 0
     normMode.value = v
-    getManager()?.setVibrationNormMode?.(v)
+    getManager()?.setVibrationNormMode(v)
     refreshContourStatsSoon()
   }
 
@@ -162,7 +162,7 @@ export function createVibrationParts(ctx) {
   const setVibrationCarrierHz = hz => {
     const v = Math.max(0, Math.min(30, Number(hz) || 0))
     carrierHz.value = v
-    getManager()?.setVibrationCarrierHz?.(v)
+    getManager()?.setVibrationCarrierHz(v)
   }
 
   // 等值线密度（色带分档数，等值线条数 = density−1），变更后触发重提取
@@ -171,14 +171,14 @@ export function createVibrationParts(ctx) {
     const v = Math.max(4, Math.min(24, Math.round(Number(d) || 12)))
     if (v === contourDensity.value) return
     contourDensity.value = v
-    getManager()?.setVibrationContourDensity?.(v)
+    getManager()?.setVibrationContourDensity(v)
     refreshContourStatsSoon()
   }
 
   // 最近一次等值线提取诊断（segments/loops/碎环过滤等，随振动场元信息一并刷新）
   const contourStats = ref(null)
   const refreshContourStats = () => {
-    contourStats.value = getManager()?.getVibrationContourStats?.() ?? null
+    contourStats.value = getManager()?.getVibrationContourStats() ?? null
   }
   // 密度/标尺变更触发异步重提取（Worker 计算峰值场），延迟回读一次诊断结果
   const refreshContourStatsSoon = () => {
@@ -215,7 +215,7 @@ export function createVibrationParts(ctx) {
         pointHistory.value = null
         return
       }
-      pointHistory.value = getManager()?.samplePointHistory?.(sample.local) ?? null
+      pointHistory.value = getManager()?.samplePointHistory(sample.local) ?? null
     },
     { immediate: true }
   )
@@ -243,7 +243,7 @@ export function createVibrationParts(ctx) {
     ctx.render.layerVisibility.value.vibrationField = true
     getManager()?.setLayerVisible('vibrationField', true)
     // 切换后立即刷新一次元信息（hasField 依赖当前模式）
-    vibrationFieldInfo.value = getManager()?.getVibrationFieldInfo?.() || null
+    vibrationFieldInfo.value = getManager()?.getVibrationFieldInfo() || null
   }
 
   return {

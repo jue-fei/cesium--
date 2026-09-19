@@ -80,8 +80,8 @@ export class SeekController {
     }
     this.r.simTime = 0
     this.r._fieldTimeLocked = true
-    this.r._sceneBuilder?.setContourTime?.(0) // 等值线门控时间同步归零（防重播瞬间残留整幅旧线）
-    this.r._sceneBuilder?.setFieldSimTime?.(0) // uSimTime 同步归零（解析外推波前门控重放）
+    this.r._sceneBuilder.setContourTime(0) // 等值线门控时间同步归零（防重播瞬间残留整幅旧线）
+    this.r._sceneBuilder.setFieldSimTime(0) // uSimTime 同步归零（解析外推波前门控重放）
     // 特效重置到 t=0
     if (this.r._lastEffectParams) {
       this.r._effectManager.clear()
@@ -96,7 +96,7 @@ export class SeekController {
     this.r._landAllAt = null
 
     // 回放模式：直接从预烘焙关键帧采样 t=0，瞬时完成、无竞态
-    if (this.r._physicsEngine?.isReplayReady?.()) {
+    if (this.r._physicsEngine.isReplayReady()) {
       this.r._physicsEngine.applyReplayAtTime(0)
       this.r._replayLandCursor = 0
       this.r._replayModeActive = true
@@ -151,8 +151,8 @@ export class SeekController {
     // 与目标时刻的场纹理脱节。锁住 WS 尾帧的时间信任，uSimTime 由下方快进 tick
     // 逐帧推进到目标时刻。
     this.r._fieldTimeLocked = true
-    this.r._sceneBuilder?.setContourTime?.(0) // 等值线门控时间同步归零
-    this.r._sceneBuilder?.setFieldSimTime?.(0)
+    this.r._sceneBuilder.setContourTime(0) // 等值线门控时间同步归零
+    this.r._sceneBuilder.setFieldSimTime(0)
     if (this.r._lastEffectParams) {
       this.r._effectManager.clear()
       this.r._effectManager.init(this.r._lastEffectParams)
@@ -184,13 +184,13 @@ export class SeekController {
     // 回放模式：跳过 Worker 重建/快进，直接采样预烘焙关键帧（瞬时完成、任意倍速）。
     const startWorkerSeek = () => {
       this.r._seekBlocked = false
-      if (this.r._physicsEngine?.isReplayReady?.()) {
+      if (this.r._physicsEngine.isReplayReady()) {
         this._clearSeekWatchdog()
         this.r.simTime = targetTime
-        this.r._sceneBuilder?.setContourTime?.(targetTime) // 等值线门控时间随 seek 跳变
+        this.r._sceneBuilder.setContourTime(targetTime) // 等值线门控时间随 seek 跳变
         // uSimTime 随 seek 跳变对齐（回放分支无快进 tick，需显式同步），
         // 同步后解锁恢复 WS 场帧时间的单调信任
-        this.r._sceneBuilder?.setFieldSimTime?.(targetTime)
+        this.r._sceneBuilder.setFieldSimTime(targetTime)
         this.r._fieldTimeLocked = false
         this.r._physicsEngine.applyReplayAtTime(targetTime)
         this.r._replayLandCursor = targetTime
@@ -207,7 +207,7 @@ export class SeekController {
         // Worker 完成：清除 watchdog 并渲染一帧
         this._clearSeekWatchdog()
         // uSimTime 对齐目标时刻后解锁（快进 tick 已把播放时钟推进到 targetTime）
-        this.r._sceneBuilder?.setFieldSimTime?.(this.r.simTime)
+        this.r._sceneBuilder.setFieldSimTime(this.r.simTime)
         this.r._fieldTimeLocked = false
         this.r._fragmentRenderer.updateFragmentMesh()
         this.r.renderFrame()
@@ -234,7 +234,7 @@ export class SeekController {
       }
       // uSimTime 跟随快进播放时钟（每 tick 一次即可）：解析外推波环/波前门控
       // 与场纹理同步重放，而非停留在 seek 前的旧时刻
-      this.r._sceneBuilder?.setFieldSimTime?.(this.r.simTime)
+      this.r._sceneBuilder.setFieldSimTime(this.r.simTime)
 
       if (remaining > 0 && stepCount < maxSteps) {
         // 还有剩余步骤，下一帧继续
