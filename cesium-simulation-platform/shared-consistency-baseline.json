@@ -1,5 +1,5 @@
 {
-  "_comment": "前后端一致性基线（实时互算契约）。前端 kcoFormulas.test.js 与后端 test_kco_formulas.py / test_kco_validator.py 共用；任一端公式改动而不同步本文件/对端实现，对应测试即失败。数值由 Swebrec 公式定义 P(x) = 1 - exp(-ln2 * (x/x50)^n / ((xmax-x)/(xmax-x50))^b) 以 mpmath 50 位精度独立计算后取双精度（2026-09-10 重建，原文件未入库已丢失）。damageThresholdsCmps 为爆破损伤分区 PPV 阈值契约（cm/s），由前端 damageThresholdsContract.test.js 与后端 test_damage_thresholds.py 双端校验，真源实现：前端 vibration/shared.js 与后端 blast_physics.py。 weightTuningCmps 为多目标权重调节契约（目标 id 清单 / 权重来源枚举 / API 路径），由前端 weightTuningContract.test.js 与后端 test_weight_source.py 双端校验，目标 id 真源：前端 lhdSchedulingUtils.js 与后端 multi_objective.py。 timeseriesCmps 为时序化工况数据契约（downsample 枚举/桶宽/保留窗口/单查点上限），由前端 timeSeriesContract.test.js 与后端 test_ts_store.py 双端校验，策略常量真源：后端 retention.py。",
+  "_comment": "前后端一致性基线（实时互算契约）。前端 kcoFormulas.test.js 与后端 test_kco_formulas.py / test_kco_validator.py 共用；任一端公式改动而不同步本文件/对端实现，对应测试即失败。数值由 Swebrec 公式定义 P(x) = 1 - exp(-ln2 * (x/x50)^n / ((xmax-x)/(xmax-x50))^b) 以 mpmath 50 位精度独立计算后取双精度（2026-09-10 重建，原文件未入库已丢失）。damageThresholdsCmps 为爆破损伤分区 PPV 阈值契约（cm/s），由前端 damageThresholdsContract.test.js 与后端 test_damage_thresholds.py 双端校验，真源实现：前端 vibration/shared.js 与后端 blast_physics.py。 weightTuningCmps 为多目标权重调节契约（目标 id 清单 / 权重来源枚举 / API 路径），由前端 weightTuningContract.test.js 与后端 test_weight_source.py 双端校验，目标 id 真源：前端 lhdSchedulingUtils.js 与后端 multi_objective.py。 timeseriesCmps 为时序化工况数据契约（downsample 枚举/桶宽/保留窗口/单查点上限），由前端 timeSeriesContract.test.js 与后端 test_ts_store.py 双端校验，策略常量真源：后端 retention.py。 realtimeWsCmps 为全域实时推送 WS 帧协议契约（url/scopes/帧类型/心跳超时/推送间隔区间/退避参数），由前端 realtimeWsContract.test.js 与后端 test_realtime_telemetry.py 双端校验，帧协议真源：后端 realtime_ws.py。",
   "swebrecCdf": {
     "x=0.5, x50=0.3, xmax=2.0, n=1.2, b=2.0": 0.8066900763516754
   },
@@ -51,6 +51,33 @@
     "api": {
       "metrics": "GET /api/timeseries/metrics",
       "query": "GET /api/timeseries"
+    }
+  },
+  "realtimeWsCmps": {
+    "url": "/ws/realtime/{scope}",
+    "scopes": [
+      "equipment"
+    ],
+    "frameTypes": [
+      "telemetry",
+      "pong",
+      "error"
+    ],
+    "clientMessages": [
+      "ping",
+      "set_interval"
+    ],
+    "heartbeatTimeoutS": 60,
+    "defaultIntervalS": 2.0,
+    "minIntervalS": 0.5,
+    "maxIntervalS": 30.0,
+    "sourceTags": [
+      "simulated"
+    ],
+    "backoff": {
+      "baseMs": 1000,
+      "capMs": 8000,
+      "maxAttempts": 5
     }
   }
 }

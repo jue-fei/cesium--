@@ -1,0 +1,4 @@
+{
+  "_comment": "全域实时推送数据源适配器配置：adapter=sim（模拟源，固定 seed 传感器曲线，当前使用）| mqtt（真实遥测接入点，未实现时自动降级 sim）。帧协议契约见 shared-consistency-baseline.json#realtimeWsCmps。",
+  "adapter": "sim"
+}

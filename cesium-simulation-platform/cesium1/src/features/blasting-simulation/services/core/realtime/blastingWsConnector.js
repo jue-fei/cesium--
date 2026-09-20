@@ -55,6 +55,8 @@ export const CommandType = {
   SEEK: 'seek'
 }
 
+import { computeBackoffMs } from '../../../../shared/realtime/backoff.js'
+
 export class BlastingWsConnector {
   /**
    * @param {string} eventId - 爆破事件 ID
@@ -449,10 +451,11 @@ export class BlastingWsConnector {
       return
     }
     this._reconnectAttempts++
-    const delay = Math.min(
-      RECONNECT_BASE_DELAY_MS * 2 ** (this._reconnectAttempts - 1),
-      RECONNECT_MAX_DELAY_MS
-    )
+    // 退避策略单源：shared/realtime/backoff.js（契约 baseline#realtimeWsCmps.backoff）
+    const delay = computeBackoffMs(this._reconnectAttempts, {
+      baseMs: RECONNECT_BASE_DELAY_MS,
+      capMs: RECONNECT_MAX_DELAY_MS
+    })
     console.info(
       `[BlastingWs] reconnecting in ${delay}ms (attempt ${this._reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`
     )
