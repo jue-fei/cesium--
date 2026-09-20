@@ -43,7 +43,18 @@ export class LiteratureDesignService {
     const design = this.m.dataset?.design
     if (!this.m._useLiteratureDesign || !design) return
     const literature = design.literature
-    if (!literature?.section || !Array.isArray(literature.holes)) return
+    if (!literature?.section || !Array.isArray(literature.holes)) {
+      // 降级警告：文献设计数据已后端化，缺失说明后端版本过旧或未重启
+      // （backend-py 于 4ad2e35 起经 /api/blasting/events/{id} 注入 design.literature）。
+      // 此时只能使用数据库原始布孔与默认萨道夫斯基参数，3D 动画与热力图
+      // 将与文献口径不一致——这是可感知的视觉差异，必须显式提示。
+      console.warn(
+        '[BlastingManager] design.literature 缺失：后端未下发文献设计数据。' +
+        '请确认 backend-py 已更新到含 config/blasting_designs/ 的版本并重启服务。' +
+        '当前回退使用数据库原始布孔 + 默认萨道夫斯基 K/α，热力图与碎石抛掷动画可能与文献口径不一致。'
+      )
+      return
+    }
     const s = literature.section
     const holes = literature.holes
     const depth = literature.holeDepth ?? 3.0
