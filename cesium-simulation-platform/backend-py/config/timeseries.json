@@ -1,0 +1,5 @@
+{
+  "_comment": "时序化工况数据存储配置：backend=memory（进程内，默认，零依赖）| mysql（ts_points 表，DB 不可达自动降级 memory）。保留/降采样策略与查询契约见 shared-consistency-baseline.json#timeseriesCmps，策略常量真源在 app/services/timeseries/retention.py。",
+  "backend": "memory",
+  "flushBatchSize": 200
+}

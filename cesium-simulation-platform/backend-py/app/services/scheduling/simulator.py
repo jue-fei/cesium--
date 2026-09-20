@@ -38,6 +38,7 @@ from typing import Any, Optional
 from app.services.scheduling.scenario_config import load_scenario
 from app.services.scheduling.muck_data import load_muck_tasks
 from app.services.scheduling.multi_objective import solve_pareto
+from app.services.timeseries.ts_store import record_metric
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,9 @@ PENDING_EXPIRE_S = 300.0         # 秒（≈60 仿真步）
 # 开关：设为 0 可关闭缓存（每帧快照都重算，仅用于调试）。
 OPT_MIN_INTERVAL_S = 10.0
 OPT_REFRESH_S = 60.0
+
+# 时序工况指标记录节流（仿真秒）：避免逐 tick 写入导致序列膨胀
+TS_RECORD_INTERVAL = 5.0
 
 
 # 装备库：铲运机(LHD) 通用规格（外形尺寸/斗容/铰接转弯半径实测量级）
@@ -277,6 +281,7 @@ class SchedulingSimulator:
         self.rng = random.Random(seed)
         self.dt = dt  # 仿真相步(秒)
         self.t = 0.0
+        self._ts_last_t = None  # 上次时序指标记录的仿真时刻（节流用，见 _record_timeseries）
 
         # ---- 场景配置（见 config/scenario_<名>.json）----
         self.scenario_id = self.cfg.get("scenario", "underground-LHD")
@@ -1482,7 +1487,26 @@ class SchedulingSimulator:
         self._update_dynamic()
         self._update_muck()
         self._move_equipment()
+        self._record_timeseries()
         return self.snapshot()
+
+    def _record_timeseries(self):
+        """统一时序写入点： fleet 级工况指标入 ts_store（契约 baseline#timeseriesCmps）。
+
+        按仿真时钟节流（TS_RECORD_INTERVAL 秒记录一次）；时间戳用真实时钟
+        （时序存储全局口径 = Unix 秒），仿真快放时按墙钟节流同样成立；
+        写入失败静默（record_metric 内部保证），绝不阻断仿真主循环。
+        """
+        if self._ts_last_t is not None and self.t - self._ts_last_t < TS_RECORD_INTERVAL:
+            return
+        self._ts_last_t = self.t
+        loaded = sum(1 for eq in self.equip if eq.load_mode == "loaded")
+        record_metric("scheduling.fleet_loaded_count", loaded)
+        record_metric("scheduling.fleet_empty_count", len(self.equip) - loaded)
+        record_metric(
+            "scheduling.muck_stock_t",
+            sum(mp.stock_t for mp in self.muck.values()),
+        )
 
 
 # 供调试的便捷构造
