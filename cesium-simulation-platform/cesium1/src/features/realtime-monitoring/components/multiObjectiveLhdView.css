@@ -1148,3 +1148,104 @@
 .legend-zone {
   font-weight: 600;
 }
+
+/* ===== 权重调节面板（ML 推荐权重 / 手动微调） ===== */
+.wt-panel {
+  flex: none;
+}
+.wt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 10px 8px;
+}
+.wt-source {
+  font-size: 9.5px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 8px;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+}
+.wt-source.wt-degraded {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  border-color: rgba(251, 191, 36, 0.25);
+}
+.wt-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9.5px;
+  color: #94a3b8;
+  cursor: pointer;
+  user-select: none;
+}
+.wt-lock input {
+  accent-color: #38bdf8;
+}
+.wt-row {
+  display: grid;
+  grid-template-columns: 46px 1fr 34px;
+  align-items: center;
+  gap: 6px;
+}
+.wt-name {
+  font-size: 9.5px;
+  color: #cbd5e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wt-slider {
+  width: 100%;
+  height: 10px;
+  margin: 0;
+  accent-color: #38bdf8;
+  cursor: pointer;
+}
+.wt-val {
+  font-size: 9.5px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #7dd3fc;
+}
+.wt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 3px;
+}
+.wt-btn {
+  flex: 1 1 auto;
+  padding: 3px 8px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: #e2e8f0;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wt-btn:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.22);
+}
+.wt-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.wt-btn-ghost {
+  background: transparent;
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #94a3b8;
+}
+.wt-btn-ghost:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.12);
+}
+.wt-error {
+  font-size: 9.5px;
+  line-height: 1.4;
+  color: #f87171;
+}

@@ -22,6 +22,12 @@ from app.services.scheduling.scenario_config import (
     DEFAULT_SCENARIO,
 )
 from app.services.scheduling.muck_data import list_tasks_for_api, upsert_task
+from app.services.scheduling.multi_objective import (
+    normalize_weights,
+    recommend_from_front,
+    solve_pareto,
+)
+from app.services.scheduling.weight_source import get_weight_recommendation
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +110,58 @@ def scheduling_scenario(scenario: Optional[str] = None):
                 "hazardZoneBiasM": indicator.get("hazardZoneBiasM", 5.0),
                 "opexReductionTargetPct": indicator.get("opexReductionTargetPct", 10.0),
             },
+        },
+    }
+
+
+@router.get("/weights/recommend")
+def scheduling_weights_recommend(scenario: Optional[str] = None):
+    """推荐权重方案：外部 ML 权重服务优先（契约见 baseline#weightTuningCmps），
+    未启用/超时/响应非法时自动降级等权（source=fallback, degraded=true），
+    前端据此展示来源标签。权重仅表达偏好，求解仍由内置 NSGA-III 完成。"""
+    return {"code": 0, "data": get_weight_recommendation(scenario or DEFAULT_SCENARIO)}
+
+
+@router.post("/multi-objective/solve")
+def scheduling_multi_objective_solve(
+    body: dict = Body(..., description="{weights:{objectiveId:w}, resolve?:bool}"),
+    scenario: Optional[str] = None,
+):
+    """按权重偏好观察多目标优化结果（权重来自 /weights/recommend 或用户微调）。
+
+    - resolve=false（默认·快路径）：在快照既有帕累托前沿上做加权归一推荐，
+      返回推荐解下标 recommendedIndex（毫秒级，供滑杆拖动实时联动）；
+    - resolve=true（深路径）：把权重向量追加为 NSGA-III 偏好参考方向重新求解，
+      返回新前沿 + 推荐下标（候选空间与快照预计算完全一致）。
+    """
+    sim = get_simulator(scenario)
+    try:
+        weights = normalize_weights(body.get("weights"))
+    except ValueError as e:
+        return {"code": 1, "message": f"权重格式非法：{e}"}
+    opt = sim.snapshot()["factors"]["optimization"]
+    if body.get("resolve"):
+        candidates_list = [opt["byEquipment"].get(eq.id, []) for eq in sim.equip]
+        result = solve_pareto(candidates_list, weights=weights)
+        return {
+            "code": 0,
+            "data": {
+                "solved": True,
+                "weights": weights,
+                "paretoFront": result["paretoFront"],
+                "objectiveDefs": result["objectives"],
+                "optStats": result["stats"],
+                "recommendedIndex": recommend_from_front(result["paretoFront"], weights),
+            },
+        }
+    front = opt.get("paretoFront") or []
+    return {
+        "code": 0,
+        "data": {
+            "solved": False,
+            "weights": weights,
+            "recommendedIndex": recommend_from_front(front, weights),
+            "paretoSize": len(front),
         },
     }
 

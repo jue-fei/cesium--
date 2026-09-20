@@ -17,3 +17,32 @@ export function applyAssignment(assignments) {
     body: JSON.stringify(assignments)
   }).then(r => r.json())
 }
+
+/**
+ * 获取推荐权重方案。外部 ML 权重服务优先（训练与推理在外部，平台只消费结果），
+ * 未启用/失败时后端自动降级等权（data.source='fallback' 且 data.degraded=true）。
+ * 契约见 shared-consistency-baseline.json#weightTuningCmps。
+ * @param {string} scenario 场景名
+ * @returns {Promise<object>} {code, data:{weights, source, modelVersion, degraded, latencyMs}}
+ */
+export function fetchWeightRecommend(scenario) {
+  const q = scenario ? `?scenario=${encodeURIComponent(scenario)}` : ''
+  return fetch(`/api/scheduling/weights/recommend${q}`).then(r => r.json())
+}
+
+/**
+ * 按权重观察多目标优化结果。
+ * @param {{weights:Object, resolve?:boolean, scenario?:string, signal?:AbortSignal}} payload
+ *   resolve=false（默认·快路径）：在快照既有前沿上加权推荐，毫秒级返回 recommendedIndex；
+ *   resolve=true（深路径）：权重作为偏好参考方向重新运行 NSGA-III，返回新前沿。
+ * @returns {Promise<object>} {code, data:{solved, weights, recommendedIndex, ...}}
+ */
+export function solveMultiObjective(payload) {
+  const { signal, ...body } = payload
+  return fetch('/api/scheduling/multi-objective/solve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal
+  }).then(r => r.json())
+}

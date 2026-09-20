@@ -241,6 +241,75 @@
 
         <!-- 右侧栏：坐标轴(上,1份) + 方案明细表(下,3份)，底部与地图对齐 -->
         <div class="map-side">
+          <!-- 权重调节：ML 推荐权重 / 手动微调 → 加权推荐方案（联动散点高亮与派单） -->
+          <div class="panel wt-panel">
+            <div class="panel-head">
+              <div class="panel-label">权重调节</div>
+              <div class="panel-controls">
+                <span
+                  v-if="weightSource"
+                  class="wt-source"
+                  :class="{ 'wt-degraded': weightDegraded }"
+                  :title="weightDegraded ? '外部 ML 权重服务未启用/失败，已降级等权' : ''"
+                >
+                  {{
+                    weightSource === 'ml-external'
+                      ? 'ML 推荐'
+                      : weightSource === 'manual'
+                        ? '手动'
+                        : '等权降级'
+                  }}
+                </span>
+                <label class="wt-lock" title="锁定当前推荐，前沿刷新不重算；拖动滑杆自动解锁">
+                  <input
+                    type="checkbox"
+                    :checked="weightLocked"
+                    @change="lockRecommend($event.target.checked)"
+                  />锁定
+                </label>
+              </div>
+            </div>
+            <div class="panel-body wt-body">
+              <div v-for="o in objectives" :key="o.id" class="wt-row">
+                <span class="wt-name" :title="o.desc">{{ o.name }}</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  :value="weightRaw[o.id] || 0"
+                  class="wt-slider"
+                  :aria-label="`${o.name}权重`"
+                  @input="
+                    weightRaw[o.id] = Number($event.target.value)
+                    onWeightSliderInput()
+                  "
+                />
+                <span class="wt-val">{{ Math.round((normW[o.id] || 0) * 100) }}%</span>
+              </div>
+              <div class="wt-actions">
+                <button class="wt-btn" :disabled="weightLoading" @click="loadWeightRecommend">
+                  {{ weightLoading ? '获取中…' : 'ML 推荐权重' }}
+                </button>
+                <button
+                  class="wt-btn"
+                  :disabled="weightSolving || !paretoSize"
+                  title="把权重作为偏好参考方向重新运行 NSGA-III"
+                  @click="deepSolve"
+                >
+                  {{ weightSolving ? '求解中…' : '按权重重求解' }}
+                </button>
+                <button
+                  v-if="result?.overridden"
+                  class="wt-btn wt-btn-ghost"
+                  @click="resetOverride"
+                >
+                  恢复快照前沿
+                </button>
+              </div>
+              <div v-if="weightError" class="wt-error">{{ weightError }}</div>
+              <div v-if="weightModelText" class="panel-hint">{{ weightModelText }}</div>
+            </div>
+          </div>
           <!-- 帕累托前沿（任意两两目标投影，带刻度） -->
           <div class="panel pf-panel">
             <div class="panel-head">
@@ -524,6 +593,7 @@ import { applyAssignment as applyAssignmentApi } from '../services/schedulingApi
 import { useMultiObjectiveLhdSort } from './useMultiObjectiveLhdSort.js'
 import { useMultiObjectiveLhdScatter } from './useMultiObjectiveLhdScatter.js'
 import { useMultiObjectiveLhdTunnel } from './useMultiObjectiveLhdTunnel.js'
+import { useWeightTuning } from './useWeightTuning.js'
 import TunnelMap3D from './TunnelMap3D.vue'
 
 // ===== 文献口径数值（仅供底部 ref-note 口径文案插值展示，勿改字面口径） =====
@@ -557,13 +627,27 @@ const activeSegId = ref('')
 // 前端打开本板块直接使用，不再在浏览器里运行算法。
 const backendOpt = computed(() => props.snapshot?.factors?.optimization || null)
 
+// 深路径"按权重重求解"返回的前沿覆盖（null = 消费快照预计算前沿）；
+// 恢复/场景切换/快照前沿变化后由用户或兜底逻辑清空
+const solvedOverride = shallowRef(null)
+
 const result = computed(() => {
+  const ov = solvedOverride.value
+  if (ov?.paretoFront?.length) {
+    return {
+      paretoFront: ov.paretoFront,
+      objectives: ov.objectiveDefs?.length ? ov.objectiveDefs : LHD_OBJECTIVES,
+      stats: ov.optStats || null,
+      overridden: true
+    }
+  }
   const opt = backendOpt.value
   if (opt?.paretoFront && Array.isArray(opt.paretoFront) && opt.paretoFront.length > 0) {
     return {
       paretoFront: opt.paretoFront,
       objectives: opt.objectiveDefs?.length ? opt.objectiveDefs : LHD_OBJECTIVES,
-      stats: opt.optStats || null
+      stats: opt.optStats || null,
+      overridden: false
     }
   }
   return null
@@ -571,6 +655,7 @@ const result = computed(() => {
 
 // 优化结果来源标注：后端统一由 pymoo NSGA-III 求解
 const optSourceLabel = computed(() => {
+  if (result.value?.overridden) return '按权重重求解 · NSGA-III'
   const s = backendOpt.value?.optStats?.source
   if (s === 'nsga3') return '后端 NSGA-III · pymoo'
   return ''
@@ -584,14 +669,16 @@ onMounted(() => {
   fetchScenarioConfig(props.scenario).then(cfg => {
     if (cfg) layout.value = buildLayout(cfg)
   })
+  loadWeightRecommend()
 })
-// 场景切换时重新拉取配置
+// 场景切换时重新拉取配置与推荐权重
 watch(
   () => props.scenario,
   () => {
     fetchScenarioConfig(props.scenario).then(cfg => {
       layout.value = cfg ? buildLayout(cfg) : null
     })
+    loadWeightRecommend()
   }
 )
 
@@ -764,6 +851,43 @@ function selectByIndex(idx) {
   selectedIndex.value = idx
 }
 
+// ===== 权重调节：ML 推荐权重 + 手动微调 → 加权推荐方案 =====
+// 契约（目标 id / 来源枚举 / API 路径）见 shared-consistency-baseline.json#weightTuningCmps。
+// 快路径在既有前沿上加权推荐（滑杆防抖联动）；深路径把权重作为偏好参考方向重跑 NSGA-III，
+// 结果经 solvedOverride 覆盖展示，可一键恢复快照前沿。
+const {
+  raw: weightRaw,
+  normW,
+  source: weightSource,
+  modelVersion: weightModelVersion,
+  degraded: weightDegraded,
+  loading: weightLoading,
+  solving: weightSolving,
+  error: weightError,
+  locked: weightLocked,
+  loadRecommend: loadWeightRecommend,
+  onSliderInput: onWeightSliderInput,
+  deepSolve,
+  refreshOnFrontChange,
+  lockRecommend
+} = useWeightTuning({
+  scenario: computed(() => props.scenario),
+  objectives,
+  onRecommend: idx => {
+    selectedIndex.value = idx
+  },
+  onSolved: data => {
+    solvedOverride.value = data
+  }
+})
+function resetOverride() {
+  solvedOverride.value = null
+  if (weightSource.value === 'manual') refreshOnFrontChange()
+}
+const weightModelText = computed(() =>
+  weightModelVersion.value ? `权重模型 ${weightModelVersion.value}` : ''
+)
+
 // 当前建议方案中某设备所选候选的"装载点 · 采场"标注（含完整路线）
 function routeStep(i) {
   const ind = selected.value
@@ -780,11 +904,12 @@ function fmt(v) {
   return v == null ? '-' : Number(v).toFixed(2)
 }
 
-// 后端前沿刷新/收缩时兜底修正选中索引，避免越界
+// 后端前沿刷新/收缩时兜底修正选中索引，避免越界；权重已激活且未锁定时联动重算推荐
 watch(
   paretoFront,
   f => {
     if (selectedIndex.value > f.length - 1) selectedIndex.value = 0
+    refreshOnFrontChange()
   },
   { immediate: true }
 )
