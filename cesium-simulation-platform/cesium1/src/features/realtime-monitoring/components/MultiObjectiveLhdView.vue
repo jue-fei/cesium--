@@ -279,10 +279,7 @@
                   :value="weightRaw[o.id] || 0"
                   class="wt-slider"
                   :aria-label="`${o.name}权重`"
-                  @input="
-                    weightRaw[o.id] = Number($event.target.value)
-                    onWeightSliderInput()
-                  "
+                  @input="onWeightSlide(o.id, $event)"
                 />
                 <span class="wt-val">{{ Math.round((normW[o.id] || 0) * 100) }}%</span>
               </div>
@@ -887,6 +884,12 @@ function resetOverride() {
 const weightModelText = computed(() =>
   weightModelVersion.value ? `权重模型 ${weightModelVersion.value}` : ''
 )
+
+/** 滑杆输入：写入原始值并触发防抖求解（模板单语句调用，避免内联多语句表达式） */
+function onWeightSlide(id, evt) {
+  weightRaw.value[id] = Number(evt.target.value)
+  onWeightSliderInput()
+}
 
 // 当前建议方案中某设备所选候选的"装载点 · 采场"标注（含完整路线）
 function routeStep(i) {

@@ -1,0 +1,3300 @@
+{
+  "source": "synthetic",
+  "meta": {
+    "seed": 20260920,
+    "origin": {
+      "lon": 113.323,
+      "lat": 23.106,
+      "height": -26.0
+    },
+    "strikeHeadingDeg": 40.0,
+    "blockSizeM": 30.0,
+    "levels": [
+      "一中段",
+      "二中段",
+      "三中段"
+    ],
+    "gradeUnit": "% Cu",
+    "oreDensityTm3": 2.7,
+    "note": "仿真示例数据：按矿体空间趋势与固定 seed 扰动合成，非真实勘探品位。"
+  },
+  "gradeLevels": [
+    0.4,
+    0.6,
+    0.8,
+    1.0,
+    1.2
+  ],
+  "zones": [
+    "I号采区",
+    "II号采区",
+    "III号采区",
+    "IV号采区"
+  ],
+  "blocks": [
+    {
+      "id": "B000002",
+      "zone": "I号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3216636,
+      "lat": 23.1047363,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.489,
+      "tonnageT": 67812.9
+    },
+    {
+      "id": "B000003",
+      "zone": "I号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.321888,
+      "lat": 23.1045619,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.553,
+      "tonnageT": 72322.3
+    },
+    {
+      "id": "B000101",
+      "zone": "I号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3216275,
+      "lat": 23.1051185,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.574,
+      "tonnageT": 69623.4
+    },
+    {
+      "id": "B000102",
+      "zone": "I号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3218519,
+      "lat": 23.1049441,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.764,
+      "tonnageT": 67191.3
+    },
+    {
+      "id": "B000103",
+      "zone": "I号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3220764,
+      "lat": 23.1047697,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.691,
+      "tonnageT": 69811.8
+    },
+    {
+      "id": "B000104",
+      "zone": "I号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3223008,
+      "lat": 23.1045953,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.508,
+      "tonnageT": 72676.8
+    },
+    {
+      "id": "B000201",
+      "zone": "I号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3218158,
+      "lat": 23.1053263,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.751,
+      "tonnageT": 68162.2
+    },
+    {
+      "id": "B000202",
+      "zone": "I号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3220403,
+      "lat": 23.1051519,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.73,
+      "tonnageT": 69572.2
+    },
+    {
+      "id": "B000203",
+      "zone": "I号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3222647,
+      "lat": 23.1049775,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.832,
+      "tonnageT": 69854.4
+    },
+    {
+      "id": "B000204",
+      "zone": "I号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3224892,
+      "lat": 23.1048031,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.838,
+      "tonnageT": 72309.6
+    },
+    {
+      "id": "B000300",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3217797,
+      "lat": 23.1057086,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.618,
+      "tonnageT": 70119.2
+    },
+    {
+      "id": "B000301",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3220042,
+      "lat": 23.1055342,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.919,
+      "tonnageT": 69983.3
+    },
+    {
+      "id": "B000302",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3222286,
+      "lat": 23.1053598,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.681,
+      "tonnageT": 70684.4
+    },
+    {
+      "id": "B000303",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3224531,
+      "lat": 23.1051854,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.86,
+      "tonnageT": 67267.7
+    },
+    {
+      "id": "B000304",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3226775,
+      "lat": 23.105011,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.666,
+      "tonnageT": 70167.9
+    },
+    {
+      "id": "B000305",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3229019,
+      "lat": 23.1048366,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.816,
+      "tonnageT": 70595.5
+    },
+    {
+      "id": "B000400",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.321968,
+      "lat": 23.1059164,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.694,
+      "tonnageT": 68203.7
+    },
+    {
+      "id": "B000401",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3221925,
+      "lat": 23.105742,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.72,
+      "tonnageT": 68784.6
+    },
+    {
+      "id": "B000402",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3224169,
+      "lat": 23.1055676,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.85,
+      "tonnageT": 68348.0
+    },
+    {
+      "id": "B000403",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3226414,
+      "lat": 23.1053932,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.825,
+      "tonnageT": 72769.7
+    },
+    {
+      "id": "B000404",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3228658,
+      "lat": 23.1052188,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.782,
+      "tonnageT": 72297.4
+    },
+    {
+      "id": "B000405",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3230903,
+      "lat": 23.1050444,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.923,
+      "tonnageT": 67500.7
+    },
+    {
+      "id": "B000500",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3221564,
+      "lat": 23.1061242,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.862,
+      "tonnageT": 69684.8
+    },
+    {
+      "id": "B000501",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3223808,
+      "lat": 23.1059498,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.838,
+      "tonnageT": 67563.1
+    },
+    {
+      "id": "B000502",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3226053,
+      "lat": 23.1057754,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.839,
+      "tonnageT": 68775.3
+    },
+    {
+      "id": "B000503",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3228297,
+      "lat": 23.105601,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.76,
+      "tonnageT": 70793.3
+    },
+    {
+      "id": "B000504",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3230542,
+      "lat": 23.1054267,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.888,
+      "tonnageT": 67439.1
+    },
+    {
+      "id": "B000505",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3232786,
+      "lat": 23.1052523,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.947,
+      "tonnageT": 71334.1
+    },
+    {
+      "id": "B000600",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3223447,
+      "lat": 23.1063321,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.988,
+      "tonnageT": 69859.4
+    },
+    {
+      "id": "B000601",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3225692,
+      "lat": 23.1061577,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.88,
+      "tonnageT": 69966.0
+    },
+    {
+      "id": "B000602",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3227936,
+      "lat": 23.1059833,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.76,
+      "tonnageT": 69903.5
+    },
+    {
+      "id": "B000603",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3230181,
+      "lat": 23.1058089,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.975,
+      "tonnageT": 72002.9
+    },
+    {
+      "id": "B000604",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3232425,
+      "lat": 23.1056345,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.885,
+      "tonnageT": 70702.9
+    },
+    {
+      "id": "B000605",
+      "zone": "II号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.323467,
+      "lat": 23.1054601,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.724,
+      "tonnageT": 72162.1
+    },
+    {
+      "id": "B000700",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.322533,
+      "lat": 23.1065399,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.891,
+      "tonnageT": 68882.9
+    },
+    {
+      "id": "B000701",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3227575,
+      "lat": 23.1063655,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.913,
+      "tonnageT": 72569.8
+    },
+    {
+      "id": "B000702",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3229819,
+      "lat": 23.1061911,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.865,
+      "tonnageT": 72757.7
+    },
+    {
+      "id": "B000703",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3232064,
+      "lat": 23.1060167,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.908,
+      "tonnageT": 68313.8
+    },
+    {
+      "id": "B000704",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3234308,
+      "lat": 23.1058423,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.824,
+      "tonnageT": 68586.8
+    },
+    {
+      "id": "B000705",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3236553,
+      "lat": 23.1056679,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.912,
+      "tonnageT": 69212.3
+    },
+    {
+      "id": "B000800",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3227214,
+      "lat": 23.1067477,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 1.009,
+      "tonnageT": 71640.3
+    },
+    {
+      "id": "B000801",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3229458,
+      "lat": 23.1065733,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.72,
+      "tonnageT": 71986.4
+    },
+    {
+      "id": "B000802",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3231703,
+      "lat": 23.106399,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.819,
+      "tonnageT": 69909.1
+    },
+    {
+      "id": "B000803",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3233947,
+      "lat": 23.1062246,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 1.05,
+      "tonnageT": 67145.8
+    },
+    {
+      "id": "B000804",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3236192,
+      "lat": 23.1060502,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.796,
+      "tonnageT": 67399.8
+    },
+    {
+      "id": "B000805",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3238436,
+      "lat": 23.1058758,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.668,
+      "tonnageT": 67519.4
+    },
+    {
+      "id": "B000900",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3229097,
+      "lat": 23.1069556,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.703,
+      "tonnageT": 67163.5
+    },
+    {
+      "id": "B000901",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3231342,
+      "lat": 23.1067812,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.839,
+      "tonnageT": 70246.3
+    },
+    {
+      "id": "B000902",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3233586,
+      "lat": 23.1066068,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.805,
+      "tonnageT": 69039.1
+    },
+    {
+      "id": "B000903",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3235831,
+      "lat": 23.1064324,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.816,
+      "tonnageT": 69340.4
+    },
+    {
+      "id": "B000904",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3238075,
+      "lat": 23.106258,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.849,
+      "tonnageT": 68567.7
+    },
+    {
+      "id": "B000905",
+      "zone": "III号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.324032,
+      "lat": 23.1060836,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.93,
+      "tonnageT": 67696.6
+    },
+    {
+      "id": "B001000",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3230981,
+      "lat": 23.1071634,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.452,
+      "tonnageT": 70566.9
+    },
+    {
+      "id": "B001001",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3233225,
+      "lat": 23.106989,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.909,
+      "tonnageT": 67193.0
+    },
+    {
+      "id": "B001002",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3235469,
+      "lat": 23.1068146,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.682,
+      "tonnageT": 67375.6
+    },
+    {
+      "id": "B001003",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3237714,
+      "lat": 23.1066402,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.806,
+      "tonnageT": 70133.0
+    },
+    {
+      "id": "B001004",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3239958,
+      "lat": 23.1064658,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.614,
+      "tonnageT": 71232.6
+    },
+    {
+      "id": "B001005",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3242203,
+      "lat": 23.1062914,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.492,
+      "tonnageT": 68197.1
+    },
+    {
+      "id": "B001101",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3235108,
+      "lat": 23.1071969,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.746,
+      "tonnageT": 68223.9
+    },
+    {
+      "id": "B001102",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3237353,
+      "lat": 23.1070225,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.706,
+      "tonnageT": 70723.6
+    },
+    {
+      "id": "B001103",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3239597,
+      "lat": 23.1068481,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.686,
+      "tonnageT": 68539.6
+    },
+    {
+      "id": "B001104",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3241842,
+      "lat": 23.1066737,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.651,
+      "tonnageT": 72115.9
+    },
+    {
+      "id": "B001201",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3236992,
+      "lat": 23.1074047,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.664,
+      "tonnageT": 72139.7
+    },
+    {
+      "id": "B001202",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3239236,
+      "lat": 23.1072303,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.636,
+      "tonnageT": 70534.1
+    },
+    {
+      "id": "B001203",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3241481,
+      "lat": 23.1070559,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.753,
+      "tonnageT": 69630.9
+    },
+    {
+      "id": "B001204",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3243725,
+      "lat": 23.1068815,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.628,
+      "tonnageT": 69165.3
+    },
+    {
+      "id": "B001302",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.324112,
+      "lat": 23.1074381,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.585,
+      "tonnageT": 67293.8
+    },
+    {
+      "id": "B001303",
+      "zone": "IV号采区",
+      "level": "一中段",
+      "levelIndex": 0,
+      "lon": 113.3243364,
+      "lat": 23.1072637,
+      "height": -60.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.589,
+      "tonnageT": 72035.2
+    },
+    {
+      "id": "B010002",
+      "zone": "I号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3216636,
+      "lat": 23.1047363,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.435,
+      "tonnageT": 70051.1
+    },
+    {
+      "id": "B010003",
+      "zone": "I号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.321888,
+      "lat": 23.1045619,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.66,
+      "tonnageT": 70604.7
+    },
+    {
+      "id": "B010101",
+      "zone": "I号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3216275,
+      "lat": 23.1051185,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.563,
+      "tonnageT": 72563.0
+    },
+    {
+      "id": "B010102",
+      "zone": "I号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3218519,
+      "lat": 23.1049441,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.756,
+      "tonnageT": 69454.6
+    },
+    {
+      "id": "B010103",
+      "zone": "I号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3220764,
+      "lat": 23.1047697,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.6,
+      "tonnageT": 72034.8
+    },
+    {
+      "id": "B010104",
+      "zone": "I号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3223008,
+      "lat": 23.1045953,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.807,
+      "tonnageT": 72422.0
+    },
+    {
+      "id": "B010201",
+      "zone": "I号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3218158,
+      "lat": 23.1053263,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.828,
+      "tonnageT": 70942.1
+    },
+    {
+      "id": "B010202",
+      "zone": "I号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3220403,
+      "lat": 23.1051519,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.958,
+      "tonnageT": 68823.1
+    },
+    {
+      "id": "B010203",
+      "zone": "I号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3222647,
+      "lat": 23.1049775,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.571,
+      "tonnageT": 70379.2
+    },
+    {
+      "id": "B010204",
+      "zone": "I号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3224892,
+      "lat": 23.1048031,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.391,
+      "tonnageT": 68799.2
+    },
+    {
+      "id": "B010300",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3217797,
+      "lat": 23.1057086,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.558,
+      "tonnageT": 68275.2
+    },
+    {
+      "id": "B010301",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3220042,
+      "lat": 23.1055342,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.718,
+      "tonnageT": 70288.3
+    },
+    {
+      "id": "B010302",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3222286,
+      "lat": 23.1053598,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.763,
+      "tonnageT": 69700.2
+    },
+    {
+      "id": "B010303",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3224531,
+      "lat": 23.1051854,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 1.019,
+      "tonnageT": 67278.4
+    },
+    {
+      "id": "B010304",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3226775,
+      "lat": 23.105011,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.588,
+      "tonnageT": 71382.9
+    },
+    {
+      "id": "B010305",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3229019,
+      "lat": 23.1048366,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.596,
+      "tonnageT": 72652.1
+    },
+    {
+      "id": "B010400",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.321968,
+      "lat": 23.1059164,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.682,
+      "tonnageT": 72081.3
+    },
+    {
+      "id": "B010401",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3221925,
+      "lat": 23.105742,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.857,
+      "tonnageT": 68191.1
+    },
+    {
+      "id": "B010402",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3224169,
+      "lat": 23.1055676,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.886,
+      "tonnageT": 70386.5
+    },
+    {
+      "id": "B010403",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3226414,
+      "lat": 23.1053932,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.778,
+      "tonnageT": 72766.1
+    },
+    {
+      "id": "B010404",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3228658,
+      "lat": 23.1052188,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.766,
+      "tonnageT": 69436.9
+    },
+    {
+      "id": "B010405",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3230903,
+      "lat": 23.1050444,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.784,
+      "tonnageT": 72531.6
+    },
+    {
+      "id": "B010500",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3221564,
+      "lat": 23.1061242,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.617,
+      "tonnageT": 69079.0
+    },
+    {
+      "id": "B010501",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3223808,
+      "lat": 23.1059498,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.843,
+      "tonnageT": 67975.0
+    },
+    {
+      "id": "B010502",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3226053,
+      "lat": 23.1057754,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.962,
+      "tonnageT": 67635.0
+    },
+    {
+      "id": "B010503",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3228297,
+      "lat": 23.105601,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 1.014,
+      "tonnageT": 70565.5
+    },
+    {
+      "id": "B010504",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3230542,
+      "lat": 23.1054267,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.776,
+      "tonnageT": 68049.9
+    },
+    {
+      "id": "B010505",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3232786,
+      "lat": 23.1052523,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.773,
+      "tonnageT": 67412.2
+    },
+    {
+      "id": "B010600",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3223447,
+      "lat": 23.1063321,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.579,
+      "tonnageT": 71907.3
+    },
+    {
+      "id": "B010601",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3225692,
+      "lat": 23.1061577,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.766,
+      "tonnageT": 71180.0
+    },
+    {
+      "id": "B010602",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3227936,
+      "lat": 23.1059833,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.912,
+      "tonnageT": 72731.3
+    },
+    {
+      "id": "B010603",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3230181,
+      "lat": 23.1058089,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.659,
+      "tonnageT": 67503.0
+    },
+    {
+      "id": "B010604",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3232425,
+      "lat": 23.1056345,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.907,
+      "tonnageT": 67839.7
+    },
+    {
+      "id": "B010605",
+      "zone": "II号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.323467,
+      "lat": 23.1054601,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.784,
+      "tonnageT": 67771.9
+    },
+    {
+      "id": "B010700",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.322533,
+      "lat": 23.1065399,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.588,
+      "tonnageT": 72446.4
+    },
+    {
+      "id": "B010701",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3227575,
+      "lat": 23.1063655,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.767,
+      "tonnageT": 68365.1
+    },
+    {
+      "id": "B010702",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3229819,
+      "lat": 23.1061911,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.958,
+      "tonnageT": 72438.8
+    },
+    {
+      "id": "B010703",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3232064,
+      "lat": 23.1060167,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.935,
+      "tonnageT": 67857.0
+    },
+    {
+      "id": "B010704",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3234308,
+      "lat": 23.1058423,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.77,
+      "tonnageT": 71360.1
+    },
+    {
+      "id": "B010705",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3236553,
+      "lat": 23.1056679,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.757,
+      "tonnageT": 72322.2
+    },
+    {
+      "id": "B010800",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3227214,
+      "lat": 23.1067477,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.659,
+      "tonnageT": 69787.8
+    },
+    {
+      "id": "B010801",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3229458,
+      "lat": 23.1065733,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.684,
+      "tonnageT": 72050.8
+    },
+    {
+      "id": "B010802",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3231703,
+      "lat": 23.106399,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 1.034,
+      "tonnageT": 71423.9
+    },
+    {
+      "id": "B010803",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3233947,
+      "lat": 23.1062246,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.885,
+      "tonnageT": 72427.4
+    },
+    {
+      "id": "B010804",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3236192,
+      "lat": 23.1060502,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.637,
+      "tonnageT": 71445.0
+    },
+    {
+      "id": "B010805",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3238436,
+      "lat": 23.1058758,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.759,
+      "tonnageT": 68606.7
+    },
+    {
+      "id": "B010900",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3229097,
+      "lat": 23.1069556,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.66,
+      "tonnageT": 72879.3
+    },
+    {
+      "id": "B010901",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3231342,
+      "lat": 23.1067812,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.785,
+      "tonnageT": 67288.0
+    },
+    {
+      "id": "B010902",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3233586,
+      "lat": 23.1066068,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.708,
+      "tonnageT": 72319.9
+    },
+    {
+      "id": "B010903",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3235831,
+      "lat": 23.1064324,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.686,
+      "tonnageT": 68083.0
+    },
+    {
+      "id": "B010904",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3238075,
+      "lat": 23.106258,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.681,
+      "tonnageT": 71563.6
+    },
+    {
+      "id": "B010905",
+      "zone": "III号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.324032,
+      "lat": 23.1060836,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.793,
+      "tonnageT": 68634.9
+    },
+    {
+      "id": "B011000",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3230981,
+      "lat": 23.1071634,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.647,
+      "tonnageT": 69840.5
+    },
+    {
+      "id": "B011001",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3233225,
+      "lat": 23.106989,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.826,
+      "tonnageT": 72359.5
+    },
+    {
+      "id": "B011002",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3235469,
+      "lat": 23.1068146,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.975,
+      "tonnageT": 68501.4
+    },
+    {
+      "id": "B011003",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3237714,
+      "lat": 23.1066402,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.976,
+      "tonnageT": 71632.0
+    },
+    {
+      "id": "B011004",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3239958,
+      "lat": 23.1064658,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.684,
+      "tonnageT": 71627.7
+    },
+    {
+      "id": "B011005",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3242203,
+      "lat": 23.1062914,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.745,
+      "tonnageT": 67352.4
+    },
+    {
+      "id": "B011101",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3235108,
+      "lat": 23.1071969,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.634,
+      "tonnageT": 69194.5
+    },
+    {
+      "id": "B011102",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3237353,
+      "lat": 23.1070225,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.776,
+      "tonnageT": 70361.6
+    },
+    {
+      "id": "B011103",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3239597,
+      "lat": 23.1068481,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.522,
+      "tonnageT": 71290.6
+    },
+    {
+      "id": "B011104",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3241842,
+      "lat": 23.1066737,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.783,
+      "tonnageT": 67101.5
+    },
+    {
+      "id": "B011201",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3236992,
+      "lat": 23.1074047,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.819,
+      "tonnageT": 70659.6
+    },
+    {
+      "id": "B011202",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3239236,
+      "lat": 23.1072303,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.737,
+      "tonnageT": 69717.7
+    },
+    {
+      "id": "B011203",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3241481,
+      "lat": 23.1070559,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.69,
+      "tonnageT": 70782.3
+    },
+    {
+      "id": "B011204",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3243725,
+      "lat": 23.1068815,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.665,
+      "tonnageT": 72540.8
+    },
+    {
+      "id": "B011302",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.324112,
+      "lat": 23.1074381,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.826,
+      "tonnageT": 68283.9
+    },
+    {
+      "id": "B011303",
+      "zone": "IV号采区",
+      "level": "二中段",
+      "levelIndex": 1,
+      "lon": 113.3243364,
+      "lat": 23.1072637,
+      "height": -100.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.525,
+      "tonnageT": 69681.7
+    },
+    {
+      "id": "B020002",
+      "zone": "I号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3216636,
+      "lat": 23.1047363,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.698,
+      "tonnageT": 70723.3
+    },
+    {
+      "id": "B020003",
+      "zone": "I号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.321888,
+      "lat": 23.1045619,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.758,
+      "tonnageT": 70674.8
+    },
+    {
+      "id": "B020101",
+      "zone": "I号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3216275,
+      "lat": 23.1051185,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.627,
+      "tonnageT": 70963.4
+    },
+    {
+      "id": "B020102",
+      "zone": "I号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3218519,
+      "lat": 23.1049441,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.769,
+      "tonnageT": 70640.0
+    },
+    {
+      "id": "B020103",
+      "zone": "I号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3220764,
+      "lat": 23.1047697,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.907,
+      "tonnageT": 72211.7
+    },
+    {
+      "id": "B020104",
+      "zone": "I号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3223008,
+      "lat": 23.1045953,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.813,
+      "tonnageT": 67327.1
+    },
+    {
+      "id": "B020201",
+      "zone": "I号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3218158,
+      "lat": 23.1053263,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.697,
+      "tonnageT": 67890.1
+    },
+    {
+      "id": "B020202",
+      "zone": "I号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3220403,
+      "lat": 23.1051519,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.799,
+      "tonnageT": 68510.0
+    },
+    {
+      "id": "B020203",
+      "zone": "I号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3222647,
+      "lat": 23.1049775,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.7,
+      "tonnageT": 67746.5
+    },
+    {
+      "id": "B020204",
+      "zone": "I号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3224892,
+      "lat": 23.1048031,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.963,
+      "tonnageT": 67945.3
+    },
+    {
+      "id": "B020300",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3217797,
+      "lat": 23.1057086,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.621,
+      "tonnageT": 69988.3
+    },
+    {
+      "id": "B020301",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3220042,
+      "lat": 23.1055342,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.87,
+      "tonnageT": 67950.4
+    },
+    {
+      "id": "B020302",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3222286,
+      "lat": 23.1053598,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.862,
+      "tonnageT": 68221.9
+    },
+    {
+      "id": "B020303",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3224531,
+      "lat": 23.1051854,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.842,
+      "tonnageT": 72261.1
+    },
+    {
+      "id": "B020304",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3226775,
+      "lat": 23.105011,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.804,
+      "tonnageT": 69324.2
+    },
+    {
+      "id": "B020305",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3229019,
+      "lat": 23.1048366,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.776,
+      "tonnageT": 69849.3
+    },
+    {
+      "id": "B020400",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.321968,
+      "lat": 23.1059164,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.786,
+      "tonnageT": 70485.6
+    },
+    {
+      "id": "B020401",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3221925,
+      "lat": 23.105742,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.605,
+      "tonnageT": 69093.8
+    },
+    {
+      "id": "B020402",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3224169,
+      "lat": 23.1055676,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.814,
+      "tonnageT": 67322.3
+    },
+    {
+      "id": "B020403",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3226414,
+      "lat": 23.1053932,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.807,
+      "tonnageT": 67733.8
+    },
+    {
+      "id": "B020404",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3228658,
+      "lat": 23.1052188,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.9,
+      "tonnageT": 71647.2
+    },
+    {
+      "id": "B020405",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3230903,
+      "lat": 23.1050444,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.889,
+      "tonnageT": 72221.8
+    },
+    {
+      "id": "B020500",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3221564,
+      "lat": 23.1061242,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 1.004,
+      "tonnageT": 68649.6
+    },
+    {
+      "id": "B020501",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3223808,
+      "lat": 23.1059498,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.82,
+      "tonnageT": 68391.7
+    },
+    {
+      "id": "B020502",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3226053,
+      "lat": 23.1057754,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.755,
+      "tonnageT": 68006.9
+    },
+    {
+      "id": "B020503",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3228297,
+      "lat": 23.105601,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 1.268,
+      "tonnageT": 72065.2
+    },
+    {
+      "id": "B020504",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3230542,
+      "lat": 23.1054267,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.895,
+      "tonnageT": 68902.0
+    },
+    {
+      "id": "B020505",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3232786,
+      "lat": 23.1052523,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.888,
+      "tonnageT": 69006.8
+    },
+    {
+      "id": "B020600",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3223447,
+      "lat": 23.1063321,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.824,
+      "tonnageT": 69547.8
+    },
+    {
+      "id": "B020601",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3225692,
+      "lat": 23.1061577,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.76,
+      "tonnageT": 67279.2
+    },
+    {
+      "id": "B020602",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3227936,
+      "lat": 23.1059833,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.974,
+      "tonnageT": 68744.9
+    },
+    {
+      "id": "B020603",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3230181,
+      "lat": 23.1058089,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.977,
+      "tonnageT": 69675.1
+    },
+    {
+      "id": "B020604",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3232425,
+      "lat": 23.1056345,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.912,
+      "tonnageT": 68910.4
+    },
+    {
+      "id": "B020605",
+      "zone": "II号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.323467,
+      "lat": 23.1054601,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.85,
+      "tonnageT": 68387.2
+    },
+    {
+      "id": "B020700",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.322533,
+      "lat": 23.1065399,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.93,
+      "tonnageT": 68269.6
+    },
+    {
+      "id": "B020701",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3227575,
+      "lat": 23.1063655,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.666,
+      "tonnageT": 72869.1
+    },
+    {
+      "id": "B020702",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3229819,
+      "lat": 23.1061911,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.616,
+      "tonnageT": 69577.6
+    },
+    {
+      "id": "B020703",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3232064,
+      "lat": 23.1060167,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.772,
+      "tonnageT": 69164.1
+    },
+    {
+      "id": "B020704",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3234308,
+      "lat": 23.1058423,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.91,
+      "tonnageT": 68156.6
+    },
+    {
+      "id": "B020705",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3236553,
+      "lat": 23.1056679,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.592,
+      "tonnageT": 67467.9
+    },
+    {
+      "id": "B020800",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3227214,
+      "lat": 23.1067477,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 1.042,
+      "tonnageT": 72664.2
+    },
+    {
+      "id": "B020801",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3229458,
+      "lat": 23.1065733,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.84,
+      "tonnageT": 69820.9
+    },
+    {
+      "id": "B020802",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3231703,
+      "lat": 23.106399,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 1.07,
+      "tonnageT": 69176.8
+    },
+    {
+      "id": "B020803",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3233947,
+      "lat": 23.1062246,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.812,
+      "tonnageT": 69379.9
+    },
+    {
+      "id": "B020804",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3236192,
+      "lat": 23.1060502,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.798,
+      "tonnageT": 70892.4
+    },
+    {
+      "id": "B020805",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3238436,
+      "lat": 23.1058758,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.673,
+      "tonnageT": 72642.1
+    },
+    {
+      "id": "B020900",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3229097,
+      "lat": 23.1069556,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.776,
+      "tonnageT": 72787.8
+    },
+    {
+      "id": "B020901",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3231342,
+      "lat": 23.1067812,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.745,
+      "tonnageT": 68270.6
+    },
+    {
+      "id": "B020902",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3233586,
+      "lat": 23.1066068,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.977,
+      "tonnageT": 70635.4
+    },
+    {
+      "id": "B020903",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3235831,
+      "lat": 23.1064324,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.933,
+      "tonnageT": 72377.8
+    },
+    {
+      "id": "B020904",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3238075,
+      "lat": 23.106258,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.666,
+      "tonnageT": 67202.6
+    },
+    {
+      "id": "B020905",
+      "zone": "III号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.324032,
+      "lat": 23.1060836,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.902,
+      "tonnageT": 69158.2
+    },
+    {
+      "id": "B021000",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3230981,
+      "lat": 23.1071634,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.621,
+      "tonnageT": 69253.2
+    },
+    {
+      "id": "B021001",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3233225,
+      "lat": 23.106989,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.679,
+      "tonnageT": 68056.9
+    },
+    {
+      "id": "B021002",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3235469,
+      "lat": 23.1068146,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.917,
+      "tonnageT": 72490.7
+    },
+    {
+      "id": "B021003",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3237714,
+      "lat": 23.1066402,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 1.003,
+      "tonnageT": 69454.0
+    },
+    {
+      "id": "B021004",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3239958,
+      "lat": 23.1064658,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.553,
+      "tonnageT": 72347.3
+    },
+    {
+      "id": "B021005",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3242203,
+      "lat": 23.1062914,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.443,
+      "tonnageT": 67722.6
+    },
+    {
+      "id": "B021101",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3235108,
+      "lat": 23.1071969,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.893,
+      "tonnageT": 69337.2
+    },
+    {
+      "id": "B021102",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3237353,
+      "lat": 23.1070225,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.894,
+      "tonnageT": 67459.8
+    },
+    {
+      "id": "B021103",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3239597,
+      "lat": 23.1068481,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.733,
+      "tonnageT": 68589.0
+    },
+    {
+      "id": "B021104",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3241842,
+      "lat": 23.1066737,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.748,
+      "tonnageT": 69620.8
+    },
+    {
+      "id": "B021201",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3236992,
+      "lat": 23.1074047,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.843,
+      "tonnageT": 69639.3
+    },
+    {
+      "id": "B021202",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3239236,
+      "lat": 23.1072303,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.826,
+      "tonnageT": 71082.9
+    },
+    {
+      "id": "B021203",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3241481,
+      "lat": 23.1070559,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.59,
+      "tonnageT": 68065.3
+    },
+    {
+      "id": "B021204",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3243725,
+      "lat": 23.1068815,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.732,
+      "tonnageT": 72036.0
+    },
+    {
+      "id": "B021302",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.324112,
+      "lat": 23.1074381,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.754,
+      "tonnageT": 70720.5
+    },
+    {
+      "id": "B021303",
+      "zone": "IV号采区",
+      "level": "三中段",
+      "levelIndex": 2,
+      "lon": 113.3243364,
+      "lat": 23.1072637,
+      "height": -140.0,
+      "sizeM": [
+        30.0,
+        30.0,
+        30.0
+      ],
+      "gradePct": 0.575,
+      "tonnageT": 68576.5
+    }
+  ]
+}

@@ -6,6 +6,7 @@
       <GeologyStats :stats="geologicalStats" />
       <BoreholeQuery />
       <LayerList />
+      <GradePanel />
     </div>
   </div>
 </template>
@@ -18,6 +19,7 @@ import ModelProperties from './ModelProperties.vue'
 import GeologyStats from './GeologyStats.vue'
 import BoreholeQuery from './BoreholeQuery.vue'
 import LayerList from './LayerList.vue'
+import GradePanel from './GradePanel.vue'
 
 const { geologicalStats } = useGeologyPanelController()
 </script>
