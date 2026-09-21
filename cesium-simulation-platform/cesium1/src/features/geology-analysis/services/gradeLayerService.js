@@ -22,6 +22,36 @@ let primitive = null
 let boundViewer = null
 let visible = true
 let zoneFilter = null // null = 全部采区；否则 Set<zone>
+let timelineReveal = null // null = 不限中段；否则 int（时间轴已显现的最大 levelIndex）
+
+/**
+ * 纯函数：时间轴进度 → 已显现的最大中段 index。
+ * fracs 来自后端 meta.levelRevealFracs（单源）；frac <= progress 的最大 index。
+ * 无 fracs 时返回 Number.MAX_SAFE_INTEGER（退化为全显）。
+ */
+export function computeRevealedLevel(progress, fracs) {
+  if (!Array.isArray(fracs) || !fracs.length) return Number.MAX_SAFE_INTEGER
+  if (progress >= 1) return fracs.length - 1
+  let revealed = 0
+  for (let i = 0; i < fracs.length; i++) {
+    if (fracs[i] <= progress) revealed = i
+  }
+  return revealed
+}
+
+/** 时间轴进度（0~1）→ 中段显现过滤；null 取消过滤（全部显现）。 */
+export function setTimelineProgress(progress) {
+  if (progress == null) {
+    if (timelineReveal == null) return
+    timelineReveal = null
+  } else {
+    const fracs = cachedData?.meta?.levelRevealFracs
+    const revealed = computeRevealedLevel(progress, fracs)
+    if (revealed === timelineReveal) return
+    timelineReveal = revealed
+  }
+  if (primitive && boundViewer) rebuildLayer(boundViewer)
+}
 
 /** 拉取（带模块级缓存）品位块段数据；失败返回 null 并记录 message。 */
 export async function fetchGradeData() {
@@ -55,8 +85,11 @@ export function isVisible() {
 function filteredBlocks() {
   if (!cachedData) return []
   const blocks = cachedData.blocks || []
-  if (!zoneFilter) return blocks
-  return blocks.filter(b => zoneFilter.has(b.zone))
+  return blocks.filter(b => {
+    if (zoneFilter && !zoneFilter.has(b.zone)) return false
+    if (timelineReveal != null && (b.levelIndex ?? 0) > timelineReveal) return false
+    return true
+  })
 }
 
 function buildInstances(blocks) {

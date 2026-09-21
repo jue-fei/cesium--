@@ -57,6 +57,10 @@ GRADE_MIN, GRADE_MAX = 0.2, 1.4
 # 图例分级阈值（% Cu），随 JSON 下发为前后端单源
 GRADE_LEVELS = [0.4, 0.6, 0.8, 1.0, 1.2]
 
+# 4D 中段显现进度（0~1）：时间轴推进到 frac 时该中段块段开始显现
+# （演示"品位层随开采推进"的四维效果；真源随 meta 下发，前端不硬编码）
+LEVEL_REVEAL_FRACS = [0.0, 0.4, 0.75]
+
 ORE_DENSITY_T_M3 = 2.7
 ZONE_COUNT = 4  # 沿走向等分为 4 个采区
 ZONE_NAMES = ["I号采区", "II号采区", "III号采区", "IV号采区"]
@@ -142,6 +146,7 @@ def build_payload():
             "note": "仿真示例数据：按矿体空间趋势与固定 seed 扰动合成，非真实勘探品位。",
         },
         "gradeLevels": GRADE_LEVELS,
+        "levelRevealFracs": LEVEL_REVEAL_FRACS,
         "zones": ZONE_NAMES,
         "blocks": blocks,
     }
