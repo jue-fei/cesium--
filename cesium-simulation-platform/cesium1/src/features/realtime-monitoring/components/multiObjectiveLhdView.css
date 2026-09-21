@@ -211,6 +211,14 @@
 .moo-lhd .rec-row .wt-panel {
   flex: 1;
   min-width: 0;
+  /* 拉伸填满建议方案行整列高度（覆盖行内 flex-start），消除权重面板下方空白 */
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+}
+.moo-lhd .rec-row .wt-panel .wt-body {
+  flex: 1;
+  justify-content: space-evenly; /* 滑杆行/按钮在整列高内均匀分布 */
 }
 @media (max-width: 1279px) {
   .moo-lhd .rec-row {
