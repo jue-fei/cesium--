@@ -191,11 +191,14 @@
 .map-stage > .panel + .panel {
   margin-top: 16px;
 }
-/* 展开态：上行 = 当前建议方案(整行)；下行 = 地图(左,占屏宽 0.75) + 右侧栏(占剩余宽度)。
+/* 两栏布局（≥1280px 宽屏，全屏弹窗 tab③ 与 NSGA 专窗共用）：
+     上行 = 当前建议方案(整行)；下行 = 地图(左,占屏宽 0.74) + 右侧栏(占剩余宽度)。
      右侧栏内：坐标轴在上、方案明细表在下，高度按 1:4 分配，表格底部与地图对齐；
-     地图高宽比 = 3:4（宽:高 = 4:3）。 */
-@media (min-width: 1024px) {
-  .moo-expanded .moo-evidence {
+     地图高宽比 = 3:4（宽:高 = 4:3）。窄屏(<1280px)退回单栏纵排。 */
+@media (min-width: 1280px) {
+  /* 两栏布局对两种模式统一生效（≥1280px）：全屏弹窗 tab③ 与 NSGA 专窗同为宽屏，
+     单栏纵排会让帕累托 SVG 拉伸满宽（viewBox 等比放大 → 轴标/气泡巨化）。 */
+  .moo-lhd .moo-evidence {
     position: relative;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto;
@@ -203,13 +206,13 @@
       'rec'
       'maprow';
   }
-  .moo-expanded .rec-panel {
+  .moo-lhd .rec-panel {
     grid-area: rec;
   }
   /* 地图行：地图用 aspect-ratio 锚定自身 3:4 高度并决定整行高度（align-items:flex-start 避免
      stretch 覆盖 aspect-ratio，导致高度被右侧栏内容撑走）。右侧栏用绝对定位贴合地图高度，
      不参与决定行高，从而排除"内容把行撑高→地图被拉长"的干扰。 */
-  .moo-expanded .map-row {
+  .moo-lhd .map-row {
     grid-area: maprow;
     position: relative; /* 作为右侧栏绝对定位的锚点 */
     display: flex;
@@ -220,17 +223,20 @@
     min-height: 0;
   }
   /* 地图占 0.74 屏宽；aspect-ratio 4:3（宽:高 = 4:3 ⇒ 高 = 宽的 3/4），
-     高度由它自己锁定，地图既不被拉长也不被压扁；右侧栏保留足够宽度 */
-  .moo-expanded .map-row .map-stage {
+     高度由它自己锁定，地图既不被拉长也不被压扁；右侧栏保留足够宽度。
+     max-height 封顶：宽屏下 4:3 会超出视口（1920 宽 → 高 1400px），超出部分
+     由内部 tmap3d flex 吸收，保证整行一屏可见、与右侧栏等高对齐。 */
+  .moo-lhd .map-row .map-stage {
     flex: 0 0 74%;
     width: 74%;
     aspect-ratio: 4 / 3;
+    max-height: min(80vh, 980px);
     align-self: flex-start;
     min-width: 0;
   }
   /* 右侧栏：绝对定位铺满地图右侧剩余宽度，top:0/bottom:0 与地图行严格等高，
      表格底部天然与地图底部对齐；内容超高时裁切/内部滚动 */
-  .moo-expanded .map-row .map-side {
+  .moo-lhd .map-row .map-side {
     position: absolute;
     top: 0;
     bottom: 0;
@@ -242,29 +248,29 @@
     flex-direction: column;
     gap: 16px;
   }
-  .moo-expanded .map-stage .map-panel {
+  .moo-lhd .map-stage .map-panel {
     height: 100%;
   }
   /* 右侧栏高度按 1:4 分配：上=坐标轴(1，较小) / 下=方案明细表(4)，底部自然与地图底对齐 */
-  .moo-expanded .map-side .pf-panel {
+  .moo-lhd .map-side .pf-panel {
     flex: 1;
     min-height: 0;
     overflow: auto;
   }
-  .moo-expanded .map-side .pf-panel .pf-body {
+  .moo-lhd .map-side .pf-panel .pf-body {
     overflow: auto;
   }
-  .moo-expanded .map-side .moo-table-panel {
+  .moo-lhd .map-side .moo-table-panel {
     flex: 4;
     min-height: 0;
     display: flex;
     flex-direction: column;
   }
-  .moo-expanded .map-side .moo-table-panel .table-scroll {
+  .moo-lhd .map-side .moo-table-panel .table-scroll {
     max-height: none;
   }
   /* 展开态用 flex gap 间距，抵消缩回态的上下层叠 margin，避免双倍间距 */
-  .moo-expanded .map-side > .panel + .panel {
+  .moo-lhd .map-side > .panel + .panel {
     margin-top: 0;
   }
 }
@@ -281,7 +287,7 @@
   flex: 1 1 0;
   min-height: 340px;
 }
-.moo-expanded .map-panel {
+.moo-lhd .map-panel {
   min-height: 0;
 }
 /* 缩回/窄屏时右侧栏上层叠排布 */
@@ -1095,6 +1101,15 @@
   font-size: 10px;
   color: #475569;
   padding-bottom: 0;
+}
+
+/* 帕累托散点 SVG 宽度封顶：viewBox(200×150) 随容器等比放大，满宽容器会把
+   轴标/气泡放大数倍（巨字巨泡）。封顶 + 居中，两栏窄列/堆叠宽容器都协调。 */
+.pf-body > svg {
+  display: block;
+  width: 100%;
+  max-width: 560px;
+  margin-inline: auto;
 }
 
 /* 帕累托前沿：方案少时的引导提示 */
