@@ -103,8 +103,7 @@ export function useTunnelMap3DRebuild({ props, levels, sceneApi, labels }) {
         nLevels: LAYERS.value.length
       })
       if (m) {
-        if (m.maxGradePct != null)
-          score += Math.max(0, m.maxGradePct - GRADE_EXCESS_THRESHOLD) * GRADE_EXCESS_WEIGHT
+        if (m.maxGradePct != null) score += Math.max(0, m.maxGradePct - GRADE_EXCESS_THRESHOLD) * GRADE_EXCESS_WEIGHT
         if (m.clearWidthM != null && m.clearWidthM < WIDTH_MIN_M)
           score += (WIDTH_MIN_M - m.clearWidthM) * WIDTH_PENALTY_WEIGHT
       }
@@ -131,8 +130,7 @@ export function useTunnelMap3DRebuild({ props, levels, sceneApi, labels }) {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 10, 1, true), mat)
     const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5)
     mesh.position.copy(mid)
-    if (len > 0.0001)
-      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize())
+    if (len > 0.0001) mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize())
     return mesh
   }
 
@@ -154,8 +152,7 @@ export function useTunnelMap3DRebuild({ props, levels, sceneApi, labels }) {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 14, 1, true), mat)
     const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5)
     mesh.position.copy(mid)
-    if (len > 0.0001)
-      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize())
+    if (len > 0.0001) mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize())
     return mesh
   }
 
@@ -309,14 +306,7 @@ export function useTunnelMap3DRebuild({ props, levels, sceneApi, labels }) {
       const rid = `VERT-${node}-${li + 1}`
       const meta = deriveRiserMeta(rid) || {}
       const rc = laneColor(meta, li, node, node)
-      const body = tunnelBody(
-        pa,
-        pb,
-        RISER_RADIUS,
-        rc.color,
-        rc.glow,
-        li === 0 ? RISER_OPACITY_TOP : RISER_OPACITY_DEEP
-      )
+      const body = tunnelBody(pa, pb, RISER_RADIUS, rc.color, rc.glow, li === 0 ? RISER_OPACITY_TOP : RISER_OPACITY_DEEP)
       body.userData.segId = rid
       body.userData.isRiser = true
       scene.add(body)
@@ -367,14 +357,7 @@ export function useTunnelMap3DRebuild({ props, levels, sceneApi, labels }) {
     const drawLane = (a, b, li, color, segId, glow, segLabel) => {
       const radius = li === 0 ? LANE_RADIUS_TOP : LANE_RADIUS_DEEP
       // 巷道主体：所有图层中最透明（顶层 0.45 / 深层 0.35），仅作风险着色背景，尽量透亮
-      const body = tunnelBody(
-        a,
-        b,
-        radius,
-        color,
-        glow,
-        li === 0 ? LANE_OPACITY_TOP : LANE_OPACITY_DEEP
-      )
+      const body = tunnelBody(a, b, radius, color, glow, li === 0 ? LANE_OPACITY_TOP : LANE_OPACITY_DEEP)
       if (segId) body.userData.segId = segId // 任何层都支持点击回查段信息
       scene.add(body)
       segBores.push(body)
@@ -390,10 +373,7 @@ export function useTunnelMap3DRebuild({ props, levels, sceneApi, labels }) {
         const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5)
         mid.y += 4
         const labelText = segLabel || String(segId).replace(/^SEG-?/i, '路段')
-        const label = labels.makeLabel(
-          labelText,
-          li === 0 ? 'lbl lbl-seg' : 'lbl lbl-seg lbl-seg-deep'
-        )
+        const label = labels.makeLabel(labelText, li === 0 ? 'lbl lbl-seg' : 'lbl lbl-seg lbl-seg-deep')
         label.position.copy(mid)
         scene.add(label)
         labels.registerLabel(label, true)

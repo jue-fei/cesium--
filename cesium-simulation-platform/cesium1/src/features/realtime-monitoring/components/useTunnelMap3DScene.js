@@ -51,6 +51,10 @@ export function useTunnelMap3DScene({ containerEl, onSelect, onClear }) {
   function isReady() {
     return !!scene
   }
+  // 场景引用（useTunnelMap3DRebuild.rebuild 清理/重建图元用；未 init 前为 null）
+  function getScene() {
+    return scene || null
+  }
 
   function animate(t) {
     renderLoop = requestAnimationFrame(animate)
@@ -174,5 +178,5 @@ export function useTunnelMap3DScene({ containerEl, onSelect, onClear }) {
     renderer = css2d = scene = camera = controls = null
   }
 
-  return { init, dispose, isReady, setSceneContent, setFrameUpdate, setRaycastTargets }
+  return { init, dispose, isReady, getScene, setSceneContent, setFrameUpdate, setRaycastTargets }
 }
