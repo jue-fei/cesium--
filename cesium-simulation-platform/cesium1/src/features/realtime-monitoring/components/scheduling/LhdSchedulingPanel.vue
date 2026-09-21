@@ -140,15 +140,14 @@
                 :target-pct="opexTargetPct"
               />
             </div>
-            <div v-else class="nsga-placeholder">
-              <div class="nsga-ph-title">NSGA-III 多目标联合调度</div>
-              <p class="nsga-ph-desc">
-                六目标帕累托前沿 · 权重调节 · 方案明细与派单。当前已在全屏模式，可完整交互。
-              </p>
-              <button class="sched-tab nsga-ph-btn" @click="nsgaFullscreen = true">
-                <span class="tab-num">③</span> 打开 NSGA-III 专窗
-              </button>
-            </div>
+            <MultiObjectiveLhdView
+              v-else
+              :snapshot="snapshot"
+              :apply-assignment="applyAssignment"
+              :scenario="scenario"
+              :expanded="false"
+              @toggle-expand="nsgaFullscreen = true"
+            />
           </keep-alive>
         </template>
       </div>
