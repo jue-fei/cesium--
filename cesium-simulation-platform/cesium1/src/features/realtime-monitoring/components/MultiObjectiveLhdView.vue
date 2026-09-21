@@ -78,17 +78,18 @@
 
     <!-- ===== 证据区：展开态=当前方案整行 + 巷道图主舞台(前沿叠右侧、明细表叠右上) ===== -->
     <section class="moo-evidence">
-      <!-- 当前建议方案（展开态位于地图上方整行） -->
-      <div v-if="selected" class="panel rec-panel">
-        <div class="panel-head">
-          <div class="panel-label">
-            当前建议方案
-            <span class="rec-badge">P{{ selectedIndex + 1 }} · 推荐</span>
+      <!-- 建议方案行：左 74%（与下方地图同宽同几何）+ 右列权重调节（与下方帕累托/明细表列对齐） -->
+      <div class="rec-row">
+        <!-- 当前建议方案（展开态位于地图上方整行） -->
+        <div v-if="selected" class="panel rec-panel">
+          <div class="panel-head">
+            <div class="panel-label">
+              当前建议方案
+              <span class="rec-badge">P{{ selectedIndex + 1 }} · 推荐</span>
+            </div>
+            <div class="panel-hint">随点选联动</div>
           </div>
-          <div class="panel-hint">随点选联动</div>
-        </div>
-        <div class="panel-body rec-body">
-          <div class="rec-main">
+          <div class="panel-body rec-body">
             <div class="rec-obj-grid">
               <div
                 v-for="obj in objectives"
@@ -124,71 +125,69 @@
               </div>
             </div>
           </div>
-          <aside class="wt-inline">
-            <div class="panel-head">
-              <div class="panel-label">权重调节</div>
-              <div class="panel-controls">
-                <span
-                  v-if="weightSource"
-                  class="wt-source"
-                  :class="{ 'wt-degraded': weightDegraded }"
-                  :title="weightDegraded ? '外部 ML 权重服务未启用/失败，已降级等权' : ''"
-                >
-                  {{
-                    weightSource === 'ml-external'
-                      ? 'ML 推荐'
-                      : weightSource === 'manual'
-                        ? '手动'
-                        : '等权降级'
-                  }}
-                </span>
-                <label class="wt-lock" title="锁定当前推荐，前沿刷新不重算；拖动滑杆自动解锁">
-                  <input
-                    type="checkbox"
-                    :checked="weightLocked"
-                    @change="lockRecommend($event.target.checked)"
-                  />锁定
-                </label>
-              </div>
-            </div>
-            <div class="wt-body">
-              <div v-for="o in objectives" :key="o.id" class="wt-row">
-                <span class="wt-name" :title="o.desc">{{ o.name }}</span>
+        </div>
+
+        <!-- 权重调节：ML 推荐权重 / 手动微调 → 加权推荐方案（右列，与下方帕累托/明细表对齐） -->
+        <div class="panel wt-panel">
+          <div class="panel-head">
+            <div class="panel-label">权重调节</div>
+            <div class="panel-controls">
+              <span
+                v-if="weightSource"
+                class="wt-source"
+                :class="{ 'wt-degraded': weightDegraded }"
+                :title="weightDegraded ? '外部 ML 权重服务未启用/失败，已降级等权' : ''"
+              >
+                {{
+                  weightSource === 'ml-external'
+                    ? 'ML 推荐'
+                    : weightSource === 'manual'
+                      ? '手动'
+                      : '等权降级'
+                }}
+              </span>
+              <label class="wt-lock" title="锁定当前推荐，前沿刷新不重算；拖动滑杆自动解锁">
                 <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  :value="weightRaw[o.id] || 0"
-                  class="wt-slider"
-                  :aria-label="`${o.name}权重`"
-                  @input="onWeightSlide(o.id, $event)"
-                />
-                <span class="wt-val">{{ Math.round((normW[o.id] || 0) * 100) }}%</span>
-              </div>
-              <div class="wt-actions">
-                <button class="wt-btn" :disabled="weightLoading" @click="loadWeightRecommend">
-                  {{ weightLoading ? '获取中…' : 'ML 推荐权重' }}
-                </button>
-                <button
-                  class="wt-btn"
-                  :disabled="weightSolving || !paretoSize"
-                  title="把权重作为偏好参考方向重新运行 NSGA-III"
-                  @click="deepSolve"
-                >
-                  {{ weightSolving ? '求解中…' : '按权重重求解' }}
-                </button>
-                <button
-                  v-if="result?.overridden"
-                  class="wt-btn wt-btn-ghost"
-                  @click="resetOverride"
-                >
-                  恢复快照前沿
-                </button>
-              </div>
-              <div v-if="weightError" class="wt-error">{{ weightError }}</div>
-              <div v-if="weightModelText" class="panel-hint">{{ weightModelText }}</div>
+                  type="checkbox"
+                  :checked="weightLocked"
+                  @change="lockRecommend($event.target.checked)"
+                />锁定
+              </label>
             </div>
-          </aside>
+          </div>
+          <div class="panel-body wt-body">
+            <div v-for="o in objectives" :key="o.id" class="wt-row">
+              <span class="wt-name" :title="o.desc">{{ o.name }}</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                :value="weightRaw[o.id] || 0"
+                class="wt-slider"
+                :aria-label="`${o.name}权重`"
+                @input="onWeightSlide(o.id, $event)"
+              />
+              <span class="wt-val">{{ Math.round((normW[o.id] || 0) * 100) }}%</span>
+            </div>
+            <div class="wt-actions">
+              <button class="wt-btn" :disabled="weightLoading" @click="loadWeightRecommend">
+                {{ weightLoading ? '获取中…' : 'ML 推荐权重' }}
+              </button>
+              <button
+                class="wt-btn"
+                :disabled="weightSolving || !paretoSize"
+                title="把权重作为偏好参考方向重新运行 NSGA-III"
+                @click="deepSolve"
+              >
+                {{ weightSolving ? '求解中…' : '按权重重求解' }}
+              </button>
+              <button v-if="result?.overridden" class="wt-btn wt-btn-ghost" @click="resetOverride">
+                恢复快照前沿
+              </button>
+            </div>
+            <div v-if="weightError" class="wt-error">{{ weightError }}</div>
+            <div v-if="weightModelText" class="panel-hint">{{ weightModelText }}</div>
+          </div>
         </div>
       </div>
 

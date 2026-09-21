@@ -192,42 +192,29 @@
   margin-top: 16px;
 }
 /* 两栏布局（≥1280px 宽屏，全屏弹窗 tab③ 与 NSGA 专窗共用）：
-     上行 = 当前建议方案整行（内部：左=目标卡+铲运机路线列表，右=权重调节 320px）；
-     下行 = 地图(左,占屏宽 0.74) + 右侧栏(帕累托前沿 40% + 方案明细表，底部与地图
-     对齐)。窄屏(<1280px) 退回单栏纵排。 */
-/* 当前建议方案内部两列：左=目标卡+路线列表，右=权重调节（用户指定位置）。
-   特异性用 .rec-panel .rec-body 压过基础 .panel-body 的 flex-direction:column */
-.rec-panel .rec-body {
+     上行 = 建议方案行（左 74% = 建议方案面板，右列 = 权重调节）；
+     下行 = 地图(左 74%) + 右侧栏(帕累托前沿 40% + 方案明细表，底部与地图对齐)。
+     两行共用同一套 74%+16px+剩余宽几何 → 权重列与下方右栏逐像素左对齐。
+     窄屏(<1280px) 退回单栏纵排。 */
+/* 建议方案行：几何与下方地图行完全一致（左 74% + 16px 间距 + 右列剩余宽），
+   使权重面板与下方帕累托前沿/明细表列逐像素左对齐 */
+.moo-lhd .rec-row {
   display: flex;
-  flex-direction: row;
   gap: 16px;
-  align-items: stretch;
-}
-.rec-main {
-  flex: 1;
+  align-items: flex-start;
   min-width: 0;
 }
-.wt-inline {
-  flex: 0 0 320px;
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
-  padding-left: 16px;
-  display: flex;
-  flex-direction: column;
+.moo-lhd .rec-row .rec-panel {
+  flex: 0 0 74%;
   min-width: 0;
 }
-.wt-inline .wt-body {
+.moo-lhd .rec-row .wt-panel {
   flex: 1;
+  min-width: 0;
 }
 @media (max-width: 1279px) {
-  .rec-panel .rec-body {
+  .moo-lhd .rec-row {
     flex-direction: column;
-  }
-  .wt-inline {
-    flex: none;
-    border-left: none;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-    padding-left: 0;
-    padding-top: 12px;
   }
 }
 @media (min-width: 1280px) {
@@ -241,7 +228,7 @@
       'rec'
       'maprow';
   }
-  .moo-lhd .rec-panel {
+  .moo-lhd .rec-row {
     grid-area: rec;
   }
   /* 地图行：地图用 aspect-ratio 锚定自身 3:4 高度并决定整行高度（align-items:flex-start 避免
