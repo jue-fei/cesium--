@@ -140,6 +140,24 @@ class MqttTelemetryAdapter:
 
 _ADAPTERS = {"sim": SimTelemetryAdapter, "mqtt": MqttTelemetryAdapter}
 
+# 共享 sim 适配器单例：/ws/realtime 推送与健康端点共用同一帧流
+# （frame_idx 全局递进 → 燃油消耗/正弦趋势跨消费者连续，传感器值全局一致）
+_shared_sim_adapter = None
+
+
+def get_shared_sim_adapter():
+    """取共享 SimTelemetryAdapter 单例（仅 sim 后端；测试可 reset）。"""
+    global _shared_sim_adapter
+    if _shared_sim_adapter is None:
+        _shared_sim_adapter = SimTelemetryAdapter()
+    return _shared_sim_adapter
+
+
+def reset_shared_sim_adapter():
+    """测试钩子：清空共享单例。"""
+    global _shared_sim_adapter
+    _shared_sim_adapter = None
+
 
 def get_telemetry_adapter():
     """按配置取适配器（config/realtime_telemetry.json，缺省 sim）。
@@ -155,7 +173,11 @@ def get_telemetry_adapter():
         pass
     cls = _ADAPTERS.get(adapter_name, SimTelemetryAdapter)
     try:
-        return cls()
+        adapter = cls()
     except NotImplementedError:
         logger.warning("[Realtime] adapter=%s 未实现，降级 sim 模拟源", adapter_name)
-        return SimTelemetryAdapter()
+        adapter = SimTelemetryAdapter()
+    # sim 后端统一走共享单例：WS 推送与健康端点共用同一帧流（曲线全局连续）
+    if isinstance(adapter, SimTelemetryAdapter):
+        return get_shared_sim_adapter()
+    return adapter
