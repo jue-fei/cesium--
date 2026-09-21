@@ -192,22 +192,27 @@
   margin-top: 16px;
 }
 /* 两栏布局（≥1280px 宽屏，全屏弹窗 tab③ 与 NSGA 专窗共用）：
-     上行 = 当前建议方案(整行)；下行 = 地图(左,占屏宽 0.74) + 右侧栏(占剩余宽度)。
-     右侧栏内：坐标轴在上、方案明细表在下，高度按 1:4 分配，表格底部与地图对齐；
-     地图高宽比 = 3:4（宽:高 = 4:3）。窄屏(<1280px)退回单栏纵排。 */
+     上行两列 = 当前建议方案(左) + 权重调节(右)；下行 = 地图(左,占屏宽 0.74)
+     + 右侧栏(帕累托前沿 40% + 方案明细表，底部与地图对齐)。窄屏(<1280px)
+     退回单栏纵排（方案 → 权重 → 地图 → 前沿 → 明细表）。 */
 @media (min-width: 1280px) {
   /* 两栏布局对两种模式统一生效（≥1280px）：全屏弹窗 tab③ 与 NSGA 专窗同为宽屏，
-     单栏纵排会让帕累托 SVG 拉伸满宽（viewBox 等比放大 → 轴标/气泡巨化）。 */
+     单栏纵排会让帕累托 SVG 拉伸满宽（viewBox 等比放大 → 轴标/气泡巨化）。
+     上行拆两列：当前建议方案(左) + 权重调节(右,定宽 340px)。 */
   .moo-lhd .moo-evidence {
     position: relative;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 340px;
     grid-template-rows: auto auto;
     grid-template-areas:
-      'rec'
-      'maprow';
+      'rec weights'
+      'maprow maprow';
   }
   .moo-lhd .rec-panel {
     grid-area: rec;
+  }
+  .moo-lhd .wt-panel {
+    grid-area: weights;
+    align-self: start;
   }
   /* 地图行：地图用 aspect-ratio 锚定自身 3:4 高度并决定整行高度（align-items:flex-start 避免
      stretch 覆盖 aspect-ratio，导致高度被右侧栏内容撑走）。右侧栏用绝对定位贴合地图高度，
@@ -251,17 +256,32 @@
   .moo-lhd .map-stage .map-panel {
     height: 100%;
   }
-  /* 右侧栏高度按 1:4 分配：上=坐标轴(1，较小) / 下=方案明细表(4)，底部自然与地图底对齐 */
+  /* 右侧栏高度按 2:3 分配：上=帕累托前沿(2，保证散点完整可见) / 下=方案明细表(3)，
+     底部自然与地图底对齐 */
   .moo-lhd .map-side .pf-panel {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
+    flex: 0 0 40%;
+    min-height: 260px;
+    overflow: hidden;
   }
   .moo-lhd .map-side .pf-panel .pf-body {
-    overflow: auto;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+  }
+  /* 散点 SVG 高度铺满 pf-body（宽由 viewBox 比例自动导出，meet 不失真），
+     坐标轴/刻度完整可见，不再被 1:4 高度分配裁掉 */
+  .moo-lhd .map-side .pf-panel .pf-body > svg {
+    width: auto;
+    height: 100%;
+    max-width: 100%;
+    flex: 0 1 auto;
+    margin-inline: auto;
   }
   .moo-lhd .map-side .moo-table-panel {
-    flex: 4;
+    flex: 1;
     min-height: 0;
     display: flex;
     flex-direction: column;
