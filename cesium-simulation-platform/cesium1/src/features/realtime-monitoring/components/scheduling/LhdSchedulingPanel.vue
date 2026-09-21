@@ -78,14 +78,16 @@
                 :target-pct="opexTargetPct"
               />
             </div>
-            <MultiObjectiveLhdView
-              v-else
-              :snapshot="snapshot"
-              :apply-assignment="applyAssignment"
-              :scenario="scenario"
-              :expanded="false"
-              @toggle-expand="nsgaFullscreen = true"
-            />
+            <div v-else class="nsga-placeholder">
+              <div class="nsga-ph-title">NSGA-III 多目标联合调度</div>
+              <p class="nsga-ph-desc">
+                六目标帕累托前沿 · 权重调节 · 方案明细与派单。完整交互（地图 / 权重滑杆 /
+                散点选解）请进入全屏模式查看。
+              </p>
+              <button class="sched-tab nsga-ph-btn" @click="nsgaFullscreen = true">
+                <span class="tab-num">③</span> 放大查看多目标优化
+              </button>
+            </div>
           </keep-alive>
         </div>
       </div>
@@ -138,14 +140,15 @@
                 :target-pct="opexTargetPct"
               />
             </div>
-            <MultiObjectiveLhdView
-              v-else
-              :snapshot="snapshot"
-              :apply-assignment="applyAssignment"
-              :scenario="scenario"
-              :expanded="false"
-              @toggle-expand="nsgaFullscreen = true"
-            />
+            <div v-else class="nsga-placeholder">
+              <div class="nsga-ph-title">NSGA-III 多目标联合调度</div>
+              <p class="nsga-ph-desc">
+                六目标帕累托前沿 · 权重调节 · 方案明细与派单。当前已在全屏模式，可完整交互。
+              </p>
+              <button class="sched-tab nsga-ph-btn" @click="nsgaFullscreen = true">
+                <span class="tab-num">③</span> 打开 NSGA-III 专窗
+              </button>
+            </div>
           </keep-alive>
         </template>
       </div>
@@ -457,11 +460,39 @@ function handleReset() {
   animation: fadeUp 0.22s ease;
 }
 .factor-stack {
-  /* 双栏并排：充分利用宽屏横向空间；窄屏(对话框/手机)回退单栏 */
+  /* 双栏并排：充分利用宽屏横向空间；窄屏(对话框/手机)回退单栏。
+     grid-auto-rows:1fr 强制同一行两面板等高（底边对齐），内部列表各自滚动 */
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  grid-auto-rows: 1fr;
   gap: 14px;
   align-items: stretch;
+}
+/* tab③ 缩回态占位卡：完整 NSGA-III 视图只在全屏/专窗呈现，避免窄容器排版崩坏 */
+.nsga-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 28px 24px;
+  border-radius: 12px;
+  border: 1px dashed rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.05);
+}
+.nsga-ph-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #bfdbfe;
+}
+.nsga-ph-desc {
+  margin: 0;
+  max-width: 560px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #94a3b8;
+}
+.nsga-ph-btn {
+  margin-top: 4px;
 }
 @media (max-width: 760px) {
   .factor-stack {

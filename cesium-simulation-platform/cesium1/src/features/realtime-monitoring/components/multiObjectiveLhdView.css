@@ -192,27 +192,55 @@
   margin-top: 16px;
 }
 /* 两栏布局（≥1280px 宽屏，全屏弹窗 tab③ 与 NSGA 专窗共用）：
-     上行两列 = 当前建议方案(左) + 权重调节(右)；下行 = 地图(左,占屏宽 0.74)
-     + 右侧栏(帕累托前沿 40% + 方案明细表，底部与地图对齐)。窄屏(<1280px)
-     退回单栏纵排（方案 → 权重 → 地图 → 前沿 → 明细表）。 */
+     上行 = 当前建议方案整行（内部：左=目标卡+铲运机路线列表，右=权重调节 320px）；
+     下行 = 地图(左,占屏宽 0.74) + 右侧栏(帕累托前沿 40% + 方案明细表，底部与地图
+     对齐)。窄屏(<1280px) 退回单栏纵排。 */
+/* 当前建议方案内部两列：左=目标卡+路线列表，右=权重调节（用户指定位置） */
+.rec-body {
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+}
+.rec-main {
+  flex: 1;
+  min-width: 0;
+}
+.wt-inline {
+  flex: 0 0 320px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.wt-inline .wt-body {
+  flex: 1;
+}
+@media (max-width: 1279px) {
+  .rec-body {
+    flex-direction: column;
+  }
+  .wt-inline {
+    flex: none;
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-left: 0;
+    padding-top: 12px;
+  }
+}
 @media (min-width: 1280px) {
   /* 两栏布局对两种模式统一生效（≥1280px）：全屏弹窗 tab③ 与 NSGA 专窗同为宽屏，
-     单栏纵排会让帕累托 SVG 拉伸满宽（viewBox 等比放大 → 轴标/气泡巨化）。
-     上行拆两列：当前建议方案(左) + 权重调节(右,定宽 340px)。 */
+     单栏纵排会让帕累托 SVG 拉伸满宽（viewBox 等比放大 → 轴标/气泡巨化）。 */
   .moo-lhd .moo-evidence {
     position: relative;
-    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto;
     grid-template-areas:
-      'rec weights'
-      'maprow maprow';
+      'rec'
+      'maprow';
   }
   .moo-lhd .rec-panel {
     grid-area: rec;
-  }
-  .moo-lhd .wt-panel {
-    grid-area: weights;
-    align-self: start;
   }
   /* 地图行：地图用 aspect-ratio 锚定自身 3:4 高度并决定整行高度（align-items:flex-start 避免
      stretch 覆盖 aspect-ratio，导致高度被右侧栏内容撑走）。右侧栏用绝对定位贴合地图高度，

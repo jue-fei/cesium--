@@ -88,103 +88,107 @@
           <div class="panel-hint">随点选联动</div>
         </div>
         <div class="panel-body rec-body">
-          <div class="rec-obj-grid">
-            <div
-              v-for="obj in objectives"
-              :key="'rec' + obj.id"
-              class="rec-obj"
-              :title="obj.why || obj.desc"
-            >
-              <span class="rec-obj-name">{{ obj.name }}</span>
-              <b class="rec-obj-val" :class="'dir-' + (obj.dir === 'min' ? 'min' : 'max')">
-                {{ fmt(selected.objectives[obj.id]) }}
-              </b>
-              <span class="rec-obj-dir">
-                {{ obj.unit ? obj.unit + ' · ' : ''
-                }}{{ obj.dir === 'min' ? '↓ 越小越好' : '↑ 越大越好' }}
-              </span>
-            </div>
-          </div>
-          <div class="rec-divider"></div>
-          <div class="rec-route-list">
-            <div v-for="(id, i) in equipIds" :key="'rr' + i" class="rec-route-item">
-              <span
-                class="rec-equip"
-                :style="{ background: pathColors[i] + '22', color: pathColors[i] }"
-                >{{ cnId(id) }}</span
+          <div class="rec-main">
+            <div class="rec-obj-grid">
+              <div
+                v-for="obj in objectives"
+                :key="'rec' + obj.id"
+                class="rec-obj"
+                :title="obj.why || obj.desc"
               >
-              <i
-                v-if="routeZoneOf(i)"
-                class="rec-zone-dot"
-                :style="{ background: zoneColorMap[routeZoneOf(i)] }"
-                :title="'所属采场：' + routeZoneOf(i)"
-              ></i>
-              <span class="rec-target">{{ cnPath(routeStep(i)) }}</span>
+                <span class="rec-obj-name">{{ obj.name }}</span>
+                <b class="rec-obj-val" :class="'dir-' + (obj.dir === 'min' ? 'min' : 'max')">
+                  {{ fmt(selected.objectives[obj.id]) }}
+                </b>
+                <span class="rec-obj-dir">
+                  {{ obj.unit ? obj.unit + ' · ' : ''
+                  }}{{ obj.dir === 'min' ? '↓ 越小越好' : '↑ 越大越好' }}
+                </span>
+              </div>
+            </div>
+            <div class="rec-divider"></div>
+            <div class="rec-route-list">
+              <div v-for="(id, i) in equipIds" :key="'rr' + i" class="rec-route-item">
+                <span
+                  class="rec-equip"
+                  :style="{ background: pathColors[i] + '22', color: pathColors[i] }"
+                  >{{ cnId(id) }}</span
+                >
+                <i
+                  v-if="routeZoneOf(i)"
+                  class="rec-zone-dot"
+                  :style="{ background: zoneColorMap[routeZoneOf(i)] }"
+                  :title="'所属采场：' + routeZoneOf(i)"
+                ></i>
+                <span class="rec-target">{{ cnPath(routeStep(i)) }}</span>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- 权重调节：ML 推荐权重 / 手动微调 → 加权推荐方案（位于当前建议方案右侧） -->
-      <div class="panel wt-panel">
-        <div class="panel-head">
-          <div class="panel-label">权重调节</div>
-          <div class="panel-controls">
-            <span
-              v-if="weightSource"
-              class="wt-source"
-              :class="{ 'wt-degraded': weightDegraded }"
-              :title="weightDegraded ? '外部 ML 权重服务未启用/失败，已降级等权' : ''"
-            >
-              {{
-                weightSource === 'ml-external'
-                  ? 'ML 推荐'
-                  : weightSource === 'manual'
-                    ? '手动'
-                    : '等权降级'
-              }}
-            </span>
-            <label class="wt-lock" title="锁定当前推荐，前沿刷新不重算；拖动滑杆自动解锁">
-              <input
-                type="checkbox"
-                :checked="weightLocked"
-                @change="lockRecommend($event.target.checked)"
-              />锁定
-            </label>
-          </div>
-        </div>
-        <div class="panel-body wt-body">
-          <div v-for="o in objectives" :key="o.id" class="wt-row">
-            <span class="wt-name" :title="o.desc">{{ o.name }}</span>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              :value="weightRaw[o.id] || 0"
-              class="wt-slider"
-              :aria-label="`${o.name}权重`"
-              @input="onWeightSlide(o.id, $event)"
-            />
-            <span class="wt-val">{{ Math.round((normW[o.id] || 0) * 100) }}%</span>
-          </div>
-          <div class="wt-actions">
-            <button class="wt-btn" :disabled="weightLoading" @click="loadWeightRecommend">
-              {{ weightLoading ? '获取中…' : 'ML 推荐权重' }}
-            </button>
-            <button
-              class="wt-btn"
-              :disabled="weightSolving || !paretoSize"
-              title="把权重作为偏好参考方向重新运行 NSGA-III"
-              @click="deepSolve"
-            >
-              {{ weightSolving ? '求解中…' : '按权重重求解' }}
-            </button>
-            <button v-if="result?.overridden" class="wt-btn wt-btn-ghost" @click="resetOverride">
-              恢复快照前沿
-            </button>
-          </div>
-          <div v-if="weightError" class="wt-error">{{ weightError }}</div>
-          <div v-if="weightModelText" class="panel-hint">{{ weightModelText }}</div>
+          <aside class="wt-inline">
+            <div class="panel-head">
+              <div class="panel-label">权重调节</div>
+              <div class="panel-controls">
+                <span
+                  v-if="weightSource"
+                  class="wt-source"
+                  :class="{ 'wt-degraded': weightDegraded }"
+                  :title="weightDegraded ? '外部 ML 权重服务未启用/失败，已降级等权' : ''"
+                >
+                  {{
+                    weightSource === 'ml-external'
+                      ? 'ML 推荐'
+                      : weightSource === 'manual'
+                        ? '手动'
+                        : '等权降级'
+                  }}
+                </span>
+                <label class="wt-lock" title="锁定当前推荐，前沿刷新不重算；拖动滑杆自动解锁">
+                  <input
+                    type="checkbox"
+                    :checked="weightLocked"
+                    @change="lockRecommend($event.target.checked)"
+                  />锁定
+                </label>
+              </div>
+            </div>
+            <div class="wt-body">
+              <div v-for="o in objectives" :key="o.id" class="wt-row">
+                <span class="wt-name" :title="o.desc">{{ o.name }}</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  :value="weightRaw[o.id] || 0"
+                  class="wt-slider"
+                  :aria-label="`${o.name}权重`"
+                  @input="onWeightSlide(o.id, $event)"
+                />
+                <span class="wt-val">{{ Math.round((normW[o.id] || 0) * 100) }}%</span>
+              </div>
+              <div class="wt-actions">
+                <button class="wt-btn" :disabled="weightLoading" @click="loadWeightRecommend">
+                  {{ weightLoading ? '获取中…' : 'ML 推荐权重' }}
+                </button>
+                <button
+                  class="wt-btn"
+                  :disabled="weightSolving || !paretoSize"
+                  title="把权重作为偏好参考方向重新运行 NSGA-III"
+                  @click="deepSolve"
+                >
+                  {{ weightSolving ? '求解中…' : '按权重重求解' }}
+                </button>
+                <button
+                  v-if="result?.overridden"
+                  class="wt-btn wt-btn-ghost"
+                  @click="resetOverride"
+                >
+                  恢复快照前沿
+                </button>
+              </div>
+              <div v-if="weightError" class="wt-error">{{ weightError }}</div>
+              <div v-if="weightModelText" class="panel-hint">{{ weightModelText }}</div>
+            </div>
+          </aside>
         </div>
       </div>
 
