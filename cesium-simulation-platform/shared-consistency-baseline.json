@@ -41,6 +41,30 @@
     "deploymentItemKeys": ["node", "level"],
     "responseDataKeys": ["deployments", "processOrder", "applied", "skipped"]
   },
+  "auditCmps": {
+    "_desc": "3.3 操作审计契约：动作枚举/记录键/API 路径。前端侧 operation-audit/services/auditApi.js 与用例 __tests__/auditContract.test.js；后端侧 app/services/audit/audit_log.py + app/routes/audit.py 与用例 tests/test_audit.py。动作标签真源在后端（前端经 /api/audit/actions 拉取，新增审计点零前端发布）。",
+    "api": {
+      "logs": "GET /api/audit/logs",
+      "actions": "GET /api/audit/actions"
+    },
+    "actionIds": [
+      "deployment.save",
+      "muck_task.update",
+      "scheduling.solve",
+      "scheduling.reset",
+      "scheduling.apply",
+      "scheduling.blastpile",
+      "blasting.event.create",
+      "blasting.event.update",
+      "blasting.event.delete",
+      "blasting.design.save",
+      "blasting.result.save"
+    ],
+    "domains": ["scheduling", "blasting"],
+    "entryKeys": ["id", "ts", "actor", "action", "scenario", "summary", "detail", "ok"],
+    "logResponseDataKeys": ["entries", "hasMore"],
+    "actionItemKeys": ["id", "label", "domain"]
+  },
   "timeseriesCmps": {
     "downsamples": [
       "raw",

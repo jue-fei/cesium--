@@ -16,6 +16,7 @@ from fastapi import APIRouter, Body, Depends
 
 from app.routes.scheduling import get_simulator
 from app.security import require_token
+from app.services.audit import append as audit_append
 from app.services.scheduling.deployment_store import (
     apply_deployment,
     load_deployment,
@@ -67,6 +68,18 @@ def put_deployment(
     logger.info(
         "[deployment] 场景 %s 已保存：部署 %d 台（即刻生效 %d），工序 %d 级",
         key, len(deployments), len(applied), len(process_order),
+    )
+    # 3.3 操作审计：记录部署变更（增量合并后的全量落点 + 即刻/延迟生效拆分）
+    audit_append(
+        "deployment.save",
+        f"保存设备部署：{len(deployments)} 台落位，即刻生效 {len(applied)} 台",
+        scenario=key,
+        detail={
+            "deployments": deployments,
+            "processOrder": process_order,
+            "applied": applied,
+            "skipped": skipped,
+        },
     )
     return {
         "code": 0,

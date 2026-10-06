@@ -14,6 +14,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Body, Depends
 from app.security import require_token
+from app.services.audit import append as audit_append
 from app.services.scheduling.simulator import SchedulingSimulator
 from app.services.scheduling.scenario_config import (
     load_config,
@@ -79,6 +80,12 @@ def update_muck_task(task_id: str, body: dict = Body(..., description="采矿区
     ok = upsert_task(task_id, body)
     if not ok:
         return {"code": 1, "message": f"写入采矿区任务 {task_id} 失败（检查数据库连接与字段）"}
+    # 3.3 操作审计：任务字段修改（数据库层，无场景概念）
+    audit_append(
+        "muck_task.update",
+        f"修改采矿区任务 {task_id}：{len(body)} 个字段",
+        detail={"taskId": task_id, "fields": sorted(body.keys())},
+    )
     return {"code": 0, "message": f"采矿区任务 {task_id} 已更新"}
 
 
@@ -143,6 +150,13 @@ def scheduling_multi_objective_solve(
     if body.get("resolve"):
         candidates_list = [opt["byEquipment"].get(eq.id, []) for eq in sim.equip]
         result = solve_pareto(candidates_list, weights=weights)
+        # 3.3 操作审计：深路径重求解（滑杆实时快路径不记录）
+        audit_append(
+            "scheduling.solve",
+            "按权重重求解：NSGA-III 深路径重算帕累托前沿",
+            scenario=scenario or DEFAULT_SCENARIO,
+            detail={"weights": weights, "paretoSize": len(result["paretoFront"])},
+        )
         return {
             "code": 0,
             "data": {
@@ -181,6 +195,8 @@ def scheduling_reset(scenario: Optional[str] = None):
     key = scenario or DEFAULT_SCENARIO
     _sims[key] = SchedulingSimulator(load_scenario(key))
     _sims[key].tick()
+    # 3.3 操作审计：仿真重置
+    audit_append("scheduling.reset", "重置调度仿真器：设备/矿堆/派单状态回到初始", scenario=key)
     return {"code": 0, "data": _sims[key].snapshot()}
 
 
@@ -213,6 +229,15 @@ def scheduling_apply_assignment(
                 pending[k] = a.get(k)
         sim.pending_assignments[eq_id] = pending
         applied.append({"equipId": eq_id, "target": target, "pathCount": len(path)})
+    # 3.3 操作审计：选解派单提交（空列表/全拒绝不记录成功态）
+    if applied:
+        audit_append(
+            "scheduling.apply",
+            f"提交 NSGA-III 选解派单：{len(applied)} 台设备",
+            scenario=scenario or DEFAULT_SCENARIO,
+            detail={"applied": applied, "rejected": rejected},
+            ok=not rejected,
+        )
     return {"code": 0, "data": {"applied": applied, "rejected": rejected}}
 
 
@@ -226,4 +251,12 @@ def scheduling_blastpile(
     ok = sim.inject_blast_pile(pile)
     if not ok:
         return {"code": 1, "message": f"未找到装载点 {pile.get('pileId') or pile.get('id')}"}
+    # 3.3 操作审计：爆破板块 → 调度板块爆堆注入（多工序联动）
+    pile_id = pile.get("pileId") or pile.get("id")
+    audit_append(
+        "scheduling.blastpile",
+        f"注入爆堆状态：装载点 {pile_id} 覆盖模拟兜底数据",
+        scenario=scenario or DEFAULT_SCENARIO,
+        detail={"pileId": pile_id},
+    )
     return {"code": 0, "message": "爆堆信息已注入", "data": {"pileId": pile.get("pileId") or pile.get("id")}}

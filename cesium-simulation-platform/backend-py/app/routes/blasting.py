@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pymysql import Connection
 
 from app.database import get_db
+from app.services.audit import append as audit_append
 from app.services.blasting.kco_validator import KCOInput, calculate_kco
 from app.services.blasting.blast_physics import (
     BlastSource,
@@ -627,8 +628,13 @@ def create_event(body: dict, db: Connection = Depends(get_db)):
             logger.error("创建事件失败 event_id=%s: %s", event_id, e, exc_info=True)
             raise HTTPException(status_code=500, detail=f"创建事件失败: {e}")
 
+    # 3.3 操作审计：新建爆破事件
+    audit_append(
+        "blasting.event.create",
+        f"新建爆破事件 {data.get('name') or event_id}（药量 {data.get('charge_kg')} kg）",
+        detail={"eventId": event_id, "name": data.get("name"), "fields": sorted(data.keys())},
+    )
     return {"code": 0, "msg": "爆破事件创建成功", "data": {"eventId": event_id}}
-
 
 @router.put("/events/{event_id}", dependencies=[Depends(require_token)])
 def update_event(event_id: str, body: dict, db: Connection = Depends(get_db)):
@@ -647,6 +653,12 @@ def update_event(event_id: str, body: dict, db: Connection = Depends(get_db)):
             f"UPDATE blasting_events SET {set_clause} WHERE event_id=%s", values
         )
         db.commit()
+    # 3.3 操作审计：修改爆破事件
+    audit_append(
+        "blasting.event.update",
+        f"修改爆破事件 {event_id}：{len(data)} 个字段",
+        detail={"eventId": event_id, "fields": sorted(data.keys())},
+    )
     return {"code": 0, "msg": "爆破事件更新成功"}
 
 
@@ -660,6 +672,12 @@ def delete_event(event_id: str, db: Connection = Depends(get_db)):
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="爆破事件未找到")
         db.commit()
+    # 3.3 操作审计：删除爆破事件
+    audit_append(
+        "blasting.event.delete",
+        f"删除爆破事件 {event_id}（设计/炮孔/效果级联删除）",
+        detail={"eventId": event_id},
+    )
     return {"code": 0, "msg": "爆破事件删除成功"}
 
 
@@ -763,6 +781,12 @@ def save_design(event_id: str, body: dict, db: Connection = Depends(get_db)):
             logger.error("保存设计失败 event_id=%s holes=%d: %s", event_id, len(holes), e, exc_info=True)
             raise HTTPException(status_code=500, detail=f"保存设计失败: {e}")
 
+    # 3.3 操作审计：保存爆破设计（设计字段 + 炮孔批量替换）
+    audit_append(
+        "blasting.design.save",
+        f"保存爆破设计：事件 {event_id}，{len(holes)} 个炮孔",
+        detail={"eventId": event_id, "holes": len(holes), "fields": sorted(design_data.keys())},
+    )
     return {"code": 0, "msg": "爆破设计保存成功"}
 
 
@@ -816,6 +840,12 @@ def update_result(event_id: str, body: dict, db: Connection = Depends(get_db)):
             f"UPDATE blasting_result SET {set_clause} WHERE event_id=%s", values
         )
         db.commit()
+    # 3.3 操作审计：录入爆破效果
+    audit_append(
+        "blasting.result.save",
+        f"录入爆破效果：事件 {event_id}，{len(data)} 个字段",
+        detail={"eventId": event_id, "fields": sorted(data.keys())},
+    )
     return {"code": 0, "msg": "爆破效果更新成功"}
 
 
