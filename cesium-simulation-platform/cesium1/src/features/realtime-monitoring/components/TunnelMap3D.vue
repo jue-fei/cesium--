@@ -1,6 +1,11 @@
 <template>
   <div ref="containerEl" class="tmap3d">
-    <div class="tmap3d-hint">左键旋转 · 滚轮缩放 · 中键拖拽平移 · 点击巷道段查详情</div>
+    <div class="tmap3d-hint">
+      <template v-if="deployMode">
+        拖拽设备到巷道节点部署 · 松开即保存 · 左键拖空白处平移 · 中键平移 · 滚轮缩放
+      </template>
+      <template v-else>左键旋转 · 滚轮缩放 · 中键拖拽平移 · 点击巷道段查详情</template>
+    </div>
     <div class="tmap3d-axis">
       <span class="axis-x"><i></i>X 水平(东西)</span>
       <span class="axis-y"><i></i>Y 竖向(多层·下深)</span>
@@ -46,6 +51,7 @@ import { DEFAULT_LEVELS, DEFAULT_VIEW_BOX } from '../services/undergroundLayout.
 import { useTunnelMap3DLabels } from './useTunnelMap3DLabels.js'
 import { useTunnelMap3DScene } from './useTunnelMap3DScene.js'
 import { useTunnelMap3DRebuild } from './useTunnelMap3DRebuild.js'
+import { useTunnelMap3DDeploy } from './useTunnelMap3DDeploy.js'
 
 const props = defineProps({
   segments: { type: Array, default: () => [] }, // [{id, aId, bId, a:{x,y}, b:{x,y}}]
@@ -59,9 +65,13 @@ const props = defineProps({
   viewBox: { type: Object, default: () => DEFAULT_VIEW_BOX }, // 2D 布局画布范围
   equipColors: { type: Array, default: () => [] },
   equipNames: { type: Array, default: () => [] },
+  equipIds: { type: Array, default: () => [] }, // 与 equipColors 同序：设备真实 id（部署保存用）
+  // —— 拖拽式设备部署（3.2）——
+  deployMode: { type: Boolean, default: false }, // 部署模式：设备按落位节点静态摆放、可拖拽
+  equipNodes: { type: Array, default: () => [] }, // 与 equipColors 同序：{node, level} 部署/实时落位
   activeSegId: { type: String, default: '' }
 })
-const emit = defineEmits(['select', 'clear'])
+const emit = defineEmits(['select', 'clear', 'deploy'])
 
 const containerEl = ref(null)
 
@@ -83,7 +93,16 @@ const scene3d = useTunnelMap3DScene({
 })
 
 // —— 场景内容构建：巷道/节点/竖井/主井/路线/设备/坐标轴（随 props 变化整体重建） ——
-const { rebuild } = useTunnelMap3DRebuild({ props, levels, sceneApi: scene3d, labels })
+const rebuildDeps = useTunnelMap3DRebuild({ props, levels, sceneApi: scene3d, labels })
+const { rebuild } = rebuildDeps
+
+// —— 拖拽式设备部署（3.2）：deployMode 开启时绑定拖拽/吸附交互，落点经 deploy 事件上抛 ——
+useTunnelMap3DDeploy({
+  props,
+  sceneApi: scene3d,
+  rebuildApi: { getNodeBalls: rebuildDeps.getNodeBalls, getEquipGroups: rebuildDeps.getEquipGroups },
+  onDeploy: payload => emit('deploy', payload)
+})
 
 // 右上角设备工作/空闲状态：当前方案给该设备分配了路线(route 非空)=工作中，否则空闲
 const equipStatus = computed(() =>
@@ -108,6 +127,9 @@ watch(
     props.viewBox,
     props.equipColors,
     props.equipNames,
+    props.equipIds,
+    props.deployMode,
+    props.equipNodes,
     props.metaById,
     props.activeSegId
   ],

@@ -206,6 +206,14 @@
                     : `方案 ${selectedIndex + 1}`
                 }}
               </div>
+              <button
+                class="deploy-toggle"
+                :class="{ on: deployMode }"
+                :title="deployMode ? '退出拖拽部署模式' : '进入拖拽部署模式：拖拽设备到巷道节点保存待命点'"
+                @click="toggleDeployMode"
+              >
+                {{ deployMode ? '退出部署' : '设备部署' }}
+              </button>
             </div>
             <div class="panel-body">
               <!-- 三维巷道网络：隧道管道 + 节点标记 + 设备巡游 + 派送路线（按采场着色） -->
@@ -220,10 +228,26 @@
                 :levels="levels"
                 :equip-colors="pathColors"
                 :equip-names="equipNames"
+                :equip-ids="equipIds"
+                :deploy-mode="deployMode"
+                :equip-nodes="equipNodes"
                 :node-heights="nodeHeights"
                 :active-seg-id="activeSegId"
                 @select="activeSegId = $event"
                 @clear="activeSegId = ''"
+                @deploy="onDeployDrop"
+              />
+
+              <!-- 拖拽式设备部署侧栏（3.2）：部署清单 + 出矿工序优先级编辑 -->
+              <LhdDeployPanel
+                v-if="deployMode"
+                :equipment-items="equipmentItems"
+                :deployments="deployments"
+                :process-order="processOrder"
+                :muck-points="muckPilePoints"
+                :status="deployStatus"
+                :busy="deployBusy"
+                @save-order="onSaveProcessOrder"
               />
 
               <!-- 路段约束详情条：点击巷道段后展开（每段独立编号 + 专有安全信息） -->
@@ -586,12 +610,17 @@ import {
 } from '../services/lhdSchedulingUtils.js'
 import { buildLayout } from '../services/undergroundLayout.js'
 import { fetchScenarioConfig } from '../services/scenarioConfig.js'
-import { applyAssignment as applyAssignmentApi } from '../services/schedulingApi.js'
+import {
+  applyAssignment as applyAssignmentApi,
+  fetchDeployment,
+  saveDeployment
+} from '../services/schedulingApi.js'
 import { useMultiObjectiveLhdSort } from './useMultiObjectiveLhdSort.js'
 import { useMultiObjectiveLhdScatter } from './useMultiObjectiveLhdScatter.js'
 import { useMultiObjectiveLhdTunnel } from './useMultiObjectiveLhdTunnel.js'
 import { useWeightTuning } from './useWeightTuning.js'
 import TunnelMap3D from './TunnelMap3D.vue'
+import LhdDeployPanel from './scheduling/LhdDeployPanel.vue'
 
 // ===== 文献口径数值（仅供底部 ref-note 口径文案插值展示，勿改字面口径） =====
 /** Freire 等 (2023)：LHD 运行速度参考值 */
@@ -839,6 +868,93 @@ const {
   equipIds,
   equipmentItems
 })
+
+// ===== 拖拽式设备部署与出矿工序调整（3.2）=====
+// 真源在后端（config/deployments/<场景>.json）：拖拽落点/工序顺序经 PUT /api/deployment
+// 保存并即刻应用到运行中的仿真器（空闲设备迁移待命点、贪心派单按工序偏置），
+// 架构纪律与既有一致：前端不持有需发版的数据。
+const deployMode = ref(false)
+const deployments = ref({})
+const processOrder = ref([])
+const deployStatus = ref('')
+const deployBusy = ref(false)
+// 进入部署模式时的实时落位快照（部署期间未部署设备按此静态展示，不随巡游漂移）
+const frozenLiveNodes = ref([])
+const muckPilePoints = computed(() => props.snapshot?.factors?.muckPile?.points || [])
+
+function toggleDeployMode() {
+  deployMode.value = !deployMode.value
+  if (deployMode.value) {
+    frozenLiveNodes.value = equipmentItems.value.map(e => ({
+      node: e.node,
+      level: e.level || 0
+    }))
+    deployStatus.value = ''
+    loadDeploymentState()
+  }
+}
+
+async function loadDeploymentState() {
+  try {
+    const res = await fetchDeployment(props.scenario)
+    if (res.code === 0) {
+      deployments.value = res.data.deployments || {}
+      processOrder.value = res.data.processOrder || []
+    } else {
+      deployStatus.value = `部署真源读取失败：${res.message || '未知错误'}`
+    }
+  } catch (e) {
+    deployStatus.value = '部署真源读取失败：' + (e.message || e)
+  }
+}
+
+// 设备落位：部署真源优先，未部署设备用进入部署模式时的实时位置
+const equipNodes = computed(() =>
+  equipIds.value.map((id, i) => deployments.value[id] || frozenLiveNodes.value[i] || null)
+)
+
+async function onDeployDrop({ equipId, node, level }) {
+  deployBusy.value = true
+  deployStatus.value = `正在保存 ${cnId(equipId)} → ${node} …`
+  try {
+    const res = await saveDeployment({
+      scenario: props.scenario,
+      deployments: { [equipId]: { node, level } }
+    })
+    if (res.code === 0) {
+      deployments.value = res.data.deployments
+      const nApply = res.data.applied?.length || 0
+      const nSkip = res.data.skipped?.length || 0
+      deployStatus.value = nSkip
+        ? `已保存：${cnId(equipId)} 部署到 ${node}（L${(level ?? 0) + 1} 水平）；${nApply} 台即刻生效，作业中设备下次重置生效`
+        : `已保存：${cnId(equipId)} 部署到 ${node}（L${(level ?? 0) + 1} 水平），即刻生效`
+    } else {
+      deployStatus.value = `保存失败：${res.message || '未知错误'}`
+    }
+  } catch (e) {
+    deployStatus.value = '保存失败：' + (e.message || e)
+  } finally {
+    deployBusy.value = false
+  }
+}
+
+async function onSaveProcessOrder(order) {
+  deployBusy.value = true
+  deployStatus.value = '正在保存出矿工序…'
+  try {
+    const res = await saveDeployment({ scenario: props.scenario, processOrder: order })
+    if (res.code === 0) {
+      processOrder.value = res.data.processOrder
+      deployStatus.value = '出矿工序已保存并生效（贪心派单按新工序优先偏置）'
+    } else {
+      deployStatus.value = `工序保存失败：${res.message || '未知错误'}`
+    }
+  } catch (e) {
+    deployStatus.value = '工序保存失败：' + (e.message || e)
+  } finally {
+    deployBusy.value = false
+  }
+}
 
 // ===== 帕累托前沿（2D 投影）：任意两两目标投影，通过 pairIdx 切换坐标轴对 =====
 const { PLOT, pairOptions, pairIdx, paretoScatter, fmtTick, fmtTickPoint } =

@@ -326,6 +326,28 @@
 .map-panel .panel-body {
   gap: 10px;
   min-height: 0;
+  /* 拖拽部署侧栏（3.2）绝对定位锚点 */
+  position: relative;
+}
+/* 部署模式开关（panel-head 右侧）：开启后三维图进入拖拽部署交互 */
+.deploy-toggle {
+  padding: 3px 12px;
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.08);
+  color: #facc15;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.deploy-toggle:hover {
+  background: rgba(250, 204, 21, 0.18);
+}
+.deploy-toggle.on {
+  background: linear-gradient(135deg, #facc15, #f59e0b);
+  color: #0a0f18;
+  border-color: transparent;
 }
 /* 巷道 3D 图在面板内弹性铺满：随网格等高对齐，长出的高度由详情/图例吸收 */
 .map-panel .panel-body > .tmap3d {

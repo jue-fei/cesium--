@@ -36,6 +36,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from app.services.scheduling.scenario_config import load_scenario
+from app.services.scheduling.deployment_store import load_deployment, apply_deployment
 from app.services.scheduling.muck_data import load_muck_tasks
 from app.services.scheduling.multi_objective import solve_pareto
 from app.services.timeseries.ts_store import record_metric
@@ -74,6 +75,11 @@ CONGESTION_ENERGY_K = 0.9        # 拥堵系数每 1.0 增 ~90% 瞬时段比耗
 ROCKBURST_ENERGY_K = 0.6         # 岩爆威胁每 1.0 增 ~60% 避险比耗
 # NSGA-III 选解有效期：超时后视为过时（动态状态已演进），不再消费
 PENDING_EXPIRE_S = 300.0         # 秒（≈60 仿真步）
+
+# 出矿工序优先偏置（3.2 拖拽式设备部署与工序调整）：processOrder 每靠后一级，
+# 贪心派单成本增加 5 个单位（≈4kWh 能耗或 8min 行时的等价权重）——量级低于
+# 典型单趟总成本（数十），只在近均衡候选间体现工序先后，不颠覆能耗主序。
+PROCESS_PRIORITY_BIAS = 5.0
 
 # 多目标优化（NSGA-III/精确穷举）预计算缓存参数：
 #   - 候选内容变化后，距离上次重算至少间隔 OPT_MIN_INTERVAL_S 才重算（过滤高频重算）；
@@ -319,6 +325,16 @@ class SchedulingSimulator:
                 health=0.95 - 0.06 * i, health_factor=1.0, energy_used_kwh=0.0,
                 energy_mapped_t=0.0, ref_energy_t=0.0, fault_rate=0.3, travel_cycles=0,
             ))
+
+        # ---- 拖拽式设备部署与出矿工序顺序（3.2，真源 config/deployments/<场景名>.json）----
+        # 部署待命点覆盖设备初始位置（影响空载去程与贪心派单成本）；工序优先级
+        # 作为贪心派单偏置（见 _dispatch）。文件缺失=未部署，保持既有落位不变；
+        # 无 scenarioKey（直调 build_scenario 的调用方）不启用部署。
+        self.process_order = []
+        if self.cfg.get("scenarioKey"):
+            dep = load_deployment(self.cfg["scenarioKey"])
+            self.process_order = list(dep.get("processOrder") or [])
+            apply_deployment(self, dep.get("deployments") or {}, only_idle=False)
 
         # ---- 段动态 ----
         self.segs = {}
@@ -888,6 +904,10 @@ class SchedulingSimulator:
                     continue
             # 候选装载点：有存量且可到达
             candidates = []
+            # 出矿工序优先偏置（3.2）：processOrder 靠前的采矿点成本更低；
+            # 未列入工序顺序的采矿点按"末位+1"处理（仍可被派，只是无优先权）
+            proc_rank = {mid: i for i, mid in enumerate(self.process_order)}
+            rank_default = max(len(self.process_order), 1)
             for mid, mp in self.muck.items():
                 if mp.stock_t <= 0:
                     continue
@@ -898,6 +918,7 @@ class SchedulingSimulator:
                 congest = max(route.get("congestionSeq") or [0]) if route.get("congestionSeq") else 0.0
                 cost = route["energyTotal"] * 1.2 + route["timeMin"] * 0.6 + \
                        route["hazard"] * 8 + mp.bigBlockRatio * 0.6 + congest * 3
+                cost += proc_rank.get(mid, rank_default) * PROCESS_PRIORITY_BIAS
                 candidates.append((cost, mid, route, mp))
             if not candidates:
                 eq.assigned = {}
@@ -1383,7 +1404,8 @@ class SchedulingSimulator:
                 "capacityT": spec.capacity_t, "bucketM3": spec.bucket_m3,
                 "widthM": spec.width_m, "heightM": spec.height_m,
                 "turnRadiusM": spec.turn_radius_m,
-                "segId": eq.seg_id, "node": eq.node, "segProgress": round(eq.seg_progress, 3),
+                "segId": eq.seg_id, "node": eq.node, "level": eq.level,
+                "segProgress": round(eq.seg_progress, 3),
                 "state": eq.state, "payloadT": round(eq.payload_t, 1), "loadMode": eq.load_mode,
                 "speedKmh": round(eq.speed_kmh, 1),
                 "posErrorM": eq.pos_error_m, "posConf": eq.pos_conf,

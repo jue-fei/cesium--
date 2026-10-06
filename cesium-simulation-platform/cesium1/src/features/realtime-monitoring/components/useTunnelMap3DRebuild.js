@@ -231,6 +231,13 @@ export function useTunnelMap3DRebuild({ props, levels, sceneApi, labels }) {
   }
 
   function pickEquipPos(i) {
+    // 部署模式（3.2）：设备按部署/实时落位节点静态摆放（equipNodes 由部署真源
+    // 与实时快照合成），不沿路线巡游；无落位信息回退路线首点
+    const dn = props.equipNodes[i]
+    if (props.deployMode && dn && dn.node != null) {
+      const at = nodeAt(dn.node, dn.level || 0)
+      if (at) return { pos: at, route: [at] }
+    }
     const r = props.routes[i]
     // 无路线的设备不生成初始位置（返回 null，调用方跳过渲染），
     // 避免没有派送方案的铲运机被错误地丢到地图中心(0, 顶层, 0)悬空。
@@ -251,6 +258,7 @@ export function useTunnelMap3DRebuild({ props, levels, sceneApi, labels }) {
       if (g.userData.ring) {
         g.userData.ring.material.opacity = RING_OPACITY_BASE + RING_OPACITY_SWING * pulse
       }
+      if (g.userData.dragging) return // 拖拽中的设备由部署交互接管，不参与巡游
       const route = g.userData.route || []
       if (route.length < 2) return
       const span = route.length - 1
@@ -287,6 +295,8 @@ export function useTunnelMap3DRebuild({ props, levels, sceneApi, labels }) {
   function rebuild() {
     const scene = sceneApi.getScene()
     if (!scene) return
+    // 拖拽中不整体重建（被拖设备组会被替换导致拖拽断裂）；拖拽结束后由数据变更触发
+    if (equipGroups.some(g => g.userData.dragging)) return
 
     for (const m of segBores) scene.remove(m)
     for (const b of nodeBalls) scene.remove(b)
@@ -428,6 +438,8 @@ export function useTunnelMap3DRebuild({ props, levels, sceneApi, labels }) {
           })
         )
         ball.position.copy(p)
+        // 部署吸附目标（3.2）：拖拽设备时按屏幕距离吸附最近节点（nodeId + 所在水平）
+        ball.userData = { nodeId: id, level: li }
         scene.add(ball)
         nodeBalls.push(ball)
         // 采矿区/卸载点额外叠加高亮光晕（金色/红色，明显区别于普通交叉节点）
@@ -633,14 +645,15 @@ export function useTunnelMap3DRebuild({ props, levels, sceneApi, labels }) {
 
     props.equipColors.forEach((color, i) => {
       // 选中某采场后，其它采场路线已隐藏：所属设备一并隐藏，避免悬空在隐形路线上
+      //（部署模式下全员可见可拖拽，不受采场筛选影响）
       const eZone = props.routeZones[i] || ''
-      if (props.activeZone && props.activeZone !== eZone) return
+      if (!props.deployMode && props.activeZone && props.activeZone !== eZone) return
       const placed = pickEquipPos(i)
       if (!placed) return // 无路线设备不渲染，避免中心空中悬停
       const { pos, route } = placed
       const g = buildEquipment(color)
       g.position.copy(pos)
-      g.userData = { route }
+      g.userData = { route, equipIndex: i, equipId: props.equipIds[i] || '' }
       scene.add(g)
       const nameLbl = labels.makeLabel(props.equipNames[i] || `设备${i + 1}`, 'lbl lbl-eq')
       nameLbl.position.set(0, 6.2, 0)
@@ -676,5 +689,14 @@ export function useTunnelMap3DRebuild({ props, levels, sceneApi, labels }) {
   sceneApi.setSceneContent(rebuild)
   sceneApi.setFrameUpdate(updateFrame)
 
-  return { rebuild }
+  // 部署交互（useTunnelMap3DDeploy）依赖的只读访问器：节点球（含 nodeId/level 的
+  // 吸附目标）与设备组（拖拽目标）
+  function getNodeBalls() {
+    return nodeBalls
+  }
+  function getEquipGroups() {
+    return equipGroups
+  }
+
+  return { rebuild, nodeAt, getNodeBalls, getEquipGroups }
 }

@@ -19,6 +19,31 @@ export function applyAssignment(assignments) {
 }
 
 /**
+ * 读取拖拽式设备部署与出矿工序顺序（3.2）。真源 config/deployments/<场景名>.json。
+ * @param {string} scenario 场景名
+ * @returns {Promise<object>} {code, data:{deployments:{[equipId]:{node,level}}, processOrder:string[]}}
+ */
+export function fetchDeployment(scenario) {
+  const q = scenario ? `?scenario=${encodeURIComponent(scenario)}` : ''
+  return fetch(`/api/deployment${q}`).then(r => r.json())
+}
+
+/**
+ * 保存设备部署/出矿工序顺序（3.2）。后端校验→落盘→即刻应用到运行中的仿真器
+ * （空闲设备迁移待命点；作业中设备下次仿真重置生效）。
+ * @param {{scenario?:string, deployments?:Object, processOrder?:string[]}} payload
+ *   deployments 为增量合并（设备→{node,level}），processOrder 为整体替换
+ * @returns {Promise<object>} {code, data:{deployments, processOrder, applied, skipped}}；code!==0 时 message 带原因
+ */
+export function saveDeployment(payload) {
+  return fetch('/api/deployment', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(r => r.json())
+}
+
+/**
  * 获取推荐权重方案。外部 ML 权重服务优先（训练与推理在外部，平台只消费结果），
  * 未启用/失败时后端自动降级等权（data.source='fallback' 且 data.degraded=true）。
  * 契约见 shared-consistency-baseline.json#weightTuningCmps。

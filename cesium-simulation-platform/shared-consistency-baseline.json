@@ -31,6 +31,16 @@
       "solve": "POST /api/scheduling/multi-objective/solve"
     }
   },
+  "deploymentCmps": {
+    "_desc": "3.2 拖拽式设备部署与出矿工序顺序契约：API 路径/负载键/响应键。前端侧 services/schedulingApi.js 与用例 __tests__/deploymentContract.test.js；后端侧 app/routes/deployment.py 与用例 tests/test_deployment.py。",
+    "api": {
+      "get": "GET /api/deployment?scenario=",
+      "put": "PUT /api/deployment"
+    },
+    "payloadKeys": ["scenario", "deployments", "processOrder"],
+    "deploymentItemKeys": ["node", "level"],
+    "responseDataKeys": ["deployments", "processOrder", "applied", "skipped"]
+  },
   "timeseriesCmps": {
     "downsamples": [
       "raw",

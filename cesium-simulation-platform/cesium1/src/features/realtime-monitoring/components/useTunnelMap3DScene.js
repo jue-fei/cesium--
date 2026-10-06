@@ -56,6 +56,24 @@ export function useTunnelMap3DScene({ containerEl, onSelect, onClear }) {
     return scene || null
   }
 
+  // —— 拖拽式设备部署（3.2）支撑：相机/画布引用与轨道控制器的临时接管 ——
+  function getCamera() {
+    return camera || null
+  }
+  function getRendererDom() {
+    return renderer ? renderer.domElement : null
+  }
+  function setControlsEnabled(v) {
+    if (controls) controls.enabled = v
+  }
+  // 部署模式相机口径：左键从"旋转"改为"平移"，把左键留给设备拖拽；退出后恢复
+  function setDeployCameraMode(on) {
+    if (!controls) return
+    controls.mouseButtons = on
+      ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.DOLLY }
+      : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.DOLLY }
+  }
+
   function animate(t) {
     renderLoop = requestAnimationFrame(animate)
     const time = t * 0.001
@@ -178,5 +196,17 @@ export function useTunnelMap3DScene({ containerEl, onSelect, onClear }) {
     renderer = css2d = scene = camera = controls = null
   }
 
-  return { init, dispose, isReady, getScene, setSceneContent, setFrameUpdate, setRaycastTargets }
+  return {
+    init,
+    dispose,
+    isReady,
+    getScene,
+    setSceneContent,
+    setFrameUpdate,
+    setRaycastTargets,
+    getCamera,
+    getRendererDom,
+    setControlsEnabled,
+    setDeployCameraMode
+  }
 }

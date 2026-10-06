@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from app.routes import orebodies, models, trucks, boreholes, monitoring, geology, truck_routes, blasting, blasting_ws, scheduling, scheduling_ws, timeseries, realtime_ws, equipment
+from app.routes import orebodies, models, trucks, boreholes, monitoring, geology, truck_routes, blasting, blasting_ws, scheduling, scheduling_ws, timeseries, realtime_ws, equipment, deployment
 from app.security import API_TOKEN
 
 # ─── 日志配置 ──────────────────────────────────────────
@@ -123,6 +123,7 @@ app.include_router(scheduling_ws.router)
 app.include_router(timeseries.router)
 app.include_router(realtime_ws.router)
 app.include_router(equipment.router)
+app.include_router(deployment.router)
 
 
 @app.get("/api/health")

@@ -29,6 +29,9 @@ build/
 *.log
 logs/
 
+# ===== 运行时用户状态（3.2 拖拽式设备部署按场景生成，运行时产生、不入库） =====
+backend-py/config/deployments/*.json
+
 # ===== 本地工具数据 =====
 .workbuddy/
 .claude/

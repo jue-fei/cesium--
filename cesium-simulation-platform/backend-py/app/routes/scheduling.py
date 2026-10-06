@@ -17,7 +17,7 @@ from app.security import require_token
 from app.services.scheduling.simulator import SchedulingSimulator
 from app.services.scheduling.scenario_config import (
     load_config,
-    build_scenario,
+    load_scenario,
     list_scenarios,
     DEFAULT_SCENARIO,
 )
@@ -41,7 +41,7 @@ def get_simulator(scenario: Optional[str] = None) -> SchedulingSimulator:
     """按场景名取（或构建）共享仿真器实例。"""
     key = scenario or DEFAULT_SCENARIO
     if key not in _sims:
-        _sims[key] = SchedulingSimulator(build_scenario(load_config(key)))
+        _sims[key] = SchedulingSimulator(load_scenario(key))
         _sims[key].tick()
         _sims[key].tick()
     return _sims[key]
@@ -179,7 +179,7 @@ def scheduling_tick(scenario: Optional[str] = None, n: int = 1):
 def scheduling_reset(scenario: Optional[str] = None):
     """重置仿真器状态。"""
     key = scenario or DEFAULT_SCENARIO
-    _sims[key] = SchedulingSimulator(build_scenario(load_config(key)))
+    _sims[key] = SchedulingSimulator(load_scenario(key))
     _sims[key].tick()
     return {"code": 0, "data": _sims[key].snapshot()}
 
