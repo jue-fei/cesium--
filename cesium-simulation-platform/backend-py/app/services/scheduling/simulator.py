@@ -38,7 +38,7 @@ from typing import Any, Optional
 from app.services.scheduling.scenario_config import load_scenario
 from app.services.scheduling.deployment_store import load_deployment, apply_deployment
 from app.services.scheduling.muck_data import load_muck_tasks
-from app.services.scheduling.multi_objective import solve_pareto
+from app.services.scheduling.solver_registry import solve_multi_objective
 from app.services.timeseries.ts_store import record_metric
 
 logger = logging.getLogger(__name__)
@@ -1316,14 +1316,14 @@ class SchedulingSimulator:
         cooled_down = now - self._opt_ts >= OPT_MIN_INTERVAL_S
         if OPT_MIN_INTERVAL_S <= 0 or self._opt_cache is None or (stale_key and cooled_down) or timed_refresh:
             try:
-                result = solve_pareto(candidates_list)
-                stats = dict(result["stats"])
-                stats["source"] = result["source"]
+                result = solve_multi_objective(
+                    candidates_list, scenario=self.cfg.get("scenarioKey") or "")
+                stats = dict(result["optStats"])
                 stats["generatedAtSimSec"] = round(self.t, 1)
                 stats["computedAt"] = datetime.now().isoformat()
                 self._opt_cache = {
                     "paretoFront": result["paretoFront"],
-                    "objectiveDefs": result["objectives"],
+                    "objectiveDefs": result["objectiveDefs"],
                     "optStats": stats,
                     "source": result["source"],
                 }

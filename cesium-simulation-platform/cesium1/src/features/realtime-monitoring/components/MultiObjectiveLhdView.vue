@@ -3,7 +3,7 @@
     <!-- ===== 头部：结论性标题 + 状态/统计/操作 ===== -->
     <header class="moo-header">
       <div class="moo-title-block">
-        <div class="moo-kicker">NSGA-III · 帕累托前沿优化</div>
+        <div class="moo-kicker">{{ optKicker }}</div>
         <h2 class="moo-title" :class="expanded && 'moo-title-lg'">井下铲运机多目标联合调度</h2>
       </div>
 
@@ -679,12 +679,19 @@ const result = computed(() => {
   return null
 })
 
-// 优化结果来源标注：后端统一由 pymoo NSGA-III 求解
+// 优化结果来源标注：读取后端下发的 optStats.label（求解后端可配置，
+// 前端只消费标签/来源，切换 NSGA-III ↔ 外部 ML 零前端发布）。
 const optSourceLabel = computed(() => {
-  if (result.value?.overridden) return '按权重重求解 · NSGA-III'
-  const s = backendOpt.value?.optStats?.source
-  if (s === 'nsga3') return '后端 NSGA-III · pymoo'
-  return ''
+  if (result.value?.overridden) {
+    const l = result.value?.stats?.label
+    return l ? `按权重重求解 · ${l}` : '按权重重求解'
+  }
+  return backendOpt.value?.optStats?.label || ''
+})
+// 标题 kicker：随实际生效求解后端动态化（source 真源同样在后端 optStats）
+const optKicker = computed(() => {
+  const src = result.value?.stats?.source || backendOpt.value?.optStats?.source
+  return src === 'ml' ? 'ML 求解 · 帕累托前沿优化' : 'NSGA-III · 帕累托前沿优化'
 })
 const statusLabel = computed(() => (optSourceLabel.value ? '就绪 · 后端预计算' : '就绪'))
 

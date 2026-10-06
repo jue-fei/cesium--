@@ -1,0 +1,13 @@
+{
+  "_comment": "多目标调度求解后端接入配置（切换求解器前端零发布）。backend=nsga3 走平台内置 pymoo NSGA-III（默认，行为与迁移前一致）；backend=ml 时首选外部 ML 求解服务，失败按 fallback 链降级，实际使用的后端如实写回 optStats.source，降级另记 degraded=true/requestedBackend。任何外部求解器只允许返回设备候选索引，目标值由后端 evaluate_assignment() 重算。契约见 shared-consistency-baseline.json#solverCmps；修改本文件前端零发布。",
+  "backend": "nsga3",
+  "fallback": [
+    "nsga3"
+  ],
+  "ml": {
+    "endpoint": "",
+    "timeoutMs": 3000,
+    "retries": 1,
+    "modelVersion": ""
+  }
+}

@@ -26,8 +26,8 @@ from app.services.scheduling.muck_data import list_tasks_for_api, upsert_task
 from app.services.scheduling.multi_objective import (
     normalize_weights,
     recommend_from_front,
-    solve_pareto,
 )
+from app.services.scheduling.solver_registry import solve_multi_objective
 from app.services.scheduling.weight_source import get_weight_recommendation
 
 logger = logging.getLogger(__name__)
@@ -149,13 +149,15 @@ def scheduling_multi_objective_solve(
     opt = sim.snapshot()["factors"]["optimization"]
     if body.get("resolve"):
         candidates_list = [opt["byEquipment"].get(eq.id, []) for eq in sim.equip]
-        result = solve_pareto(candidates_list, weights=weights)
+        result = solve_multi_objective(
+            candidates_list, weights=weights, scenario=scenario or DEFAULT_SCENARIO)
         # 3.3 操作审计：深路径重求解（滑杆实时快路径不记录）
         audit_append(
             "scheduling.solve",
-            "按权重重求解：NSGA-III 深路径重算帕累托前沿",
+            "按权重重求解：后端求解器深路径重算帕累托前沿",
             scenario=scenario or DEFAULT_SCENARIO,
-            detail={"weights": weights, "paretoSize": len(result["paretoFront"])},
+            detail={"weights": weights, "paretoSize": len(result["paretoFront"]),
+                    "source": result["source"]},
         )
         return {
             "code": 0,
@@ -163,8 +165,8 @@ def scheduling_multi_objective_solve(
                 "solved": True,
                 "weights": weights,
                 "paretoFront": result["paretoFront"],
-                "objectiveDefs": result["objectives"],
-                "optStats": result["stats"],
+                "objectiveDefs": result["objectiveDefs"],
+                "optStats": result["optStats"],
                 "recommendedIndex": recommend_from_front(result["paretoFront"], weights),
             },
         }
