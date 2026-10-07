@@ -270,6 +270,7 @@
 </template>
 
 <script setup>
+import { onMounted, onUnmounted } from 'vue'
 import { Refresh, Close, Collection, Aim } from '@element-plus/icons-vue'
 import { useBlastingPanelController } from '../services/panel/useBlastingPanelController.js'
 import PlaybackControl from './PlaybackControl.vue'
@@ -277,6 +278,8 @@ import BlastDesign from './BlastDesign.vue'
 import HistoryCompare from './HistoryCompare.vue'
 import VibrationFieldPanel from './VibrationFieldPanel.vue'
 import MonitorPointsPanel from './MonitorPointsPanel.vue'
+import { fusionBus, CHANNELS } from '@/services/fusion/FusionBus.js'
+import { getClientId } from '../../shared/services/collabIdentity.js'
 
 defineOptions({ name: '爆破模拟面板' })
 
@@ -356,6 +359,24 @@ const {
   removeMonitorPoint,
   setDelayJitter
 } = useBlastingPanelController()
+
+// 3.2.2 跨终端联动：他端增删改爆破事件 → 重拉事件列表（本机操作已即时刷新，跳过回声）
+const COLLAB_BLASTING_ACTIONS = [
+  'blasting.event.create',
+  'blasting.event.update',
+  'blasting.event.delete'
+]
+let unsubscribeCollab = null
+onMounted(() => {
+  unsubscribeCollab = fusionBus.subscribe(CHANNELS.COLLAB_OPERATION, evt => {
+    if (!evt || evt.clientId === getClientId()) return
+    if (!COLLAB_BLASTING_ACTIONS.includes(evt.action)) return
+    loadDbEvents()
+  })
+})
+onUnmounted(() => {
+  unsubscribeCollab?.()
+})
 
 const tabs = [
   { key: 'preview', label: '效果预览' },

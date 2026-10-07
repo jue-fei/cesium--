@@ -614,7 +614,7 @@
 </template>
 
 <script setup>
-import { ref, computed, shallowRef, watch, onMounted } from 'vue'
+import { ref, computed, shallowRef, watch, onMounted, onUnmounted } from 'vue'
 import {
   decodeAssignment,
   LHD_OBJECTIVES,
@@ -634,6 +634,8 @@ import { useMultiObjectiveLhdTunnel } from './useMultiObjectiveLhdTunnel.js'
 import { useWeightTuning } from './useWeightTuning.js'
 import TunnelMap3D from './TunnelMap3D.vue'
 import LhdDeployPanel from './scheduling/LhdDeployPanel.vue'
+import { fusionBus, CHANNELS } from '@/services/fusion/FusionBus.js'
+import { getClientId } from '../../shared/services/collabIdentity.js'
 
 // ===== 文献口径数值（仅供底部 ref-note 口径文案插值展示，勿改字面口径） =====
 /** Freire 等 (2023)：LHD 运行速度参考值 */
@@ -927,8 +929,23 @@ async function conflictRefreshAndRetry() {
 async function conflictForce() {
   const c = conflict.value
   conflict.value = null
-  await c.retry?.({ force: true })
+  await c?.retry?.({ force: true })
 }
+
+// 3.2.2 跨终端联动：他端保存部署 → 重拉真源（本机操作已由提交路径即时更新，跳过回声）
+let unsubscribeCollab = null
+onMounted(() => {
+  unsubscribeCollab = fusionBus.subscribe(CHANNELS.COLLAB_OPERATION, evt => {
+    if (!evt || evt.action !== 'deployment.save') return
+    if (evt.clientId === getClientId()) return
+    if (evt.scenario && evt.scenario !== props.scenario) return
+    if (deployBusy.value) return // 本机正在保存，避免竞态覆盖
+    loadDeploymentState()
+  })
+})
+onUnmounted(() => {
+  unsubscribeCollab?.()
+})
 // 进入部署模式时的实时落位快照（部署期间未部署设备按此静态展示，不随巡游漂移）
 const frozenLiveNodes = ref([])
 const muckPilePoints = computed(() => props.snapshot?.factors?.muckPile?.points || [])

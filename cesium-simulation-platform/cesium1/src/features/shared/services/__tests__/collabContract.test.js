@@ -115,6 +115,17 @@ describe('协作事件广播契约（collabCmps · 3.2.2）', () => {
     expect(use).toContain('subscribe')
   })
 
+  it('3.2.2 面板 opt-in 刷新已接线（部署重拉 / 爆破事件列表重拉）', () => {
+    const deployView = featureSrc(
+      '../../../realtime-monitoring/components/MultiObjectiveLhdView.vue'
+    )
+    expect(deployView).toContain('COLLAB_OPERATION')
+    expect(deployView).toContain('deployment.save')
+    const blastPanel = featureSrc('../../../blasting-simulation/components/BlastingPanel.vue')
+    expect(blastPanel).toContain('COLLAB_OPERATION')
+    expect(blastPanel).toContain('loadDbEvents')
+  })
+
   it('3.2.3 乐观并发契约：rev / baseRev / force / conflictCode', () => {
     const rev = CMP.revision
     expect(rev.responseKey).toBe('rev')
