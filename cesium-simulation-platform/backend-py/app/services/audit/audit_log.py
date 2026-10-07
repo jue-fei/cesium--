@@ -12,6 +12,8 @@ append 绝不向业务抛错（审计失败只 warning，不影响主流程）�
 
 查询：GET /api/audit/logs（倒序、过滤、before_id 分页）；
      GET /api/audit/actions（动作枚举下发，前端不自持映射表 → 新增审计点零前端发布）。
+广播（3.2.2）：落盘成功后经 collab.broadcaster 投递 /ws/collab 同场景订阅终端
+     （多端操作实时可见）；广播失败静默丢弃，不影响业务。
 """
 import json
 import logging
@@ -19,6 +21,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+from app.services.collab import broadcaster
 from app.services.collab.identity import actor_of
 
 logger = logging.getLogger(__name__)
@@ -133,6 +136,9 @@ def append(
             tmp.replace(AUDIT_FILE)
     except OSError as e:
         logger.warning("[audit] 写入失败（不影响业务）：%s", e)
+        return
+    # 3.2.2 协作广播：审计落盘成功 → 投递该场景订阅终端（无订阅/无循环静默丢弃）
+    broadcaster.publish(scenario, rec)
 
 
 def query(

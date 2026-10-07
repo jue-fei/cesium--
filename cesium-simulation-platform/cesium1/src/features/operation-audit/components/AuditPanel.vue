@@ -9,6 +9,13 @@
             <h1 class="audit-title">操作审计中心</h1>
             <p class="audit-sub">关键操作时间线 · 可追溯 · 不可篡改（只追加）</p>
           </div>
+          <span
+            class="collab-chip"
+            :class="{ on: collabConnected }"
+            :title="collabConnected ? '已连接协作事件流（/ws/collab）' : '协作事件流未连接'"
+          >
+            <i class="collab-dot"></i>{{ collabConnected ? '协作在线' : '协作离线' }}
+          </span>
         </div>
         <button class="audit-refresh" :disabled="loading" @click="reload">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ spinning: loading }">
@@ -97,9 +104,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { fetchAuditLogs, fetchAuditActions } from '../services/auditApi.js'
 import { getClientId } from '../../shared/services/collabIdentity.js'
+import useCollab from '../../shared/services/useCollab.js'
 
 defineOptions({ name: '操作审计中心' })
 
@@ -107,6 +115,19 @@ defineOptions({ name: '操作审计中心' })
 const myClientId = getClientId()
 function isSelf(e) {
   return !!e.clientId && e.clientId === myClientId
+}
+
+// 跨终端协同（3.2.2）：他端操作经 /ws/collab 实时插入时间线
+const { connected: collabConnected, subscribe: subscribeCollab } = useCollab()
+let unsubscribeCollab = null
+
+function onCollabEvent(evt) {
+  if (!evt || evt.id == null) return
+  if (entries.value.some(e => e.id === evt.id)) return
+  // 尊重当前过滤条件（动作/域）
+  if (actionFilter.value && evt.action !== actionFilter.value) return
+  if (domainFilter.value && domainOf(evt.action) !== domainFilter.value) return
+  entries.value.unshift(evt)
 }
 
 const entries = ref([])
@@ -211,11 +232,17 @@ function loadMore() {
 
 onMounted(async () => {
   load(true)
+  // 订阅跨终端协作事件：他端写操作实时插入时间线（挂载晚于事件时回放补齐）
+  unsubscribeCollab = subscribeCollab(onCollabEvent)
   fetchAuditActions()
     .then(res => {
       if (res.code === 0) actions.value = res.data?.actions || []
     })
     .catch(() => {}) // 枚举拉取失败不阻断时间线（标签回退显示动作 id）
+})
+
+onUnmounted(() => {
+  unsubscribeCollab?.()
 })
 </script>
 
@@ -274,6 +301,31 @@ onMounted(async () => {
   margin: 2px 0 0;
   font-size: 12px;
   color: rgba(148, 163, 184, 0.9);
+}
+.collab-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+}
+.collab-chip.on {
+  color: #67e8f9;
+  border-color: rgba(34, 211, 238, 0.45);
+  background: rgba(34, 211, 238, 0.08);
+}
+.collab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.7);
+}
+.collab-chip.on .collab-dot {
+  background: #22d3ee;
+  box-shadow: 0 0 6px rgba(34, 211, 238, 0.8);
 }
 .audit-refresh {
   display: inline-flex;

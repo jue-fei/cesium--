@@ -121,7 +121,7 @@
     ]
   },
   "collabCmps": {
-    "_desc": "3.2.1 跨终端协作身份契约：请求头名/actor 格式/缺省值/清洗上限。前端侧 features/shared/services/collabIdentity.js 与用例 services/__tests__/collabContract.test.js；后端侧 app/services/collab/identity.py 与用例 tests/test_collab.py。身份真源由前端生成、后端只解析清洗（未带头等价匿名，向后兼容）。",
+    "_desc": "3.2.1/3.2.2 跨终端协同契约：身份请求头/actor 格式 + 协作广播通道/帧/事件键。前端侧 features/shared/services/collabIdentity.js、realtime/collabWsConnector.js、services/useCollab.js 与用例 services/__tests__/collabContract.test.js；后端侧 app/services/collab/{identity,broadcaster}.py + app/routes/collab_ws.py 与用例 tests/test_collab.py。身份真源由前端生成、后端只解析清洗（未带头等价匿名，向后兼容）；广播真源为审计落盘成功事件。",
     "identityHeaders": {
       "clientId": "X-Client-Id",
       "operator": "X-Operator"
@@ -130,7 +130,29 @@
     "anonymousClientId": "anonymous",
     "actorFormat": "{operator}@{clientId:8}",
     "clientIdMaxLen": 32,
-    "operatorMaxLen": 24
+    "operatorMaxLen": 24,
+    "wsUrl": "/ws/collab",
+    "clientFrames": [
+      "ping",
+      "hello"
+    ],
+    "serverFrames": [
+      "hello",
+      "collab_event",
+      "pong",
+      "error"
+    ],
+    "eventKeys": [
+      "id",
+      "ts",
+      "actor",
+      "clientId",
+      "action",
+      "scenario",
+      "summary",
+      "ok"
+    ],
+    "heartbeatTimeoutMs": 60000
   },
   "timeseriesCmps": {
     "downsamples": [

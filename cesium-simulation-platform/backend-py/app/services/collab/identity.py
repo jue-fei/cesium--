@@ -11,6 +11,8 @@ collab/identity.py —— 跨终端协作身份（3.2.1）
 审计消费：actor = '<operator>@<clientId 前 8 位>'（见 audit_log.append identity 参数），
 记录同时落 clientId，供跨端时间线区分「本机 / 他端」。
 """
+from urllib.parse import unquote
+
 from fastapi import Header
 
 # 请求头名（小写，真源；契约 collabCmps.identityHeaders 据此锁定）
@@ -44,9 +46,13 @@ def _sanitize(value: str, max_len: int, allowed: set[str] | None = None) -> str:
 
 
 def parse_identity(client_id: str = "", operator: str = "") -> dict:
-    """解析/清洗请求头 → {clientId, operator}；缺省补匿名值。"""
-    cid = _sanitize(client_id, CLIENT_ID_MAX_LEN, _CLIENT_ID_ALLOWED) or ANONYMOUS_CLIENT_ID
-    name = _sanitize(operator, OPERATOR_MAX_LEN) or DEFAULT_OPERATOR
+    """解析/清洗请求头 → {clientId, operator}；缺省补匿名值。
+
+    操作员名可能含中文：前端已 percent-encode（HTTP 头部值必须是 ISO-8859-1），
+    此处 unquote 还原；纯 ASCII 输入 unquote 为幂等无副作用。
+    """
+    cid = _sanitize(unquote(client_id), CLIENT_ID_MAX_LEN, _CLIENT_ID_ALLOWED) or ANONYMOUS_CLIENT_ID
+    name = _sanitize(unquote(operator), OPERATOR_MAX_LEN) or DEFAULT_OPERATOR
     return {"clientId": cid, "operator": name}
 
 

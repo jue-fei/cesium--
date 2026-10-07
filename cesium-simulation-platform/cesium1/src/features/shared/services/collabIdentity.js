@@ -62,7 +62,13 @@ export function setOperator(name) {
 
 /** 身份请求头（终端 id + 操作员名）。 */
 export function identityHeaders() {
-  return { 'X-Client-Id': getClientId(), 'X-Operator': getOperator() }
+  return {
+    'X-Client-Id': getClientId(),
+    // 头部值必须是 ISO-8859-1：操作员名可能含中文 → percent-encode，
+    // 后端 identity.parse_identity 用 urllib.parse.unquote 还原（否则 fetch 抛
+    // "String contains non ISO-8859-1 code point"）
+    'X-Operator': encodeURIComponent(getOperator())
+  }
 }
 
 /** 在 fetch init 上合并身份头（已有同名头优先，不覆盖调用方显式设置）。 */

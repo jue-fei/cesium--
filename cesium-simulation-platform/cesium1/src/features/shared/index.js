@@ -53,5 +53,15 @@ export {
 // ---- toolRegistry（工具注册表：侧边栏工具列表）----
 export { TOOL_REGISTRY, getApiToolRegistry, onToolsReady } from '../toolRegistry.js'
 
+// ---- collab（跨终端协同：身份 + 协作事件流，3.2.1/3.2.2）----
+export { default as useCollab } from './services/useCollab.js'
+export {
+  getClientId,
+  getOperator,
+  setOperator,
+  identityHeaders,
+  withIdentity
+} from './services/collabIdentity.js'
+
 // ---- fusion（模块间数据联动：FusionBus 事件总线）----
 export { fusionBus, CHANNELS } from '@/services/fusion/FusionBus.js'

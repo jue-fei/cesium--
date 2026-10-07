@@ -79,7 +79,8 @@ import {
   useGeologyAnalysis,
   useMeasurement,
   useModel,
-  useMonitoring
+  useMonitoring,
+  useCollab
 } from '@/features/shared/index.js'
 
 import useViewer from './composables/useViewer.js'
@@ -127,6 +128,9 @@ const onSpeedChange = v => {
 }
 const { activeTool, closeTool } = useUI()
 
+// 跨终端协同（3.2.2）：应用级启动一次协作事件订阅（他端操作全局提示 + 面板联动）
+const collab = useCollab()
+
 const lifecycle = useLifecycle()
 const fps = model.fps
 const adaptiveLoadState = model.adaptiveLoadState
@@ -152,6 +156,9 @@ const activeToolName = computed(
 )
 
 onMounted(async () => {
+  // 跨终端协同：订阅他端操作（独立于 Cesium 初始化，先于 3D 场景就绪即可用）
+  collab.start()
+
   let viewerInstance = null
   try {
     viewerInstance = await bootstrap.start('cesiumContainer')
@@ -174,6 +181,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  collab.stop()
   sessionDetach?.()
   bootstrap.stop()
 })
