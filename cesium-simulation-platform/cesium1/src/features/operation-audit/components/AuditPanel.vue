@@ -63,6 +63,9 @@
                   {{ labelOf(e.action) }}
                 </span>
                 <span v-if="e.scenario" class="tl-scene">{{ e.scenario }}</span>
+                <span v-if="e.actor" class="tl-actor" :class="{ 'is-self': isSelf(e) }">
+                  {{ e.actor }}<template v-if="isSelf(e)"> · 本机</template>
+                </span>
                 <span class="tl-flex"></span>
                 <span class="tl-state" :class="e.ok ? 'ok' : 'fail'">
                   {{ e.ok ? '成功' : '部分失败' }}
@@ -96,8 +99,15 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { fetchAuditLogs, fetchAuditActions } from '../services/auditApi.js'
+import { getClientId } from '../../shared/services/collabIdentity.js'
 
 defineOptions({ name: '操作审计中心' })
+
+// 本机终端 id（3.2.1 协作身份）：用于把「本机操作」在时间线上标出来
+const myClientId = getClientId()
+function isSelf(e) {
+  return !!e.clientId && e.clientId === myClientId
+}
 
 const entries = ref([])
 const hasMore = ref(false)
@@ -430,6 +440,18 @@ onMounted(async () => {
   color: rgba(226, 232, 240, 0.8);
   background: rgba(255, 255, 255, 0.04);
   border-radius: 5px;
+}
+.tl-actor {
+  padding: 2px 8px;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.9);
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: 5px;
+}
+.tl-actor.is-self {
+  color: #67e8f9;
+  border-color: rgba(34, 211, 238, 0.45);
+  background: rgba(34, 211, 238, 0.06);
 }
 .tl-flex {
   flex: 1;

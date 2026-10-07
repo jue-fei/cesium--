@@ -9,6 +9,7 @@
  * / factors.dynamicEnvironment / factors.muckPile / factors.equipment。
  */
 import { shallowRef, onUnmounted } from 'vue'
+import { withIdentity } from '../../shared/services/collabIdentity.js'
 
 const DEFAULT_POLL_MS = 3000
 const MAX_RECONNECT = 6
@@ -196,33 +197,33 @@ export function useScheduling({
   }
 
   function reset() {
-    return fetch(RESET_URL, { method: 'POST' })
+    return fetch(RESET_URL, withIdentity({ method: 'POST' }))
       .then(r => r.json())
       .then(json => {
         if (json && json.code === 0) applySnapshot(json.data)
       })
-      .catch(() => {})
+      .catch(() => { })
   }
 
   // ---------- NSGA-III 多目标选解提交 ----------
   /** 提交 NSGA-III 选解（[{equipId, target, path}]），后端 _dispatch 优先消费。 */
   function applyAssignment(assignments) {
-    return fetch(ASSIGN_URL, {
+    return fetch(ASSIGN_URL, withIdentity({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(assignments)
-    })
+    }))
       .then(r => r.json())
       .catch(e => ({ code: 1, message: String(e && e.message) }))
   }
 
   /** 向某装载点注入爆破板块产生的爆堆信息（BlastPileInfo 契约）。 */
   function injectBlastPile(pile) {
-    return fetch(BLASTPILE_URL, {
+    return fetch(BLASTPILE_URL, withIdentity({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(pile)
-    })
+    }))
       .then(r => r.json())
       .catch(e => ({ code: 1, message: String(e && e.message) }))
   }

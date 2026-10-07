@@ -6,7 +6,7 @@ optStats 键/展示标签不同步即失败。
 
 覆盖：
   - 契约：BACKENDS / 默认后端 / 配置路径 / 输出键 / optStats 键 / 展示标签 与 baseline 一致
-  - Nsga3Solver：薄包装 solve_pareto，registry 输出前沿与直调逐点一致（默认路径行为不变）
+  - Nsga3Solver：薄包装 solve_pareto（哨兵验证透传语义 + 默认路径产出可行前沿）
   - MlSolver：只取候选索引 → 后端 evaluate_assignment() 重算目标值（不采信外部自报）
   - 索引校验：长度不符/越界/非整数 → 丢弃
   - fallback 链：外部 ML 失败/全非法 → 降级 NSGA-III，optStats 如实标注 degraded
@@ -19,9 +19,9 @@ import pytest
 
 from app.services.scheduling import solver_registry
 from app.services.scheduling.multi_objective import (
+    OBJECTIVES,
     evaluate_assignment,
     precompute_conflict_matrix,
-    solve_pareto,
 )
 from app.services.scheduling.solver_registry import (
     BACKENDS,
@@ -99,15 +99,52 @@ def test_output_keys_match_baseline():
 
 # ---------- Nsga3Solver：薄包装零行为变化 ----------
 
-def test_nsga3_solver_default_path_identical_to_solve_pareto():
-    """默认 registry 路径的前沿须与直调 solve_pareto 逐点一致（迁移零行为变化）。"""
+def test_nsga3_solver_is_thin_wrapper(monkeypatch):
+    """Nsga3Solver 只是 solve_pareto 的薄包装：原样透传入参/前沿/目标 + 补 source/label。
+
+    注：pymoo NSGA-III 多次运行非逐位可复现，故用哨兵替换 solve_pareto 验证包装语义，
+    而非比较两次真实求解结果（后者是不稳定的断言）。
+    """
+    sentinel = {
+        "paretoFront": [{"assignment": [0, 0], "objectives": {"energy": 1.0},
+                         "rank": 0, "crowdingDistance": 0.0}],
+        "objectives": OBJECTIVES,
+        "stats": {"engine": "pymoo", "paretoSize": 1},
+        "source": "nsga3",
+    }
+    captured = {}
+
+    def fake_solve_pareto(candidates, custom_config=None, weights=None):
+        captured["candidates"] = candidates
+        captured["custom_config"] = custom_config
+        captured["weights"] = weights
+        return sentinel
+
+    monkeypatch.setattr(solver_registry, "solve_pareto", fake_solve_pareto)
+
     cands = _candidates()
-    direct = solve_pareto(cands, custom_config=SMALL_CFG)
-    via_registry = Nsga3Solver().solve(cands, custom_config=SMALL_CFG)
-    assert via_registry["source"] == "nsga3"
-    assert via_registry["paretoFront"] == direct["paretoFront"]
-    assert via_registry["objectiveDefs"] == direct["objectives"]
-    assert via_registry["optStats"]["label"] == SOLVER_LABELS["nsga3"]
+    out = Nsga3Solver().solve(cands, custom_config=SMALL_CFG)
+
+    assert captured["candidates"] is cands
+    assert captured["custom_config"] == SMALL_CFG
+    assert captured["weights"] is None
+    assert out["paretoFront"] == sentinel["paretoFront"]
+    assert out["objectiveDefs"] == OBJECTIVES
+    assert out["source"] == "nsga3"
+    assert out["optStats"]["engine"] == "pymoo"
+    assert out["optStats"]["source"] == "nsga3"
+    assert out["optStats"]["label"] == SOLVER_LABELS["nsga3"]
+
+
+def test_nsga3_default_path_returns_feasible_front():
+    """默认（backend=nsga3）路径仍产出可行非支配前沿，且契约字段齐全。"""
+    reset_solver_config_cache()
+    out = solve_multi_objective(_candidates(), custom_config=SMALL_CFG)
+    assert out["source"] == "nsga3"
+    assert out["optStats"]["label"] == SOLVER_LABELS["nsga3"]
+    assert out["paretoFront"], "默认路径应产出可行非支配前沿"
+    assert out["objectiveDefs"] == OBJECTIVES
+    assert all(ind["objectives"]["_constraint"]["isFeasible"] for ind in out["paretoFront"])
 
 
 def test_default_config_uses_nsga3():

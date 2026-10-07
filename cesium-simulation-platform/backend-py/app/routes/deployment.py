@@ -17,6 +17,7 @@ from fastapi import APIRouter, Body, Depends
 from app.routes.scheduling import get_simulator
 from app.security import require_token
 from app.services.audit import append as audit_append
+from app.services.collab.identity import client_identity
 from app.services.scheduling.deployment_store import (
     apply_deployment,
     load_deployment,
@@ -46,6 +47,7 @@ def put_deployment(
             "——两项均可选，至少传一项；deployments 为增量合并，processOrder 为整体替换"
         ),
     ),
+    identity: dict = Depends(client_identity),
 ):
     """保存部署与工序顺序：先校验 → 落盘 → 应用到运行中的仿真器。"""
     key = body.get("scenario") or DEFAULT_SCENARIO
@@ -80,6 +82,7 @@ def put_deployment(
             "applied": applied,
             "skipped": skipped,
         },
+        identity=identity,
     )
     return {
         "code": 0,

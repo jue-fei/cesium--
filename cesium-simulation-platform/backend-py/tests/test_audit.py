@@ -56,7 +56,7 @@ def test_route_table_matches_baseline():
 
 def test_entry_and_action_keys_match_baseline():
     assert set(BASELINE["entryKeys"]) == {
-        "id", "ts", "actor", "action", "scenario", "summary", "detail", "ok",
+        "id", "ts", "actor", "clientId", "action", "scenario", "summary", "detail", "ok",
     }
     assert set(BASELINE["actionItemKeys"]) == {"id", "label", "domain"}
 

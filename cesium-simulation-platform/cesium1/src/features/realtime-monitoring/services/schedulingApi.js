@@ -3,7 +3,10 @@
  *
  * 与 useScheduling.js（WebSocket 长连接 / HTTP 轮询数据服务）互补：
  * 这里收纳组件直接提交的调度动作接口，统一维护请求路径、方法与负载契约。
+ * 写接口（3.2.1 起）统一注入协作身份头（X-Client-Id / X-Operator），后端据此刻画
+ * 审计 actor 与来源终端；身份真源见 features/shared/services/collabIdentity.js。
  */
+import { withIdentity } from '../../shared/services/collabIdentity.js'
 
 /**
  * 提交 NSGA-III 选解派单。
@@ -11,11 +14,14 @@
  * @returns {Promise<object>} 后端 JSON（{code, data:{applied:[...]}}）；HTTP/网络错误向上抛出由调用方处理
  */
 export function applyAssignment(assignments) {
-  return fetch('/api/scheduling/apply_assignment', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(assignments)
-  }).then(r => r.json())
+  return fetch(
+    '/api/scheduling/apply_assignment',
+    withIdentity({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(assignments)
+    })
+  ).then(r => r.json())
 }
 
 /**
@@ -36,11 +42,14 @@ export function fetchDeployment(scenario) {
  * @returns {Promise<object>} {code, data:{deployments, processOrder, applied, skipped}}；code!==0 时 message 带原因
  */
 export function saveDeployment(payload) {
-  return fetch('/api/deployment', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  }).then(r => r.json())
+  return fetch(
+    '/api/deployment',
+    withIdentity({
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+  ).then(r => r.json())
 }
 
 /**
@@ -64,10 +73,13 @@ export function fetchWeightRecommend(scenario) {
  */
 export function solveMultiObjective(payload) {
   const { signal, ...body } = payload
-  return fetch('/api/scheduling/multi-objective/solve', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal
-  }).then(r => r.json())
+  return fetch(
+    '/api/scheduling/multi-objective/solve',
+    withIdentity({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal
+    })
+  ).then(r => r.json())
 }

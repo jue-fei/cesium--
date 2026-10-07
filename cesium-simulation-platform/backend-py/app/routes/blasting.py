@@ -17,6 +17,7 @@ from pymysql import Connection
 
 from app.database import get_db
 from app.services.audit import append as audit_append
+from app.services.collab.identity import client_identity
 from app.services.blasting.kco_validator import KCOInput, calculate_kco
 from app.services.blasting.blast_physics import (
     BlastSource,
@@ -589,7 +590,8 @@ def get_event(event_id: str, db: Connection = Depends(get_db)):
 
 @router.post("/events", dependencies=[Depends(require_token)])
 @router.post("/events/", dependencies=[Depends(require_token)])
-def create_event(body: dict, db: Connection = Depends(get_db)):
+def create_event(body: dict, db: Connection = Depends(get_db),
+                 identity: dict = Depends(client_identity)):
     """创建事件：INSERT blasting_events + 级联创建 blasting_design/blasting_result 空行"""
     data = _from_camel(body, EVENT_FIELDS_REV)
     data.pop("event_id", None)  # event_id 始终由后端生成
@@ -633,11 +635,13 @@ def create_event(body: dict, db: Connection = Depends(get_db)):
         "blasting.event.create",
         f"新建爆破事件 {data.get('name') or event_id}（药量 {data.get('charge_kg')} kg）",
         detail={"eventId": event_id, "name": data.get("name"), "fields": sorted(data.keys())},
+        identity=identity,
     )
     return {"code": 0, "msg": "爆破事件创建成功", "data": {"eventId": event_id}}
 
 @router.put("/events/{event_id}", dependencies=[Depends(require_token)])
-def update_event(event_id: str, body: dict, db: Connection = Depends(get_db)):
+def update_event(event_id: str, body: dict, db: Connection = Depends(get_db),
+                 identity: dict = Depends(client_identity)):
     """更新事件基本信息（blasting_events 表，不允许修改 event_id）"""
     data = _from_camel(body, EVENT_FIELDS_REV)
     data.pop("event_id", None)
@@ -658,12 +662,14 @@ def update_event(event_id: str, body: dict, db: Connection = Depends(get_db)):
         "blasting.event.update",
         f"修改爆破事件 {event_id}：{len(data)} 个字段",
         detail={"eventId": event_id, "fields": sorted(data.keys())},
+        identity=identity,
     )
     return {"code": 0, "msg": "爆破事件更新成功"}
 
 
 @router.delete("/events/{event_id}", dependencies=[Depends(require_token)])
-def delete_event(event_id: str, db: Connection = Depends(get_db)):
+def delete_event(event_id: str, db: Connection = Depends(get_db),
+                 identity: dict = Depends(client_identity)):
     """删除事件：blasting_events 删除后，design/holes/result 通过 ON DELETE CASCADE 自动级联"""
     with db.cursor() as cursor:
         cursor.execute(
@@ -677,6 +683,7 @@ def delete_event(event_id: str, db: Connection = Depends(get_db)):
         "blasting.event.delete",
         f"删除爆破事件 {event_id}（设计/炮孔/效果级联删除）",
         detail={"eventId": event_id},
+        identity=identity,
     )
     return {"code": 0, "msg": "爆破事件删除成功"}
 
@@ -726,7 +733,8 @@ def get_design(event_id: str, db: Connection = Depends(get_db)):
 
 
 @router.post("/events/{event_id}/design", dependencies=[Depends(require_token)])
-def save_design(event_id: str, body: dict, db: Connection = Depends(get_db)):
+def save_design(event_id: str, body: dict, db: Connection = Depends(get_db),
+                identity: dict = Depends(client_identity)):
     """保存爆破设计（事务：upsert blasting_design + 批量替换 blasting_design_holes）"""
     design_data = _from_camel(body, DESIGN_FIELDS_REV)
     design_data.pop("event_id", None)
@@ -786,6 +794,7 @@ def save_design(event_id: str, body: dict, db: Connection = Depends(get_db)):
         "blasting.design.save",
         f"保存爆破设计：事件 {event_id}，{len(holes)} 个炮孔",
         detail={"eventId": event_id, "holes": len(holes), "fields": sorted(design_data.keys())},
+        identity=identity,
     )
     return {"code": 0, "msg": "爆破设计保存成功"}
 
@@ -821,7 +830,8 @@ def get_result(event_id: str, db: Connection = Depends(get_db)):
 
 
 @router.put("/events/{event_id}/result", dependencies=[Depends(require_token)])
-def update_result(event_id: str, body: dict, db: Connection = Depends(get_db)):
+def update_result(event_id: str, body: dict, db: Connection = Depends(get_db),
+                  identity: dict = Depends(client_identity)):
     """更新爆破效果（blasting_result 表，不允许修改 event_id）"""
     data = _from_camel(body, RESULT_FIELDS_REV)
     data.pop("event_id", None)
@@ -845,6 +855,7 @@ def update_result(event_id: str, body: dict, db: Connection = Depends(get_db)):
         "blasting.result.save",
         f"录入爆破效果：事件 {event_id}，{len(data)} 个字段",
         detail={"eventId": event_id, "fields": sorted(data.keys())},
+        identity=identity,
     )
     return {"code": 0, "msg": "爆破效果更新成功"}
 

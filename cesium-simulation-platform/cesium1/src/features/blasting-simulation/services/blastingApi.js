@@ -4,13 +4,15 @@
  * 后端 GET 响应字段为 camelCase（由后端 _row_to_camel 转换），
  * POST/PUT 请求体使用 snake_case 字段名以匹配 Pydantic schema，
  * 本模块在发送前自动将 camelCase 对象转换为 snake_case。
+ * 请求（3.2.1 起）统一注入协作身份头（X-Client-Id / X-Operator），后端据此刻画审计 actor。
  */
+import { identityHeaders } from '../../shared/services/collabIdentity.js'
 
 const API_BASE = '/api/blasting'
 
 async function request(url, options = {}) {
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: { 'Content-Type': 'application/json', ...identityHeaders(), ...options.headers },
     ...options
   })
   if (!res.ok) {

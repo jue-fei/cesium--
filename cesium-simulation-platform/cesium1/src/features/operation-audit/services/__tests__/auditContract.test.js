@@ -23,7 +23,7 @@ describe('操作审计契约（auditCmps）', () => {
   it('baseline 存在 auditCmps 且结构完整', () => {
     expect(CMP.api.logs).toBe('GET /api/audit/logs')
     expect(CMP.api.actions).toBe('GET /api/audit/actions')
-    expect(CMP.entryKeys).toEqual(['id', 'ts', 'actor', 'action', 'scenario', 'summary', 'detail', 'ok'])
+    expect(CMP.entryKeys).toEqual(['id', 'ts', 'actor', 'clientId', 'action', 'scenario', 'summary', 'detail', 'ok'])
     expect(CMP.logResponseDataKeys).toEqual(['entries', 'hasMore'])
     expect(CMP.actionItemKeys).toEqual(['id', 'label', 'domain'])
   })

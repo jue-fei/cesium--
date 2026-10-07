@@ -15,6 +15,7 @@ from typing import Optional
 from fastapi import APIRouter, Body, Depends
 from app.security import require_token
 from app.services.audit import append as audit_append
+from app.services.collab.identity import client_identity
 from app.services.scheduling.simulator import SchedulingSimulator
 from app.services.scheduling.scenario_config import (
     load_config,
@@ -75,7 +76,7 @@ def scheduling_muck_tasks(scenario: Optional[str] = None):
 
 
 @router.put("/muck_tasks/{task_id}", dependencies=[Depends(require_token)])
-def update_muck_task(task_id: str, body: dict = Body(..., description="采矿区任务字段（可改工作量/品位/块度/爆破事件等）")):
+def update_muck_task(task_id: str, body: dict = Body(..., description="采矿区任务字段（可改工作量/品位/块度/爆破事件等）"), identity: dict = Depends(client_identity)):
     """手动编辑采矿区任务（后端输入，非死代码）。命中爆破反哺字段后下次快照生效。"""
     ok = upsert_task(task_id, body)
     if not ok:
@@ -85,6 +86,7 @@ def update_muck_task(task_id: str, body: dict = Body(..., description="采矿区
         "muck_task.update",
         f"修改采矿区任务 {task_id}：{len(body)} 个字段",
         detail={"taskId": task_id, "fields": sorted(body.keys())},
+        identity=identity,
     )
     return {"code": 0, "message": f"采矿区任务 {task_id} 已更新"}
 
@@ -133,6 +135,7 @@ def scheduling_weights_recommend(scenario: Optional[str] = None):
 def scheduling_multi_objective_solve(
     body: dict = Body(..., description="{weights:{objectiveId:w}, resolve?:bool}"),
     scenario: Optional[str] = None,
+    identity: dict = Depends(client_identity),
 ):
     """按权重偏好观察多目标优化结果（权重来自 /weights/recommend 或用户微调）。
 
@@ -158,6 +161,7 @@ def scheduling_multi_objective_solve(
             scenario=scenario or DEFAULT_SCENARIO,
             detail={"weights": weights, "paretoSize": len(result["paretoFront"]),
                     "source": result["source"]},
+            identity=identity,
         )
         return {
             "code": 0,
@@ -192,13 +196,14 @@ def scheduling_tick(scenario: Optional[str] = None, n: int = 1):
 
 
 @router.post("/reset")
-def scheduling_reset(scenario: Optional[str] = None):
+def scheduling_reset(scenario: Optional[str] = None, identity: dict = Depends(client_identity)):
     """重置仿真器状态。"""
     key = scenario or DEFAULT_SCENARIO
     _sims[key] = SchedulingSimulator(load_scenario(key))
     _sims[key].tick()
     # 3.3 操作审计：仿真重置
-    audit_append("scheduling.reset", "重置调度仿真器：设备/矿堆/派单状态回到初始", scenario=key)
+    audit_append("scheduling.reset", "重置调度仿真器：设备/矿堆/派单状态回到初始", scenario=key,
+                 identity=identity)
     return {"code": 0, "data": _sims[key].snapshot()}
 
 
@@ -206,6 +211,7 @@ def scheduling_reset(scenario: Optional[str] = None):
 def scheduling_apply_assignment(
     assignments: list[dict] = Body(..., description="NSGA-III 选解：[{equipId, target, path}]"),
     scenario: Optional[str] = None,
+    identity: dict = Depends(client_identity),
 ):
     """提交前端 NSGA-III 多目标优化的选解，写入仿真器待派单队列。
     下次 _dispatch 时按该选解执行（重验通过性后），未提交的设备走贪心兜底。
@@ -239,6 +245,7 @@ def scheduling_apply_assignment(
             scenario=scenario or DEFAULT_SCENARIO,
             detail={"applied": applied, "rejected": rejected},
             ok=not rejected,
+            identity=identity,
         )
     return {"code": 0, "data": {"applied": applied, "rejected": rejected}}
 
@@ -247,6 +254,7 @@ def scheduling_apply_assignment(
 def scheduling_blastpile(
     pile: dict = Body(..., description="爆破板块爆堆信息（BlastPileInfo 契约）"),
     scenario: Optional[str] = None,
+    identity: dict = Depends(client_identity),
 ):
     """注入爆破板块产生的爆堆状态，覆盖该装载点的模拟兜底数据（多工序数据联动）。"""
     sim = get_simulator(scenario)
@@ -260,5 +268,6 @@ def scheduling_blastpile(
         f"注入爆堆状态：装载点 {pile_id} 覆盖模拟兜底数据",
         scenario=scenario or DEFAULT_SCENARIO,
         detail={"pileId": pile_id},
+        identity=identity,
     )
     return {"code": 0, "message": "爆堆信息已注入", "data": {"pileId": pile.get("pileId") or pile.get("id")}}

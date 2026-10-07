@@ -106,6 +106,10 @@ def test_snapshot_exposes_equipment_level():
 
 # ---------- 路由闭环（运行中仿真器即刻生效）----------
 
+# 3.2.1：写路由新增 client_identity 依赖；直调处理器时须显式传入身份
+_IDENTITY = {"clientId": "test-terminal", "operator": "测试"}
+
+
 def test_put_and_get_route_roundtrip():
     # 换上未 tick 的独立仿真器实例（全部设备空闲），避免共享实例的作业状态影响断言；
     # 结束后恢复原实例，不影响其它用例
@@ -117,7 +121,7 @@ def test_put_and_get_route_roundtrip():
             "scenario": "ashale",
             "deployments": {"LHD-01": {"node": "N2", "level": 0}},
             "processOrder": ["M2", "M1"],
-        })
+        }, identity=_IDENTITY)
         assert res["code"] == 0
         assert any(a["equipId"] == "LHD-01" and a["node"] == "N2" for a in res["data"]["applied"])
         # 运行中的仿真器即刻生效：设备已迁到新待命点，工序已更新
@@ -197,7 +201,7 @@ def test_put_response_data_keys_match_baseline():
             "scenario": "ashale",
             "deployments": {"LHD-01": {"node": "N1", "level": 0}},
             "processOrder": ["M1", "M2"],
-        })
+        }, identity=_IDENTITY)
         assert res["code"] == 0
         assert set(res["data"]) == set(BASELINE["responseDataKeys"])
     finally:

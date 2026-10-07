@@ -19,6 +19,8 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+from app.services.collab.identity import actor_of
+
 logger = logging.getLogger(__name__)
 
 # backend-py/config/audit/ 目录（由本文件位置上溯 3 级：audit -> services -> app -> backend-py）
@@ -84,7 +86,8 @@ def append(
     scenario: str | None = None,
     detail: dict | None = None,
     ok: bool = True,
-    actor: str = "operator",
+    actor: str | None = None,
+    identity: dict | None = None,
 ) -> None:
     """追加一条审计记录。失败只 warning，绝不阻断业务路由。
 
@@ -92,10 +95,15 @@ def append(
     - summary：一句话人读摘要（时间线主文案）；
     - scenario：调度场景名（爆破事件域无场景概念，传 None）；
     - detail：结构化补充（展开详情用），只放可 JSON 化的小对象；
-    - ok：业务结果成败标记（校验失败/部分拒绝仍记录时用 False）。
+    - ok：业务结果成败标记（校验失败/部分拒绝仍记录时用 False）；
+    - identity：终端身份 {clientId, operator}（3.2.1 协作身份）——提供时 actor 取其
+      '<operator>@<clientId 前 8 位>'，记录另落 clientId 键；缺省回退 actor="operator"。
     """
     if action not in AUDIT_ACTIONS:
         logger.warning("[audit] 未登记的动作 id：%s（仍写入日志）", action)
+    # 身份消费：显式 identity 优先（协作身份），否则沿用 actor（缺省 "operator"）
+    resolved_actor = actor_of(identity) if identity is not None else (actor or "operator")
+    client_id = (identity or {}).get("clientId") or ""
     try:
         with _lock:
             entries = _read_all()
@@ -105,7 +113,8 @@ def append(
             rec = {
                 "id": _last_id,
                 "ts": datetime.now().isoformat(timespec="seconds"),
-                "actor": actor,
+                "actor": resolved_actor,
+                "clientId": client_id,
                 "action": action,
                 "scenario": scenario,
                 "summary": summary,
