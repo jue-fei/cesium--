@@ -104,7 +104,10 @@ function buildInstances(blocks) {
     )
     instances.push(
       new Cesium.GeometryInstance({
-        geometry: new Cesium.BoxGeometry({
+        // Cesium.BoxGeometry 构造函数只接受 minimum/maximum（Cartesian3）；
+        // 按尺寸构建必须用静态工厂 fromDimensions，否则抛
+        // DeveloperError: Expected min to be typeof object（dimensions 被忽略）
+        geometry: Cesium.BoxGeometry.fromDimensions({
           dimensions: new Cesium.Cartesian3(b.sizeM[0], b.sizeM[1], b.sizeM[2]),
           vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT
         }),
