@@ -1,9 +1,12 @@
 import { storeToRefs } from 'pinia'
 import * as Cesium from 'cesium'
 import { useViewerStore } from '@/stores/viewerStore.js'
-import { getDisplayQualityProfile, getTerrainQualityProfile } from '@/features/shared/index.js'
+import {
+  getDisplayQualityProfile,
+  getRenderEnhancementManager,
+  getTerrainQualityProfile
+} from '@/features/shared/index.js'
 import { logger } from '@/utils/logger.js'
-import { getRenderEnhancementManager } from '@/features/lod-optimization/services/renderEnhancementManager.js'
 
 const VIEWER_INIT_MARK_START = 'viewer-init:start'
 const VIEWER_INIT_MARK_END = 'viewer-init:end'

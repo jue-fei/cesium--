@@ -49,6 +49,7 @@ export {
   getDisplayQualityProfile,
   getTerrainQualityProfile
 } from '../lod-optimization/services/viewerQualityProfiles.js'
+export { getRenderEnhancementManager } from '../lod-optimization/services/renderEnhancementManager.js'
 
 // ---- toolRegistry（工具注册表：侧边栏工具列表）----
 export { TOOL_REGISTRY, getApiToolRegistry, onToolsReady } from '../toolRegistry.js'
