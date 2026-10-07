@@ -23,9 +23,10 @@ describe('拖拽式设备部署契约（deploymentCmps）', () => {
   it('baseline 存在 deploymentCmps 且结构完整', () => {
     expect(CMP.api.get).toContain('/api/deployment')
     expect(CMP.api.put).toContain('/api/deployment')
-    for (const k of ['scenario', 'deployments', 'processOrder']) {
+    for (const k of ['scenario', 'deployments', 'processOrder', 'baseRev', 'force']) {
       expect(CMP.payloadKeys).toContain(k)
     }
+    expect(CMP.responseDataKeys).toContain('rev')
     expect(CMP.deploymentItemKeys).toEqual(['node', 'level'])
   })
 
@@ -53,5 +54,18 @@ describe('拖拽式设备部署契约（deploymentCmps）', () => {
     for (const k of CMP.responseDataKeys) {
       expect(src).toContain(`.${k}`)
     }
+  })
+
+  it('3.2.3 乐观并发：baseRev/force 与冲突码已接线（前端消费）', () => {
+    const rev = BASELINE.collabCmps.revision
+    expect(rev.conflictCode).toBe(2)
+    const api = featureSrc('../schedulingApi.js')
+    expect(api).toContain(rev.requestKey) // baseRev
+    expect(api).toContain(rev.forceKey) // force
+    const view = featureSrc('../../components/MultiObjectiveLhdView.vue')
+    expect(view).toContain('baseRev')
+    expect(view).toContain('=== 2') // code=2 冲突分支
+    expect(view).toContain('conflictForce') // 强制覆盖
+    expect(view).toContain('conflictRefreshAndRetry') // 刷新并重试
   })
 })

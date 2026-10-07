@@ -17,7 +17,7 @@ from fastapi import APIRouter, Body, Depends
 from app.routes.scheduling import get_simulator
 from app.security import require_token
 from app.services.audit import append as audit_append
-from app.services.collab.identity import client_identity
+from app.services.collab.identity import actor_of, client_identity
 from app.services.scheduling.deployment_store import (
     apply_deployment,
     load_deployment,
@@ -49,10 +49,38 @@ def put_deployment(
     ),
     identity: dict = Depends(client_identity),
 ):
-    """保存部署与工序顺序：先校验 → 落盘 → 应用到运行中的仿真器。"""
+    """保存部署与工序顺序：先校验 → 落盘 → 应用到运行中的仿真器。
+
+    3.2.3 乐观并发：请求可带 ``baseRev``（客户端上次读到的 rev）与 ``force``——
+    baseRev 缺省不校验（兼容旧客户端/脚本）；与当前 rev 不等则返回 ``code=2`` 并
+    附当前内容（供前端提示"另一终端已更新"并选择刷新/强制覆盖）。
+    """
     key = body.get("scenario") or DEFAULT_SCENARIO
     sim = get_simulator(key)
     current = load_deployment(key)
+    cur_rev = current.get("rev", 0)
+
+    # 并发仲裁：陈旧 baseRev 直接拒绝（不改文件、不改仿真器）
+    base_rev = body.get("baseRev")
+    force = bool(body.get("force"))
+    if base_rev is not None and not force:
+        try:
+            stale = int(base_rev) != int(cur_rev)
+        except (TypeError, ValueError):
+            stale = True
+        if stale:
+            return {
+                "code": 2,
+                "message": f"部署已被其他终端更新（当前 rev={cur_rev}），请刷新后重试或强制覆盖",
+                "data": {
+                    "currentRev": cur_rev,
+                    "by": current.get("updatedBy") or "",
+                    "current": {
+                        "deployments": current["deployments"],
+                        "processOrder": current["processOrder"],
+                    },
+                },
+            }
 
     # 增量合并：本次未提交的设备保持既有部署；processOrder 整体替换
     deployments = {**current["deployments"], **(body.get("deployments") or {})}
@@ -63,7 +91,8 @@ def put_deployment(
     if errors:
         return {"code": 1, "message": "；".join(errors)}
 
-    save_deployment(key, deployments, process_order)
+    new_rev = save_deployment(
+        key, deployments, process_order, rev=cur_rev + 1, updated_by=actor_of(identity))
     # 即刻生效：空闲设备迁移待命点；作业中设备仅记录（下次重建按文件生效）
     applied, skipped = apply_deployment(sim, deployments, only_idle=True)
     sim.process_order = process_order
@@ -87,5 +116,5 @@ def put_deployment(
     return {
         "code": 0,
         "data": {"deployments": deployments, "processOrder": process_order,
-                 "applied": applied, "skipped": skipped},
+                 "applied": applied, "skipped": skipped, "rev": new_rev},
     }

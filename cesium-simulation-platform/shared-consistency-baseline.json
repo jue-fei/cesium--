@@ -63,7 +63,9 @@
     "payloadKeys": [
       "scenario",
       "deployments",
-      "processOrder"
+      "processOrder",
+      "baseRev",
+      "force"
     ],
     "deploymentItemKeys": [
       "node",
@@ -73,7 +75,8 @@
       "deployments",
       "processOrder",
       "applied",
-      "skipped"
+      "skipped",
+      "rev"
     ]
   },
   "auditCmps": {
@@ -152,7 +155,14 @@
       "summary",
       "ok"
     ],
-    "heartbeatTimeoutMs": 60000
+    "heartbeatTimeoutMs": 60000,
+    "revision": {
+      "_desc": "3.2.3 乐观并发：可写资源（部署真源 / 派单队列）带 rev；客户端写请求带 baseRev，陈旧则回 conflictCode=2（附 currentRev），force=true 跳过校验。",
+      "responseKey": "rev",
+      "requestKey": "baseRev",
+      "forceKey": "force",
+      "conflictCode": 2
+    }
   },
   "timeseriesCmps": {
     "downsamples": [

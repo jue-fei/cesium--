@@ -206,9 +206,15 @@ export function useScheduling({
   }
 
   // ---------- NSGA-III 多目标选解提交 ----------
-  /** 提交 NSGA-III 选解（[{equipId, target, path}]），后端 _dispatch 优先消费。 */
-  function applyAssignment(assignments) {
-    return fetch(ASSIGN_URL, withIdentity({
+  /** 提交 NSGA-III 选解（[{equipId, target, path}]），后端 _dispatch 优先消费。
+   * @param {Array} assignments
+   * @param {{baseRev?:number, force?:boolean}} [opts] 3.2.3 乐观并发（rev 不符回 code=2） */
+  function applyAssignment(assignments, { baseRev, force } = {}) {
+    const extra = []
+    if (baseRev != null) extra.push(`baseRev=${encodeURIComponent(baseRev)}`)
+    if (force) extra.push('force=true')
+    const url = extra.length ? `${ASSIGN_URL}&${extra.join('&')}` : ASSIGN_URL
+    return fetch(url, withIdentity({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(assignments)

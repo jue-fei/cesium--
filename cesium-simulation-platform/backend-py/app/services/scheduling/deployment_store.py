@@ -27,39 +27,63 @@ def deployment_path(scenario: str) -> Path:
 
 
 def load_deployment(scenario: str) -> dict:
-    """读取部署状态；文件不存在/损坏时返回空部署（不抛错，保证仿真器可构建）。"""
+    """读取部署状态；文件不存在/损坏时返回空部署（不抛错，保证仿真器可构建）。
+
+    3.2.3 增 ``rev``（乐观并发版本号，每次保存 +1）与 ``updatedBy``（最后修改者 actor）。
+    旧文件无 rev → 视为 0（向后兼容）。
+    """
+    empty = {"deployments": {}, "processOrder": [], "rev": 0, "updatedAt": None, "updatedBy": ""}
     path = deployment_path(scenario)
     if not path.exists():
-        return {"deployments": {}, "processOrder": []}
+        return empty
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
         logger.warning("[deployment] 读取 %s 失败，按未部署处理: %s", path.name, e)
-        return {"deployments": {}, "processOrder": []}
+        return empty
     if not isinstance(data, dict):
-        return {"deployments": {}, "processOrder": []}
+        return empty
+    try:
+        rev = int(data.get("rev") or 0)
+    except (TypeError, ValueError):
+        rev = 0
     return {
         "deployments": data.get("deployments") or {},
         "processOrder": list(data.get("processOrder") or []),
+        "rev": rev,
+        "updatedAt": data.get("updatedAt"),
+        "updatedBy": str(data.get("updatedBy") or ""),
     }
 
 
-def save_deployment(scenario: str, deployments: dict, process_order: list) -> None:
-    """原子写入部署状态（tmp + os.replace，避免半写文件被读到）。"""
+def save_deployment(scenario: str, deployments: dict, process_order: list,
+                    rev: int | None = None, updated_by: str = "") -> int:
+    """原子写入部署状态（tmp + os.replace，避免半写文件被读到）。
+
+    @param rev: 新的乐观并发版本号；None 时沿用既有 rev（兼容旧调用方，不自增）
+    @param updated_by: 最后修改者 actor（协作身份，供冲突提示展示）
+    @returns 落盘的 rev
+    """
+    if rev is None:
+        rev = load_deployment(scenario).get("rev", 0)
     DEPLOYMENTS_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "_说明": (
             "拖拽式设备部署与出矿工序顺序（3.2）真源文件，由前端 PUT /api/deployment 生成。"
-            "deployments: 设备→待命点{node,level}；processOrder: 出矿工序优先级（靠前优先）。"
+            "deployments: 设备→待命点{node,level}；processOrder: 出矿工序优先级（靠前优先）；"
+            "rev: 乐观并发版本号（每次保存 +1，用于多终端冲突仲裁）。"
         ),
+        "rev": int(rev),
         "deployments": deployments,
         "processOrder": process_order,
         "updatedAt": datetime.now().isoformat(timespec="seconds"),
+        "updatedBy": updated_by,
     }
     path = deployment_path(scenario)
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, path)
+    return int(rev)
 
 
 def seg_on_level(sim, node: str, level: int):

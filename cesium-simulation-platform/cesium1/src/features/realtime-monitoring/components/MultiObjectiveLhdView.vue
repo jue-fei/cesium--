@@ -41,6 +41,19 @@
       </div>
     </header>
 
+    <!-- ===== 多终端并发冲突条（3.2.3）：另一终端已更新真源/派单队列 ===== -->
+    <div v-if="conflict" class="collab-conflict" role="alert">
+      <span class="cc-icon">!</span>
+      <div class="cc-body">
+        <div class="cc-title">
+          并发写入冲突{{ conflict.by ? ` · ${conflict.by}` : '' }}
+        </div>
+        <div class="cc-msg">{{ conflict.message }}</div>
+      </div>
+      <button class="cc-btn" @click="conflictRefreshAndRetry">刷新并重试</button>
+      <button class="cc-btn cc-btn-danger" @click="conflictForce">强制覆盖</button>
+    </div>
+
     <!-- ===== 采场摘要卡片 + 按采场筛选切换 ===== -->
     <section class="zone-strip" aria-label="采场摘要与筛选">
       <button
@@ -574,7 +587,7 @@
           class="moo-btn moo-btn-execute"
           :class="!canExecute && 'is-disabled'"
           :disabled="!canExecute"
-          @click="executeSelected"
+          @click="executeSelected()"
         >
           <span class="btn-icon"></span>
           执行该方案（派单给后端）
@@ -885,6 +898,37 @@ const deployments = ref({})
 const processOrder = ref([])
 const deployStatus = ref('')
 const deployBusy = ref(false)
+
+// ===== 3.2.3 多终端乐观并发 =====
+// 部署 rev 由 GET/PUT /api/deployment 回传；派单 rev 由快照 factors.dispatch 下发 +
+// 提交响应回传。写请求带 baseRev，后端 rev 不符返回 code=2 → 冲突条提示。
+const deploymentRev = ref(null)
+const assignmentRev = ref(null)
+const conflict = ref(null) // { kind:'deploy'|'dispatch', message, by, retry }
+
+watch(
+  () => props.snapshot?.factors?.dispatch?.assignmentRev,
+  v => {
+    if (v != null) assignmentRev.value = v
+  },
+  { immediate: true }
+)
+
+/** 刷新并重试：重新拉取最新真源（含 rev）后，用新 baseRev 重放上次写入。 */
+async function conflictRefreshAndRetry() {
+  const c = conflict.value
+  conflict.value = null
+  if (!c) return
+  if (c.kind === 'deploy') await loadDeploymentState()
+  await c.retry?.()
+}
+
+/** 强制覆盖：忽略 rev 校验重放上次写入（后端 force=true）。 */
+async function conflictForce() {
+  const c = conflict.value
+  conflict.value = null
+  await c.retry?.({ force: true })
+}
 // 进入部署模式时的实时落位快照（部署期间未部署设备按此静态展示，不随巡游漂移）
 const frozenLiveNodes = ref([])
 const muckPilePoints = computed(() => props.snapshot?.factors?.muckPile?.points || [])
@@ -907,6 +951,8 @@ async function loadDeploymentState() {
     if (res.code === 0) {
       deployments.value = res.data.deployments || {}
       processOrder.value = res.data.processOrder || []
+      deploymentRev.value = res.data.rev ?? null
+      conflict.value = null
     } else {
       deployStatus.value = `部署真源读取失败：${res.message || '未知错误'}`
     }
@@ -920,21 +966,34 @@ const equipNodes = computed(() =>
   equipIds.value.map((id, i) => deployments.value[id] || frozenLiveNodes.value[i] || null)
 )
 
-async function onDeployDrop({ equipId, node, level }) {
+async function onDeployDrop({ equipId, node, level }, { force = false } = {}) {
   deployBusy.value = true
   deployStatus.value = `正在保存 ${cnId(equipId)} → ${node} …`
   try {
     const res = await saveDeployment({
       scenario: props.scenario,
-      deployments: { [equipId]: { node, level } }
+      deployments: { [equipId]: { node, level } },
+      baseRev: deploymentRev.value ?? undefined,
+      force
     })
     if (res.code === 0) {
       deployments.value = res.data.deployments
+      deploymentRev.value = res.data.rev ?? deploymentRev.value
+      conflict.value = null
       const nApply = res.data.applied?.length || 0
       const nSkip = res.data.skipped?.length || 0
       deployStatus.value = nSkip
         ? `已保存：${cnId(equipId)} 部署到 ${node}（L${(level ?? 0) + 1} 水平）；${nApply} 台即刻生效，作业中设备下次重置生效`
         : `已保存：${cnId(equipId)} 部署到 ${node}（L${(level ?? 0) + 1} 水平），即刻生效`
+    } else if (res.code === 2) {
+      // 3.2.3 并发冲突：另一终端已更新真源 → 提示刷新重试 / 强制覆盖
+      conflict.value = {
+        kind: 'deploy',
+        message: res.message,
+        by: res.data?.by || '',
+        retry: opts => onDeployDrop({ equipId, node, level }, opts)
+      }
+      deployStatus.value = '检测到多终端并发修改，请选择处理方式'
     } else {
       deployStatus.value = `保存失败：${res.message || '未知错误'}`
     }
@@ -945,14 +1004,29 @@ async function onDeployDrop({ equipId, node, level }) {
   }
 }
 
-async function onSaveProcessOrder(order) {
+async function onSaveProcessOrder(order, { force = false } = {}) {
   deployBusy.value = true
   deployStatus.value = '正在保存出矿工序…'
   try {
-    const res = await saveDeployment({ scenario: props.scenario, processOrder: order })
+    const res = await saveDeployment({
+      scenario: props.scenario,
+      processOrder: order,
+      baseRev: deploymentRev.value ?? undefined,
+      force
+    })
     if (res.code === 0) {
       processOrder.value = res.data.processOrder
+      deploymentRev.value = res.data.rev ?? deploymentRev.value
+      conflict.value = null
       deployStatus.value = '出矿工序已保存并生效（贪心派单按新工序优先偏置）'
+    } else if (res.code === 2) {
+      conflict.value = {
+        kind: 'deploy',
+        message: res.message,
+        by: res.data?.by || '',
+        retry: opts => onSaveProcessOrder(order, opts)
+      }
+      deployStatus.value = '检测到多终端并发修改，请选择处理方式'
     } else {
       deployStatus.value = `工序保存失败：${res.message || '未知错误'}`
     }
@@ -1045,20 +1119,30 @@ const canExecute = computed(
     !!selected.value && selected.value.assignment.some((ci, i) => ci < candidates.value[i]?.length)
 )
 
-async function executeSelected() {
+async function executeSelected({ force = false } = {}) {
   if (!selected.value) return
   const decoded = decodeAssignment(selected.value.assignment, candidates.value, equipIds.value)
   feedback.value = `已提交 ${decoded.length} 台设备派单…`
+  // 3.2.3 乐观并发：带 baseRev（快照 factors.dispatch 下发 / 上次提交回传的派单 rev）
+  const opts = { baseRev: assignmentRev.value ?? undefined, force }
   try {
-    if (props.applyAssignment) {
-      const res = await props.applyAssignment(decoded)
-      const data = res?.data || res
-      const applied = data?.applied || []
-      feedback.value = `派单完成：${applied.length} 台设备采用 NSGA-III 选路`
-    } else {
-      const json = await applyAssignmentApi(decoded)
-      feedback.value = `派单完成：${json.data?.applied?.length || 0} 台设备采用 NSGA-III 选路`
+    const json = props.applyAssignment
+      ? await props.applyAssignment(decoded, opts)
+      : await applyAssignmentApi(decoded, opts)
+    const data = json?.data || json
+    if (json?.code === 2) {
+      // 另一终端已派单 → 冲突条（刷新重试 / 强制覆盖）
+      conflict.value = {
+        kind: 'dispatch',
+        message: json.message,
+        by: '',
+        retry: o => executeSelected(o)
+      }
+      feedback.value = '检测到多终端并发派单，请选择处理方式'
+      return
     }
+    feedback.value = `派单完成：${data?.applied?.length || 0} 台设备采用 NSGA-III 选路`
+    if (data?.rev != null) assignmentRev.value = data.rev
   } catch (e) {
     feedback.value = `派单失败：${e.message}`
   }

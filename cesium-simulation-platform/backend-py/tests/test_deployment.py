@@ -37,7 +37,9 @@ def _sim():
 
 def test_load_missing_returns_empty():
     dep = load_deployment("no-such-scenario")
-    assert dep == {"deployments": {}, "processOrder": []}
+    assert dep["deployments"] == {}
+    assert dep["processOrder"] == []
+    assert dep["rev"] == 0  # 3.2.3 乐观并发版本号缺省 0
 
 
 def test_save_then_load_roundtrip():
@@ -166,9 +168,11 @@ BASELINE = json.loads(
 def test_baseline_deployment_cmps_structure():
     assert BASELINE["api"]["get"].startswith("GET /api/deployment")
     assert BASELINE["api"]["put"] == "PUT /api/deployment"
-    assert set(BASELINE["payloadKeys"]) == {"scenario", "deployments", "processOrder"}
+    assert set(BASELINE["payloadKeys"]) == {
+        "scenario", "deployments", "processOrder", "baseRev", "force"}
     assert set(BASELINE["deploymentItemKeys"]) == {"node", "level"}
-    assert set(BASELINE["responseDataKeys"]) == {"deployments", "processOrder", "applied", "skipped"}
+    assert set(BASELINE["responseDataKeys"]) == {
+        "deployments", "processOrder", "applied", "skipped", "rev"}
 
 
 def test_route_table_matches_baseline():
@@ -210,3 +214,48 @@ def test_put_response_data_keys_match_baseline():
         else:
             scheduling_routes._sims.pop("ashale", None)
         save_deployment("ashale", {}, [])
+
+
+# ---------- 3.2.3 乐观并发（rev / baseRev / force / code=2）----------
+
+def test_put_without_base_rev_still_works():
+    """旧客户端/脚本不带 baseRev → 不校验，正常保存并自增 rev。"""
+    save_deployment("ashale", {}, [], rev=3)
+    res = put_deployment({"scenario": "ashale", "deployments": {}, "processOrder": []},
+                         identity=_IDENTITY)
+    assert res["code"] == 0
+    assert res["data"]["rev"] == 4
+
+
+def test_put_matching_base_rev_bumps_rev():
+    save_deployment("ashale", {}, [], rev=7)
+    res = put_deployment({"scenario": "ashale", "deployments": {}, "processOrder": [],
+                          "baseRev": 7}, identity=_IDENTITY)
+    assert res["code"] == 0
+    assert res["data"]["rev"] == 8
+
+
+def test_put_rejects_stale_base_rev_without_side_effects():
+    save_deployment("ashale", {"LHD-01": {"node": "N1", "level": 0}}, ["M1"],
+                    rev=5, updated_by="张三@term-000")
+    res = put_deployment({
+        "scenario": "ashale",
+        "deployments": {"LHD-02": {"node": "N2", "level": 0}},
+        "baseRev": 4,
+    }, identity=_IDENTITY)
+    assert res["code"] == 2
+    assert res["data"]["currentRev"] == 5
+    assert res["data"]["by"] == "张三@term-000"
+    assert res["data"]["current"]["deployments"] == {"LHD-01": {"node": "N1", "level": 0}}
+    # 未落盘：真源仍是 rev 5 的旧内容
+    after = load_deployment("ashale")
+    assert after["rev"] == 5
+    assert "LHD-02" not in after["deployments"]
+
+
+def test_put_force_overrides_conflict():
+    save_deployment("ashale", {}, [], rev=5)
+    res = put_deployment({"scenario": "ashale", "deployments": {}, "processOrder": [],
+                          "baseRev": 1, "force": True}, identity=_IDENTITY)
+    assert res["code"] == 0
+    assert res["data"]["rev"] == 6  # 强制覆盖仍自增（rev 单调）

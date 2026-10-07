@@ -211,12 +211,23 @@ def scheduling_reset(scenario: Optional[str] = None, identity: dict = Depends(cl
 def scheduling_apply_assignment(
     assignments: list[dict] = Body(..., description="NSGA-III 选解：[{equipId, target, path}]"),
     scenario: Optional[str] = None,
+    baseRev: Optional[int] = None,
+    force: bool = False,
     identity: dict = Depends(client_identity),
 ):
     """提交前端 NSGA-III 多目标优化的选解，写入仿真器待派单队列。
     下次 _dispatch 时按该选解执行（重验通过性后），未提交的设备走贪心兜底。
+
+    3.2.3 乐观并发：查询参数 ``baseRev``（客户端上次读到的派单 rev）与 ``force``；
+    baseRev 缺省不校验（兼容旧客户端）；与当前 rev 不等返回 ``code=2``。
     """
     sim = get_simulator(scenario)
+    if baseRev is not None and not force and int(baseRev) != sim.assignment_rev:
+        return {
+            "code": 2,
+            "message": f"派单已被其他终端更新（当前 rev={sim.assignment_rev}），请刷新后重试或强制覆盖",
+            "data": {"currentRev": sim.assignment_rev},
+        }
     applied, rejected = [], []
     for a in assignments or []:
         eq_id = a.get("equipId") or a.get("id")
@@ -239,6 +250,7 @@ def scheduling_apply_assignment(
         applied.append({"equipId": eq_id, "target": target, "pathCount": len(path)})
     # 3.3 操作审计：选解派单提交（空列表/全拒绝不记录成功态）
     if applied:
+        sim.assignment_rev += 1  # 3.2.3 派单乐观并发版本号
         audit_append(
             "scheduling.apply",
             f"提交 NSGA-III 选解派单：{len(applied)} 台设备",
@@ -247,7 +259,8 @@ def scheduling_apply_assignment(
             ok=not rejected,
             identity=identity,
         )
-    return {"code": 0, "data": {"applied": applied, "rejected": rejected}}
+    return {"code": 0, "data": {"applied": applied, "rejected": rejected,
+                                "rev": sim.assignment_rev}}
 
 
 @router.post("/blastpile")

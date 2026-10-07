@@ -11,11 +11,17 @@ import { withIdentity } from '../../shared/services/collabIdentity.js'
 /**
  * 提交 NSGA-III 选解派单。
  * @param {Array<{equipId:string, target:string, path:string[]}>} assignments 派单列表（decodeAssignment 输出）
- * @returns {Promise<object>} 后端 JSON（{code, data:{applied:[...]}}）；HTTP/网络错误向上抛出由调用方处理
+ * @param {{baseRev?:number, force?:boolean}} [opts] 3.2.3 乐观并发：baseRev 与当前
+ *   派单 rev 不符时后端返回 {code:2}（可 force=true 跳过校验）
+ * @returns {Promise<object>} 后端 JSON（{code, data:{applied, rejected, rev}}）；HTTP/网络错误向上抛出由调用方处理
  */
-export function applyAssignment(assignments) {
+export function applyAssignment(assignments, { baseRev, force } = {}) {
+  const q = new URLSearchParams()
+  if (baseRev != null) q.set('baseRev', String(baseRev))
+  if (force) q.set('force', 'true')
+  const qs = q.toString() ? `?${q.toString()}` : ''
   return fetch(
-    '/api/scheduling/apply_assignment',
+    `/api/scheduling/apply_assignment${qs}`,
     withIdentity({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

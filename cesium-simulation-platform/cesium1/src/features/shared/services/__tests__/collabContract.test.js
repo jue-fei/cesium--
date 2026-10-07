@@ -114,4 +114,12 @@ describe('协作事件广播契约（collabCmps · 3.2.2）', () => {
     expect(use).toContain('COLLAB_OPERATION') // 跨面板联动
     expect(use).toContain('subscribe')
   })
+
+  it('3.2.3 乐观并发契约：rev / baseRev / force / conflictCode', () => {
+    const rev = CMP.revision
+    expect(rev.responseKey).toBe('rev')
+    expect(rev.requestKey).toBe('baseRev')
+    expect(rev.forceKey).toBe('force')
+    expect(rev.conflictCode).toBe(2)
+  })
 })

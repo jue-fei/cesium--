@@ -1331,3 +1331,63 @@
   line-height: 1.4;
   color: #f87171;
 }
+
+/* ===== 3.2.3 多终端并发冲突条（rev 陈旧时提示刷新重试 / 强制覆盖）===== */
+.collab-conflict {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-left: 3px solid #f87171;
+  border-radius: 8px;
+  background: rgba(248, 113, 113, 0.08);
+}
+.cc-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0b1220;
+  background: #f87171;
+}
+.cc-body {
+  flex: 1;
+  min-width: 0;
+}
+.cc-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #fca5a5;
+}
+.cc-msg {
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: rgba(226, 232, 240, 0.85);
+}
+.cc-btn {
+  flex: none;
+  padding: 4px 10px;
+  font-size: 10.5px;
+  color: #67e8f9;
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cc-btn:hover {
+  background: rgba(34, 211, 238, 0.18);
+}
+.cc-btn-danger {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.4);
+}
+.cc-btn-danger:hover {
+  background: rgba(248, 113, 113, 0.2);
+}

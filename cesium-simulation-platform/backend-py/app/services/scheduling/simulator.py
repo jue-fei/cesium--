@@ -368,6 +368,8 @@ class SchedulingSimulator:
         # ---- NSGA-III 多目标选解待派单（前端提交后，下次 _dispatch 消费）----
         # 结构：{equipId: {"target": str, "path": [segId...], "source": "nsga3"}}
         self.pending_assignments = {}
+        # 派单乐观并发版本号（3.2.3）：每次成功提交 +1，供多终端冲突仲裁
+        self.assignment_rev = 0
 
         # ---- 多目标优化预计算缓存（后端算好前沿，前端点击板块直接消费）----
         # 按候选内容 key 缓存，仅当候选实质变化（或超时兜底刷新）时重算，
@@ -1454,6 +1456,8 @@ class SchedulingSimulator:
                               "opexSimulatedSavePct": opex_ratio,
                               "units": "能量: kWh(电动)/L(柴油); 成本: 元", "items": equip},
                 "optimization": optimization,
+                "dispatch": {"desc": "派单并发控制（乐观并发版本号）",
+                             "assignmentRev": self.assignment_rev},
             },
         }
 

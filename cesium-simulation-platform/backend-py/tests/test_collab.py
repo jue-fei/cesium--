@@ -278,3 +278,58 @@ def test_broadcast_skipped_when_write_fails(monkeypatch, tmp_path):
     audit_log.append("scheduling.reset", "重置", scenario="ashale")
 
     assert captured == [], "落盘失败不得广播"
+
+
+# ---------- 3.2.3 乐观并发（rev / baseRev / force / code=2）----------
+
+def test_revision_contract_matches_baseline():
+    rev = BASELINE["revision"]
+    assert rev["responseKey"] == "rev"
+    assert rev["requestKey"] == "baseRev"
+    assert rev["forceKey"] == "force"
+    assert rev["conflictCode"] == 2
+
+
+def test_revision_implemented_in_routes():
+    """两个可写资源（部署真源 / 派单队列）路由均须实现 baseRev 校验与 code=2。"""
+    routes_dir = Path(__file__).resolve().parents[1] / "app" / "routes"
+    dep = (routes_dir / "deployment.py").read_text(encoding="utf-8")
+    sch = (routes_dir / "scheduling.py").read_text(encoding="utf-8")
+    for src, name in ((dep, "deployment.py"), (sch, "scheduling.py")):
+        assert "baseRev" in src, f"{name} 未实现 baseRev 校验"
+        assert '"code": 2' in src, f"{name} 未实现冲突码 code=2"
+    assert "force" in dep and "force" in sch
+
+
+def test_apply_assignment_conflict_then_bump():
+    from app.routes import scheduling as sched_routes
+    from app.services.scheduling.scenario_config import load_scenario
+    from app.services.scheduling.simulator import SchedulingSimulator
+
+    key = "ashale"
+    prev = sched_routes._sims.get(key)
+    sched_routes._sims[key] = SchedulingSimulator(load_scenario(key))
+    try:
+        sched_routes._sims[key].assignment_rev = 3
+        payload = [{"equipId": "LHD-01", "target": "MP-1", "path": ["S1"]}]
+        ident = {"clientId": "term-1", "operator": "甲"}
+
+        stale = sched_routes.scheduling_apply_assignment(
+            payload, scenario=key, baseRev=2, force=False, identity=ident)
+        assert stale["code"] == 2
+        assert stale["data"]["currentRev"] == 3
+
+        ok = sched_routes.scheduling_apply_assignment(
+            payload, scenario=key, baseRev=3, force=False, identity=ident)
+        assert ok["code"] == 0
+        assert ok["data"]["applied"], "命中 rev 应正常派单"
+        assert ok["data"]["rev"] == 4  # 成功后 rev 自增
+
+        forced = sched_routes.scheduling_apply_assignment(
+            payload, scenario=key, baseRev=1, force=True, identity=ident)
+        assert forced["code"] == 0 and forced["data"]["rev"] == 5
+    finally:
+        if prev is not None:
+            sched_routes._sims[key] = prev
+        else:
+            sched_routes._sims.pop(key, None)
