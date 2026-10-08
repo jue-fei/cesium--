@@ -124,7 +124,7 @@
     ]
   },
   "collabCmps": {
-    "_desc": "3.2.1/3.2.2 跨终端协同契约：身份请求头/actor 格式 + 协作广播通道/帧/事件键。前端侧 features/shared/services/collabIdentity.js、realtime/collabWsConnector.js、services/useCollab.js 与用例 services/__tests__/collabContract.test.js；后端侧 app/services/collab/{identity,broadcaster}.py + app/routes/collab_ws.py 与用例 tests/test_collab.py。身份真源由前端生成、后端只解析清洗（未带头等价匿名，向后兼容）；广播真源为审计落盘成功事件。",
+    "_desc": "3.2.1/3.2.2 跨终端协同契约：身份请求头/actor 格式 + 协作广播通道/帧/事件键。前端侧 features/shared/services/collabIdentity.js、realtime/collabWsConnector.js、services/useCollab.js 与用例 services/__tests__/collabContract.test.js；后端侧 app/services/collab/{identity,broadcaster}.py + app/routes/collab_ws.py 与用例 tests/test_collab.py。身份真源由前端生成、后端只解析清洗（未带头等价匿名，向后兼容）；广播真源为审计落盘成功事件。activeScenario 为平台运行场景单一真源（前端 services/activeScenario.js），协作订阅与调度面板须同源——跨终端必须同场景，否则后端按场景分频道的广播无人订阅；globalBroadcastScenario=null 表示无场景事件（如爆破域）广播至全部订阅频道。",
     "identityHeaders": {
       "clientId": "X-Client-Id",
       "operator": "X-Operator"
@@ -156,6 +156,8 @@
       "ok"
     ],
     "heartbeatTimeoutMs": 60000,
+    "activeScenario": "large",
+    "globalBroadcastScenario": null,
     "revision": {
       "_desc": "3.2.3 乐观并发：可写资源（部署真源 / 派单队列）带 rev；客户端写请求带 baseRev，陈旧则回 conflictCode=2（附 currentRev），force=true 跳过校验。",
       "responseKey": "rev",

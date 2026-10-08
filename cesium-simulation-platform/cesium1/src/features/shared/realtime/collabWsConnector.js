@@ -12,6 +12,7 @@
 import { computeBackoffMs } from './backoff.js'
 import { logger } from '@/utils/logger.js'
 import { getClientId } from '../services/collabIdentity.js'
+import { ACTIVE_SCENARIO } from '../services/activeScenario.js'
 
 const HEARTBEAT_MS = 15000
 const BASE_MS = 1000
@@ -19,7 +20,7 @@ const CAP_MS = 8000
 const MAX_RECONNECTS = 6
 
 /** 构造协作流 URL（scenario + clientId 查询参数）。 */
-export function buildCollabUrl(scenario = 'ashale', clientId = getClientId()) {
+export function buildCollabUrl(scenario = ACTIVE_SCENARIO, clientId = getClientId()) {
   return `/ws/collab?scenario=${encodeURIComponent(scenario)}&clientId=${encodeURIComponent(clientId)}`
 }
 
@@ -29,7 +30,7 @@ export function isCollabEvent(frame) {
 }
 
 export class CollabWsConnector {
-  constructor({ scenario = 'ashale', onEvent, onStatus } = {}) {
+  constructor({ scenario = ACTIVE_SCENARIO, onEvent, onStatus } = {}) {
     this._scenario = scenario
     this._onEvent = onEvent
     this._onStatus = onStatus

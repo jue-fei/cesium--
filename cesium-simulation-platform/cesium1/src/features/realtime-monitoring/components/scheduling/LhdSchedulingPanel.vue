@@ -187,10 +187,12 @@ import FactorDynamic from './FactorDynamic.vue'
 import FactorMuck from './FactorMuck.vue'
 import FactorEquipment from './FactorEquipment.vue'
 import MultiObjectiveLhdView from '../MultiObjectiveLhdView.vue'
+import { ACTIVE_SCENARIO } from '../../../shared/index.js'
 
 // 场景名：巷道/装载点/设备等"可替换内容"来自 config/scenario_<名>.json
-// 默认大型矿（多中段多采场，10 台铲运机），可切 ashale 小型场景
-const scenario = ref('large')
+// 运行场景统一取自前端单一真源（shared/services/activeScenario.js）——协作事件流
+// 订阅与部署真源读写必须同场景，否则跨终端操作会被后端按场景分频道丢弃。
+const scenario = ref(ACTIVE_SCENARIO)
 
 const { snapshot, connectionStatus, reset, applyAssignment } = useScheduling({
   mode: 'websocket',

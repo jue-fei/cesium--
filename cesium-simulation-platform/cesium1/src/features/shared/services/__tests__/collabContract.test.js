@@ -20,6 +20,7 @@ import {
   buildCollabUrl,
   isCollabEvent
 } from '../../realtime/collabWsConnector.js'
+import { ACTIVE_SCENARIO } from '../activeScenario.js'
 
 // 由 features/shared/services/__tests__ 向上 6 级回溯到仓库根
 const ROOT = fileURLToPath(new URL('../../../../../../', import.meta.url))
@@ -71,11 +72,19 @@ describe('跨终端协作身份契约（collabCmps）', () => {
   })
 
   it('各写接口已注入协作身份头', () => {
-    expect(featureSrc('../../../realtime-monitoring/services/schedulingApi.js')).toContain('withIdentity')
-    expect(featureSrc('../../../realtime-monitoring/services/useScheduling.js')).toContain('withIdentity')
-    expect(featureSrc('../../../blasting-simulation/services/blastingApi.js')).toContain('identityHeaders')
+    expect(featureSrc('../../../realtime-monitoring/services/schedulingApi.js')).toContain(
+      'withIdentity'
+    )
+    expect(featureSrc('../../../realtime-monitoring/services/useScheduling.js')).toContain(
+      'withIdentity'
+    )
+    expect(featureSrc('../../../blasting-simulation/services/blastingApi.js')).toContain(
+      'identityHeaders'
+    )
     // 审计面板消费 clientId 标出「本机」
-    expect(featureSrc('../../../operation-audit/components/AuditPanel.vue')).toContain('getClientId')
+    expect(featureSrc('../../../operation-audit/components/AuditPanel.vue')).toContain(
+      'getClientId'
+    )
   })
 })
 
@@ -85,7 +94,14 @@ describe('协作事件广播契约（collabCmps · 3.2.2）', () => {
     expect(CMP.clientFrames).toEqual(['ping', 'hello'])
     expect(CMP.serverFrames).toEqual(['hello', 'collab_event', 'pong', 'error'])
     expect(CMP.eventKeys).toEqual([
-      'id', 'ts', 'actor', 'clientId', 'action', 'scenario', 'summary', 'ok'
+      'id',
+      'ts',
+      'actor',
+      'clientId',
+      'action',
+      'scenario',
+      'summary',
+      'ok'
     ])
     expect(CMP.heartbeatTimeoutMs).toBe(60000)
   })
@@ -103,6 +119,28 @@ describe('协作事件广播契约（collabCmps · 3.2.2）', () => {
     expect(isCollabEvent({ type: 'collab_event' })).toBe(false)
     expect(isCollabEvent(null)).toBe(false)
     expect(typeof CollabWsConnector).toBe('function')
+  })
+
+  it('运行场景单一真源：协作订阅与调度面板必须同源（真机验收回归）', () => {
+    // 契约：平台运行场景单一真源（activeScenario.js）。
+    // 回归背景：协作订阅曾固定 'ashale' 而调度面板运行 'large'，后端按场景分频道的
+    // 协作广播无人订阅 → 跨终端操作在真机上不可见、面板 opt-in 刷新被场景守卫跳过。
+    expect(CMP.activeScenario).toBe(ACTIVE_SCENARIO)
+    // 协作订阅（连接器默认 / useCollab 默认）取真源，不得硬编码场景字面量
+    expect(featureSrc('../../realtime/collabWsConnector.js')).toContain('ACTIVE_SCENARIO')
+    expect(featureSrc('../useCollab.js')).toContain('ACTIVE_SCENARIO')
+    // App 启动订阅、以及运行场景的拥有者（调度面板）同样取真源
+    expect(featureSrc('../../../../App.vue')).toContain('collab.start(ACTIVE_SCENARIO)')
+    const panel = featureSrc(
+      '../../../realtime-monitoring/components/scheduling/LhdSchedulingPanel.vue'
+    )
+    expect(panel).toContain('ACTIVE_SCENARIO')
+    expect(panel).not.toContain("ref('large')")
+    expect(panel).not.toContain("ref('ashale')")
+  })
+
+  it('无场景事件为全局广播（契约 globalBroadcastScenario=null）', () => {
+    expect(CMP.globalBroadcastScenario).toBeNull()
   })
 
   it('连接器与 useCollab 已接线（心跳/退避/回声抑制/融合总线）', () => {

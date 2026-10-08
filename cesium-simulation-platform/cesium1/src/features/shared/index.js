@@ -54,8 +54,9 @@ export { getRenderEnhancementManager } from '../lod-optimization/services/render
 // ---- toolRegistry（工具注册表：侧边栏工具列表）----
 export { TOOL_REGISTRY, getApiToolRegistry, onToolsReady } from '../toolRegistry.js'
 
-// ---- collab（跨终端协同：身份 + 协作事件流，3.2.1/3.2.2）----
+// ---- collab（跨终端协同：身份 + 协作事件流 + 运行场景真源，3.2.1/3.2.2）----
 export { default as useCollab } from './services/useCollab.js'
+export { ACTIVE_SCENARIO } from './services/activeScenario.js'
 export {
   getClientId,
   getOperator,

@@ -11,6 +11,7 @@
 import { ref } from 'vue'
 import { CollabWsConnector } from '../realtime/collabWsConnector.js'
 import { getClientId } from './collabIdentity.js'
+import { ACTIVE_SCENARIO } from './activeScenario.js'
 import useMessage from '@/composables/useMessage.js'
 import { fusionBus, CHANNELS } from '@/services/fusion/FusionBus.js'
 
@@ -51,8 +52,8 @@ function _onEvent(evt) {
 }
 
 export default function useCollab() {
-  /** 启动协作订阅（幂等：已启动则忽略）。 */
-  function start(scenario = 'ashale') {
+  /** 启动协作订阅（幂等：已启动则忽略）。缺省订阅平台运行场景（单一真源）。 */
+  function start(scenario = ACTIVE_SCENARIO) {
     if (connector) return
     connector = new CollabWsConnector({ scenario, onEvent: _onEvent, onStatus: _onStatus })
     connector.connect()
@@ -71,7 +72,9 @@ export default function useCollab() {
     for (const e of [...events.value].reverse()) {
       try {
         handler(e)
-      } catch (_) { /* 回放失败不影响订阅 */ }
+      } catch (_) {
+        /* 回放失败不影响订阅 */
+      }
     }
     return () => _handlers.delete(handler)
   }

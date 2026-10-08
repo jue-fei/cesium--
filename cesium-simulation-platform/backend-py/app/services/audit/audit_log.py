@@ -13,7 +13,8 @@ append 绝不向业务抛错（审计失败只 warning，不影响主流程）�
 查询：GET /api/audit/logs（倒序、过滤、before_id 分页）；
      GET /api/audit/actions（动作枚举下发，前端不自持映射表 → 新增审计点零前端发布）。
 广播（3.2.2）：落盘成功后经 collab.broadcaster 投递 /ws/collab 同场景订阅终端
-     （多端操作实时可见）；广播失败静默丢弃，不影响业务。
+     （多端操作实时可见；无场景域事件如爆破操作广播至全部订阅终端）；
+     广播失败静默丢弃，不影响业务。
 """
 import json
 import logging

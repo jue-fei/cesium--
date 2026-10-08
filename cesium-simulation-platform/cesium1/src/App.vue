@@ -21,7 +21,7 @@
     @step-frame="stepFrame"
     @rate-change="setPlaybackRate"
     @replay-blast="replayBlast"
-    @frame-change="(_f) => setFrame(_f, true)"
+    @frame-change="_f => setFrame(_f, true)"
     @speed-change="onSpeedChange"
     @toggle-loop="toggleLoop"
     @mark-ab-loop="markAbLoopPoint"
@@ -74,6 +74,7 @@ import GlobalMessage from './components/GlobalMessage.vue'
 import PlaybackFloatingPanel from './features/blasting-simulation/components/PlaybackFloatingPanel.vue'
 import {
   TOOL_REGISTRY,
+  ACTIVE_SCENARIO,
   useBlasting,
   useClipping,
   useGeologyAnalysis,
@@ -157,7 +158,9 @@ const activeToolName = computed(
 
 onMounted(async () => {
   // 跨终端协同：订阅他端操作（独立于 Cesium 初始化，先于 3D 场景就绪即可用）
-  collab.start()
+  // 订阅场景取平台运行场景单一真源——须与调度/部署写操作携带的 scenario 一致，
+  // 否则后端按场景分频道的协作广播无人订阅（跨终端操作不可见）。
+  collab.start(ACTIVE_SCENARIO)
 
   let viewerInstance = null
   try {

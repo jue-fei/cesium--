@@ -3,6 +3,8 @@ collab/broadcaster.py —— 协作事件广播（3.2.2）
 
 按**场景**分频道的进程内广播器：写操作成功落审计后（audit_log.append），把该操作
 以协作事件投递给 /ws/collab?scenario=<名> 的全部订阅终端，实现"多端操作实时可见"。
+事件无场景（scenario 为空，如爆破事件域）时向**全部**订阅频道广播——这类操作不属于
+任何调度场景，若按场景过滤则无订阅者能收到。
 
 跨线程投递：写路由跑在 FastAPI threadpool，WS 广播协程跑在事件循环 → 用
 `asyncio.run_coroutine_threadsafe` 把广播投递到主循环（主循环引用在首个订阅者
@@ -50,18 +52,28 @@ class CollabBroadcaster:
         return len(self._subs.get(scenario, ()))
 
     def publish(self, scenario: str | None, record: dict, event_type: str = "collab_event") -> None:
-        """同步入口（业务线程调用）：投递协作事件；无订阅/无循环则静默返回。"""
-        if not scenario or not self._subs.get(scenario):
+        """同步入口（业务线程调用）：投递协作事件；无订阅/无循环则静默返回。
+
+        scenario 为空 → 投递给**全部**订阅频道（与场景无关的全局操作，如爆破事件
+        域——这些操作不属于任何调度场景，若按场景过滤则任何订阅者都收不到）；
+        指定 scenario → 只投递给该场景订阅者。
+        """
+        if scenario:
+            targets = [scenario] if self._subs.get(scenario) else []
+        else:
+            targets = [k for k, subs in self._subs.items() if subs]
+        if not targets:
             return
         loop = self._loop
         if loop is None or loop.is_closed():
             return
         payload = {"type": event_type, "data": {k: record.get(k) for k in EVENT_FIELDS}}
         text = json.dumps(payload, ensure_ascii=False)
-        try:
-            asyncio.run_coroutine_threadsafe(self._broadcast(scenario, text), loop)
-        except Exception:  # noqa: BLE001 —— 投递失败不得阻断业务
-            logger.warning("[collab] 协作事件投递失败 scenario=%s", scenario)
+        for key in targets:
+            try:
+                asyncio.run_coroutine_threadsafe(self._broadcast(key, text), loop)
+            except Exception:  # noqa: BLE001 —— 投递失败不得阻断业务
+                logger.warning("[collab] 协作事件投递失败 scenario=%s", key)
 
     async def _broadcast(self, scenario: str, text: str) -> None:
         subs = self._subs.get(scenario)

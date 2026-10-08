@@ -246,6 +246,50 @@ def test_dead_connection_cleaned_on_broadcast():
     assert asyncio.run(run()) == 0
 
 
+def test_publish_global_event_reaches_all_channels():
+    """无场景事件（scenario=None，如爆破域）须广播至**全部**订阅频道——真机验收修复：
+    这类操作不属于任何调度场景，若按场景过滤则任何订阅者都收不到。"""
+    async def run():
+        b = CollabBroadcaster()
+        ws_a, ws_b = _FakeWs(), _FakeWs()
+        await b.connect(ws_a, "large")
+        await b.connect(ws_b, "ashale")
+        b.publish(None, {
+            "id": 9, "ts": "2026-10-07T10:00:00", "actor": "张三@term-000",
+            "clientId": "term-0001", "action": "blasting.event.create",
+            "scenario": None, "summary": "新建爆破事件", "ok": True,
+        })
+        await asyncio.sleep(0.05)
+        return ws_a.sent, ws_b.sent
+
+    sent_a, sent_b = asyncio.run(run())
+    assert sent_a and sent_b, "无场景事件应同时投递到全部订阅频道"
+    frame = json.loads(sent_a[0])
+    assert frame["type"] == "collab_event"
+    assert frame["data"]["action"] == "blasting.event.create"
+
+
+def test_publish_scoped_event_only_reaches_its_channel():
+    """有场景事件只投递给该场景订阅者（不串到其他场景频道）。"""
+    async def run():
+        b = CollabBroadcaster()
+        ws_a, ws_b = _FakeWs(), _FakeWs()
+        await b.connect(ws_a, "large")
+        await b.connect(ws_b, "ashale")
+        b.publish("large", {"id": 10, "action": "deployment.save", "scenario": "large"})
+        await asyncio.sleep(0.05)
+        return ws_a.sent, ws_b.sent
+
+    sent_a, sent_b = asyncio.run(run())
+    assert sent_a, "本场景订阅者应收到"
+    assert not sent_b, "他场景订阅者不得收到"
+
+
+def test_global_broadcast_scenario_contract():
+    """契约：无场景（全局）广播以 null 表示，与 broadcaster 语义一致。"""
+    assert BASELINE["globalBroadcastScenario"] is None
+
+
 # ---------- 3.2.2 审计 → 广播 接线 ----------
 
 def test_audit_append_broadcasts_record(monkeypatch, tmp_path):
