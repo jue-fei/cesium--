@@ -281,6 +281,12 @@
   .moo-lhd .map-stage .map-panel {
     height: 100%;
   }
+  /* 路段约束详情条：宽屏下与地图卡片同宽（地图占地图行 74%），
+     在地图行下方整条展开——不参与地图行高度计算，点击巷道路段时地图不缩小 */
+  .moo-lhd .moo-evidence > .seg-detail {
+    width: 74%;
+    justify-self: start;
+  }
   /* 右侧栏高度按 2:3 分配：上=帕累托前沿(2，保证散点完整可见) / 下=方案明细表(3)，
      底部自然与地图底对齐 */
   .moo-lhd .map-side .pf-panel {
@@ -559,10 +565,13 @@
 .seg.is-active .seg-line {
   stroke-opacity: 1;
 }
+/* 路段约束详情条：点击巷道段后在地图行**下方**展开（独立于地图卡片高度分配，
+   地图/右侧栏不被挤压）。与地图卡片同宽由 ≥1280px 媒体查询给出；行间距由
+   .moo-evidence 的 gap 提供，故此处 margin-top 归零；横向内边距对齐 .panel。 */
 .seg-detail {
-  margin-top: 10px;
-  padding: 9px 11px;
-  border-radius: 10px;
+  margin-top: 0;
+  padding: 10px 14px 12px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.1);
   animation: segPop 0.16s ease;

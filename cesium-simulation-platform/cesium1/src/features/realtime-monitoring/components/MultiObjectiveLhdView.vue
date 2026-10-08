@@ -263,61 +263,6 @@
                 @save-order="onSaveProcessOrder"
               />
 
-              <!-- 路段约束详情条：点击巷道段后展开（每段独立编号 + 专有安全信息） -->
-              <div v-if="activeSegId" class="seg-detail">
-                <div class="seg-detail-head">
-                  <b class="seg-detail-id">{{ cnId(activeSegId) }}</b>
-                  <span class="seg-detail-name">{{ activeSegMeta.name || '—' }}</span>
-                  <span class="seg-detail-risk" :class="riskOf(activeSegMeta).clazz">
-                    {{ riskOf(activeSegMeta).label }} · 评分{{ riskOf(activeSegMeta).score }}
-                  </span>
-                  <span class="seg-detail-status" :class="segState(activeSegMeta).clazz">
-                    {{ segState(activeSegMeta).label }}
-                  </span>
-                  <button class="seg-detail-close" title="关闭" @click="activeSegId = ''">×</button>
-                </div>
-                <div
-                  v-if="activeSegMeta.blocked || activeSegMeta.passableLoaded === false"
-                  class="seg-detail-alert"
-                >
-                  <span v-if="activeSegMeta.blocked">⚠ 本路段封锁中，暂不通车</span>
-                  <span v-else>⚠ 本路段重载禁行，满载铲运车无法通过</span>
-                </div>
-                <div class="seg-detail-grid">
-                  <div class="sd-item">
-                    <span>净宽</span><b>{{ fmtM(activeSegMeta.clearWidthM) }}</b>
-                  </div>
-                  <div class="sd-item">
-                    <span>净高</span><b>{{ fmtM(activeSegMeta.clearHeightM) }}</b>
-                  </div>
-                  <div class="sd-item">
-                    <span>坡度</span><b>{{ fmtV(activeSegMeta.maxGradePct) }}%</b>
-                  </div>
-                  <div class="sd-item">
-                    <span>转弯半径</span><b>{{ fmtM(activeSegMeta.minTurnRadiusM) }}</b>
-                  </div>
-                  <div class="sd-item">
-                    <span>长度</span><b>{{ fmtM(activeSegMeta.lengthM) }}</b>
-                  </div>
-                  <div class="sd-item">
-                    <span>炮烟</span
-                    ><b :class="barColor(activeSegMeta.smoke)">{{ pct(activeSegMeta.smoke) }}</b>
-                  </div>
-                  <div class="sd-item">
-                    <span>拥堵</span
-                    ><b :class="barColor(activeSegMeta.congestion)">{{
-                      pct(activeSegMeta.congestion)
-                    }}</b>
-                  </div>
-                  <div class="sd-item">
-                    <span>岩爆</span
-                    ><b :class="barColor(activeSegMeta.rockburst)">{{
-                      pct(activeSegMeta.rockburst)
-                    }}</b>
-                  </div>
-                </div>
-              </div>
-
               <!-- 图例 -->
               <div class="legend-row">
                 <span class="legend-item"> <i class="lv-dot lv-dump"></i> S0 卸载/溜井口 </span>
@@ -578,6 +523,62 @@
         <!-- /map-side -->
       </div>
       <!-- /map-row -->
+
+      <!-- 路段约束详情条：点击巷道段后在地图行**下方**展开（每段独立编号 + 专有安全信息）。
+           放在地图行之外：不参与地图卡片的高度分配，地图/右侧栏尺寸不被挤压，只向下撑开页面 -->
+      <div v-if="activeSegId" class="seg-detail">
+        <div class="seg-detail-head">
+          <b class="seg-detail-id">{{ cnId(activeSegId) }}</b>
+          <span class="seg-detail-name">{{ activeSegMeta.name || '—' }}</span>
+          <span class="seg-detail-risk" :class="riskOf(activeSegMeta).clazz">
+            {{ riskOf(activeSegMeta).label }} · 评分{{ riskOf(activeSegMeta).score }}
+          </span>
+          <span class="seg-detail-status" :class="segState(activeSegMeta).clazz">
+            {{ segState(activeSegMeta).label }}
+          </span>
+          <button class="seg-detail-close" title="关闭" @click="activeSegId = ''">×</button>
+        </div>
+        <div
+          v-if="activeSegMeta.blocked || activeSegMeta.passableLoaded === false"
+          class="seg-detail-alert"
+        >
+          <span v-if="activeSegMeta.blocked">⚠ 本路段封锁中，暂不通车</span>
+          <span v-else>⚠ 本路段重载禁行，满载铲运车无法通过</span>
+        </div>
+        <div class="seg-detail-grid">
+          <div class="sd-item">
+            <span>净宽</span><b>{{ fmtM(activeSegMeta.clearWidthM) }}</b>
+          </div>
+          <div class="sd-item">
+            <span>净高</span><b>{{ fmtM(activeSegMeta.clearHeightM) }}</b>
+          </div>
+          <div class="sd-item">
+            <span>坡度</span><b>{{ fmtV(activeSegMeta.maxGradePct) }}%</b>
+          </div>
+          <div class="sd-item">
+            <span>转弯半径</span><b>{{ fmtM(activeSegMeta.minTurnRadiusM) }}</b>
+          </div>
+          <div class="sd-item">
+            <span>长度</span><b>{{ fmtM(activeSegMeta.lengthM) }}</b>
+          </div>
+          <div class="sd-item">
+            <span>炮烟</span
+            ><b :class="barColor(activeSegMeta.smoke)">{{ pct(activeSegMeta.smoke) }}</b>
+          </div>
+          <div class="sd-item">
+            <span>拥堵</span
+            ><b :class="barColor(activeSegMeta.congestion)">{{
+              pct(activeSegMeta.congestion)
+            }}</b>
+          </div>
+          <div class="sd-item">
+            <span>岩爆</span
+            ><b :class="barColor(activeSegMeta.rockburst)">{{
+              pct(activeSegMeta.rockburst)
+            }}</b>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- ===== 行动带：执行 + 反馈 + 结论 ===== -->
