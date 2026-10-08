@@ -2,8 +2,36 @@
    视觉系统：分析型 · 克制 · 冷静（决策文档风格）
    统一表面层级 / 细线 / 语义色，标题与证据区留出清晰节奏
    ========================================================= */
+/* ---------- 自适应（全尺寸适配 L1–L4）----------
+   本视图既出现在「NSGA 全屏专窗」（宽容器）也出现在「侧栏/窄窗」（窄容器），
+   故布局断点用**容器查询**（container-type 声明在本元素上）而非视口断点——
+   同一组件在任何容器里都按自身可用宽度排版。内容宽度封顶居中，超宽屏
+   （2560/3440）不再无限拉伸、与 1920 表现一致。排版用随容器缩放的流体字阶（cqi）：
+
+   断点：容器 <1120px 单栏 / ≥1120px 两栏（地图 74% + 右栏 26%）；
+        展开态 ≥1024px 目标三列；内容 max-width 1920px 居中（改此值即可调）。
+   字阶：12px（≤1280 视口，与改造前一致，**永不小于现状**）→ 12.8px（≥1920 视口），
+        内容封顶后饱和不再增长；其余字号按固定比例派生，整体等比缩放。 */
 .moo-lhd {
   color: #e5e7eb;
+  container-type: inline-size;
+  container-name: moo;
+  max-width: var(--moo-content-max);
+  margin-inline: auto;
+  --moo-content-max: 1920px;
+  --moo-fs-base: clamp(12px, 0.129cqi + 10.4px, 12.8px);
+  --moo-fs-85: calc(var(--moo-fs-base) * 0.708);
+  --moo-fs-90: calc(var(--moo-fs-base) * 0.75);
+  --moo-fs-95: calc(var(--moo-fs-base) * 0.792);
+  --moo-fs-100: calc(var(--moo-fs-base) * 0.833);
+  --moo-fs-105: calc(var(--moo-fs-base) * 0.875);
+  --moo-fs-110: calc(var(--moo-fs-base) * 0.917);
+  --moo-fs-120: var(--moo-fs-base);
+  --moo-fs-130: calc(var(--moo-fs-base) * 1.083);
+  --moo-fs-140: calc(var(--moo-fs-base) * 1.167);
+  --moo-fs-150: calc(var(--moo-fs-base) * 1.25);
+  --moo-fs-160: calc(var(--moo-fs-base) * 1.333);
+  --moo-fs-220: calc(var(--moo-fs-base) * 1.833);
 }
 .moo-expanded {
   background:
@@ -24,21 +52,21 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 .moo-kicker {
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: #64748b;
   margin-bottom: 4px;
 }
 .moo-title {
-  font-size: 16px;
+  font-size: var(--moo-fs-160);
   font-weight: 700;
   color: #f8fafc;
   line-height: 1.2;
   margin: 0;
 }
 .moo-title-lg {
-  font-size: 22px;
+  font-size: var(--moo-fs-220);
 }
 .moo-tools {
   display: flex;
@@ -50,7 +78,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--moo-fs-110);
   padding: 3px 10px;
   border-radius: 999px;
 }
@@ -86,7 +114,7 @@
   }
 }
 .moo-note {
-  font-size: 11px;
+  font-size: var(--moo-fs-110);
   color: #94a3b8;
 }
 .moo-stats {
@@ -95,7 +123,7 @@
   flex-wrap: wrap;
   row-gap: 4px;
   gap: 10px;
-  font-size: 11px;
+  font-size: var(--moo-fs-110);
   color: #94a3b8;
   padding: 4px 10px;
   background: rgba(255, 255, 255, 0.03);
@@ -105,7 +133,7 @@
 .moo-stats .stat b {
   color: #e5e7eb;
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--moo-fs-120);
   margin-right: 2px;
 }
 .stat-divider {
@@ -118,7 +146,7 @@
 .moo-btn {
   padding: 6px 14px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--moo-fs-120);
   font-weight: 500;
   color: #cbd5e1;
   background: rgba(255, 255, 255, 0.06);
@@ -146,7 +174,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  font-size: 13px;
+  font-size: var(--moo-fs-130);
   color: #fff;
   background: linear-gradient(135deg, #f59e0b, #ea8b0a);
   border: none;
@@ -220,12 +248,12 @@
   flex: 1;
   justify-content: space-evenly; /* 滑杆行/按钮在整列高内均匀分布 */
 }
-@media (max-width: 1279px) {
+@container moo (max-width: 1119.9px) {
   .moo-lhd .rec-row {
     flex-direction: column;
   }
 }
-@media (min-width: 1280px) {
+@container moo (min-width: 1120px) {
   /* 两栏布局对两种模式统一生效（≥1280px）：全屏弹窗 tab③ 与 NSGA 专窗同为宽屏，
      单栏纵排会让帕累托 SVG 拉伸满宽（viewBox 等比放大 → 轴标/气泡巨化）。 */
   .moo-lhd .moo-evidence {
@@ -325,6 +353,31 @@
     margin-top: 0;
   }
 }
+/* 单栏（窄容器）：路段详情条紧跟地图卡片、排在右侧栏之前——
+   .map-row 用 display:contents 让其子项直接参与 .moo-evidence 栅格，再以 order 插队，
+   避免窄屏下详情条被整个右侧栏挤到页面很下方（点完巷道要滚很远）。
+   注意：display:contents 只改盒模型、不改 DOM 树，故 .map-stage/.map-side 必须用
+   **后代选择器**（用 `>` 匹配不到，order 会静默失效 → 详情条仍排在右栏之后）。 */
+@container moo (max-width: 1119.9px) {
+  .moo-lhd .map-row {
+    display: contents;
+  }
+  .moo-lhd .moo-evidence > .rec-row {
+    order: 1;
+  }
+  .moo-lhd .moo-evidence .map-stage {
+    order: 2;
+  }
+  .moo-lhd .moo-evidence > .seg-detail {
+    order: 3;
+    width: auto;
+    justify-self: stretch;
+  }
+  .moo-lhd .moo-evidence .map-side {
+    order: 4;
+  }
+}
+
 .map-panel {
   min-height: 0;
   align-self: stretch;
@@ -342,7 +395,7 @@
   border-radius: 999px;
   background: rgba(250, 204, 21, 0.08);
   color: #facc15;
-  font-size: 11px;
+  font-size: var(--moo-fs-110);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -394,12 +447,12 @@
   margin-bottom: 10px;
 }
 .panel-label {
-  font-size: 12px;
+  font-size: var(--moo-fs-120);
   font-weight: 600;
   color: #e2e8f0;
 }
 .panel-hint {
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   color: #64748b;
 }
 .panel-body {
@@ -418,7 +471,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
-@media (min-width: 1024px) {
+@container moo (min-width: 1024px) {
   .moo-expanded .rec-obj-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -433,12 +486,12 @@
   border: 1px solid rgba(255, 255, 255, 0.07);
 }
 .rec-obj-name {
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   color: #94a3b8;
   white-space: nowrap;
 }
 .rec-obj-val {
-  font-size: 15px;
+  font-size: var(--moo-fs-150);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
@@ -450,7 +503,7 @@
   color: #34d399;
 }
 .rec-obj-dir {
-  font-size: 9px;
+  font-size: var(--moo-fs-90);
   color: #64748b;
 }
 .rec-divider {
@@ -466,7 +519,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--moo-fs-110);
   padding: 5px 8px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.03);
@@ -499,7 +552,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   color: #94a3b8;
 }
 .lv-dot {
@@ -593,18 +646,18 @@
   margin-bottom: 8px;
 }
 .seg-detail-id {
-  font-size: 12px;
+  font-size: var(--moo-fs-120);
   font-weight: 700;
   color: #f8fafc;
 }
 .seg-detail-name {
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   color: #64748b;
 }
 .seg-detail-status {
   flex: 1;
   text-align: right;
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 999px;
@@ -638,7 +691,7 @@
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.08);
   color: #94a3b8;
-  font-size: 14px;
+  font-size: var(--moo-fs-140);
   line-height: 1;
   cursor: pointer;
   display: grid;
@@ -663,11 +716,11 @@
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 .sd-item span {
-  font-size: 9px;
+  font-size: var(--moo-fs-90);
   color: #64748b;
 }
 .sd-item b {
-  font-size: 12px;
+  font-size: var(--moo-fs-120);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: #e2e8f0;
@@ -692,14 +745,14 @@
   width: max-content;
   min-width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--moo-fs-120);
 }
 .moo-table thead th {
   position: sticky;
   top: 0;
   text-align: left;
   font-weight: 600;
-  font-size: 11px;
+  font-size: var(--moo-fs-110);
   color: #a5b3c4;
   background: rgba(15, 18, 24, 0.95);
   padding: 6px 10px;
@@ -718,7 +771,7 @@
   align-items: center;
   gap: 3px;
   margin-left: 4px;
-  font-size: 8.5px;
+  font-size: var(--moo-fs-85);
   color: #64748b;
   font-weight: 500;
 }
@@ -801,7 +854,7 @@
   height: 13px;
   padding: 0 2px;
   border-radius: 4px;
-  font-size: 9px;
+  font-size: var(--moo-fs-90);
   font-weight: 800;
   color: #0a0f18;
   background: #22d3ee;
@@ -819,7 +872,7 @@
   color: #7dd3fc;
 }
 .sort-crumb {
-  font-size: 9px;
+  font-size: var(--moo-fs-90);
   color: #94a3b8;
   letter-spacing: 0.04em;
 }
@@ -829,7 +882,7 @@
   gap: 2px;
   padding: 1px 6px;
   border-radius: 5px;
-  font-size: 9.5px;
+  font-size: var(--moo-fs-95);
   font-weight: 600;
   color: #a5f3fc;
   background: rgba(34, 211, 238, 0.14);
@@ -840,7 +893,7 @@
   border: none;
   background: none;
   padding: 1px 4px;
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   color: #f87171;
   cursor: pointer;
 }
@@ -862,7 +915,7 @@
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.07);
   color: #b6c2d2;
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   font-weight: 700;
   vertical-align: middle;
   font-variant-numeric: tabular-nums;
@@ -872,7 +925,7 @@
   margin-left: 5px;
   padding: 1px 5px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: var(--moo-fs-90);
   font-weight: 700;
   color: #0a0f18;
   background: linear-gradient(135deg, #fbbf24, #f59e0b);
@@ -886,7 +939,7 @@
   color: #7dd3fc;
 }
 .obj-val {
-  font-size: 12px;
+  font-size: var(--moo-fs-120);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: #d7e2ee;
@@ -903,7 +956,7 @@
   margin: 2px 6px 2px 0;
   padding: 1px 6px;
   border-radius: 5px;
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   color: #cbd5e1;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -961,14 +1014,14 @@
   display: table;
   width: 100%;
   table-layout: fixed;
-  font-size: 11px;
+  font-size: var(--moo-fs-110);
 }
 .moo-table.is-compact th,
 .moo-table.is-compact td {
   padding: 5px 8px;
 }
 .moo-table.is-compact thead th {
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   font-weight: 600;
   padding: 5px 8px;
   white-space: normal;
@@ -992,7 +1045,7 @@
   margin-left: 8px;
   padding: 1px 7px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: var(--moo-fs-90);
   font-weight: 700;
   color: #0a0f18;
   background: linear-gradient(135deg, #fbbf24, #f59e0b);
@@ -1000,7 +1053,7 @@
 
 /* ---------- 路段风险评级 + 封锁提示 ---------- */
 .seg-detail-risk {
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 999px;
@@ -1030,7 +1083,7 @@
   margin-bottom: 8px;
   padding: 5px 9px;
   border-radius: 7px;
-  font-size: 10.5px;
+  font-size: var(--moo-fs-105);
   color: #fed7d7;
   background: rgba(245, 108, 108, 0.1);
   border: 1px dashed rgba(245, 108, 108, 0.35);
@@ -1058,11 +1111,11 @@
   gap: 12px;
 }
 .action-feedback {
-  font-size: 12px;
+  font-size: var(--moo-fs-120);
   color: #34d399;
 }
 .action-note {
-  font-size: 11px;
+  font-size: var(--moo-fs-110);
   line-height: 1.6;
   color: #64748b;
   max-width: 560px;
@@ -1071,7 +1124,7 @@
 .ref-note {
   display: block;
   margin-top: 2px;
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   color: #475569;
 }
 
@@ -1130,7 +1183,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: var(--moo-fs-110);
   font-style: normal;
   font-weight: 800;
   color: #0a0f18;
@@ -1140,15 +1193,15 @@
   color: #e2e8f0;
 }
 .zc-name {
-  font-size: 13px;
+  font-size: var(--moo-fs-130);
   font-weight: 700;
 }
 .zc-muck {
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   color: #94a3b8;
 }
 .zc-meta {
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   color: #94a3b8;
   line-height: 1.5;
 }
@@ -1160,7 +1213,7 @@
   margin-top: 4px;
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   font-weight: 700;
 }
 .zc-cov.ok {
@@ -1174,7 +1227,7 @@
 .zone-filter-hint {
   grid-column: 1 / -1; /* 横跨整行，避免被等宽网格压缩为单个单元格 */
   align-self: center;
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   color: #475569;
   padding-bottom: 0;
 }
@@ -1193,7 +1246,7 @@
   margin: 0 14px 6px;
   padding: 5px 9px;
   border-radius: 6px;
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   line-height: 1.5;
   color: #fbbf24;
   background: rgba(251, 191, 36, 0.08);
@@ -1226,7 +1279,7 @@
   display: block;
   width: 100%;
   margin: 2px 0 0;
-  font-size: 9.5px;
+  font-size: var(--moo-fs-95);
   line-height: 1.4;
   color: #64748b;
 }
@@ -1251,7 +1304,7 @@
   padding: 6px 10px 8px;
 }
 .wt-source {
-  font-size: 9.5px;
+  font-size: var(--moo-fs-95);
   line-height: 1;
   padding: 2px 6px;
   border-radius: 8px;
@@ -1268,7 +1321,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 9.5px;
+  font-size: var(--moo-fs-95);
   color: #94a3b8;
   cursor: pointer;
   user-select: none;
@@ -1283,7 +1336,7 @@
   gap: 6px;
 }
 .wt-name {
-  font-size: 9.5px;
+  font-size: var(--moo-fs-95);
   color: #cbd5e1;
   white-space: nowrap;
   overflow: hidden;
@@ -1297,7 +1350,7 @@
   cursor: pointer;
 }
 .wt-val {
-  font-size: 9.5px;
+  font-size: var(--moo-fs-95);
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: #7dd3fc;
@@ -1311,7 +1364,7 @@
 .wt-btn {
   flex: 1 1 auto;
   padding: 3px 8px;
-  font-size: 10px;
+  font-size: var(--moo-fs-100);
   line-height: 1.4;
   color: #e2e8f0;
   background: rgba(56, 189, 248, 0.12);
@@ -1336,7 +1389,7 @@
   background: rgba(148, 163, 184, 0.12);
 }
 .wt-error {
-  font-size: 9.5px;
+  font-size: var(--moo-fs-95);
   line-height: 1.4;
   color: #f87171;
 }
@@ -1360,7 +1413,7 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  font-size: 12px;
+  font-size: var(--moo-fs-120);
   font-weight: 700;
   color: #0b1220;
   background: #f87171;
@@ -1370,19 +1423,19 @@
   min-width: 0;
 }
 .cc-title {
-  font-size: 11px;
+  font-size: var(--moo-fs-110);
   font-weight: 600;
   color: #fca5a5;
 }
 .cc-msg {
   margin-top: 2px;
-  font-size: 10.5px;
+  font-size: var(--moo-fs-105);
   color: rgba(226, 232, 240, 0.85);
 }
 .cc-btn {
   flex: none;
   padding: 4px 10px;
-  font-size: 10.5px;
+  font-size: var(--moo-fs-105);
   color: #67e8f9;
   background: rgba(34, 211, 238, 0.1);
   border: 1px solid rgba(34, 211, 238, 0.35);

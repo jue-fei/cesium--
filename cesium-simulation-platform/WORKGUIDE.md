@@ -160,3 +160,4 @@ RightSidebar 第 5 图标（现场调度中心）→ MonitoringPanel → LhdSche
 - **PowerShell**：该版本不支持 `&&`，用 `;` 分隔；vitest 4 无 `basic` reporter，直接 `npx vitest run`
 - **Python 3.14 环境警告**：`asyncio.iscoroutinefunction` DeprecationWarning 属第三方库（starlette）噪音，不处理
 - **前端工具注册**：新面板需同步改 `toolRegistryMeta.js`（TOOL_REGISTRY_META + resolveToolLoader 两处）+ `RightSidebar.vue` iconMap（Element Plus 图标需 import）
+- **多目标视图自适应口径**（2026-10-08 起）：`multiObjectiveLhdView.css` 顶部集中声明——布局断点用**容器查询**（`@container moo`，见 `.moo-lhd { container-type: inline-size }`），不要再用视口 `@media`（同组件会进不同宽度容器）；内容宽度 `--moo-content-max: 1920px` 封顶居中（超宽屏与 1920 表现一致）；字号统一走 `--moo-fs-*` 流体令牌（基准 `--moo-fs-base`），**新增样式不要写死 px 字号**。验证可用 CDP 无头 Chrome 跑 1024/1280/1366/1600/1920/2560/3440 七档视口快照。
