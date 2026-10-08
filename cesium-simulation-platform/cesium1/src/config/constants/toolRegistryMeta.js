@@ -48,12 +48,6 @@ export const TOOL_REGISTRY_META = [
     componentPath: '@/features/stress-analysis/components/StressPanel.vue'
   },
   {
-    id: 'experiment',
-    name: '实验分析',
-    icon: 'DataAnalysis',
-    componentPath: '@/features/experiment-analysis/components/ExperimentPanel.vue'
-  },
-  {
     id: 'audit',
     name: '操作审计',
     icon: 'Clock',
@@ -85,8 +79,6 @@ export function resolveToolLoader(id) {
       return () => import('@/features/lod-optimization/components/LodPanel.vue')
     case 'stress':
       return () => import('@/features/stress-analysis/components/StressPanel.vue')
-    case 'experiment':
-      return () => import('@/features/experiment-analysis/components/ExperimentPanel.vue')
     case 'audit':
       return () => import('@/features/operation-audit/components/AuditPanel.vue')
     case 'system':
