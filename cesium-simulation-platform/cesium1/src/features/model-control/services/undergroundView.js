@@ -15,6 +15,10 @@ function saveViewerState(viewer, globe, controller, savedState) {
   if (savedState.depthTestAgainstTerrain === null) {
     savedState.depthTestAgainstTerrain = globe.depthTestAgainstTerrain
   }
+  // 地形细节等级：地下查看时地表半透明，高精度地形瓦片白费帧
+  if (savedState.globeMaximumScreenSpaceError === null) {
+    savedState.globeMaximumScreenSpaceError = globe.maximumScreenSpaceError
+  }
   if (!savedState.backgroundColor) {
     savedState.backgroundColor = Cesium.Color.clone(
       viewer.scene.backgroundColor,
@@ -68,6 +72,8 @@ function applyEnabledUndergroundView({
   globe.translucency.backFaceAlpha = Cesium.Math.clamp(Number(backFaceAlphaPercent) / 100, 0, 1)
   globe.translucency.rectangle = buildTranslucencyRectangle(tileset)
   globe.depthTestAgainstTerrain = false
+  // 半透明地表下地形细节不可辨，降细节等级换帧率（translucency 本身开销大）
+  globe.maximumScreenSpaceError = 12
   controller.enableCollisionDetection = false
   viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#17253A')
 }
@@ -92,6 +98,10 @@ function restoreDisabledUndergroundView({ viewer, globe, controller, savedState 
     globe.depthTestAgainstTerrain = savedState.depthTestAgainstTerrain
     savedState.depthTestAgainstTerrain = null
   }
+  if (savedState.globeMaximumScreenSpaceError !== null) {
+    globe.maximumScreenSpaceError = savedState.globeMaximumScreenSpaceError
+    savedState.globeMaximumScreenSpaceError = null
+  }
   if (savedState.backgroundColor) {
     viewer.scene.backgroundColor = savedState.backgroundColor
     savedState.backgroundColor = null
@@ -103,6 +113,7 @@ export function createUndergroundViewController(getViewer) {
     globeTranslucency: null,
     collisionDetection: null,
     depthTestAgainstTerrain: null,
+    globeMaximumScreenSpaceError: null,
     backgroundColor: null
   }
 

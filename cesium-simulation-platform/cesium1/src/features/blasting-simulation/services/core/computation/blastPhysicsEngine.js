@@ -11,9 +11,6 @@
  * - 底板碰撞：弹性反弹 + 能量衰减 + 摩擦力
  */
 
-// blastDefaults.js 为纯常量/纯函数模块（无 Three.js 依赖），可安全引入
-import { REST_SPEED } from '../blastDefaults.js'
-
 /**
  * 模型保真度声明（Model Fidelity Statement）
  * ============================================
@@ -45,24 +42,18 @@ import { REST_SPEED } from '../blastDefaults.js'
  */
 
 import { DEFAULT_RESTITUTION, DEFAULT_FRICTION, DEFAULT_MAX_BOUNCES } from '../blastDefaults.js'
+// 共享物理常量与 P-01 阻力模型：与 rapierPhysicsEngine.js 同一实现（physicsConstants.js 单源）
 import {
   GRAVITY,
   SETTLE_SPEED,
   SETTLE_FRAMES,
   ENERGY_SAMPLE_INTERVAL,
-  AIR_DENSITY,
-  AIR_KINEMATIC_VISC,
-  SPHERE_DRAG_COEFF,
+  computeDragAccel,
   FLAG_ALIVE,
-  FLAG_LANDED,
-  computeDragAccel
+  FLAG_LANDED
 } from './physicsConstants.js'
 
-// ─── 物理常量 ──────────────────────────────────────────
-// 共享物理常量（GRAVITY/SETTLE_*/ENERGY_SAMPLE_INTERVAL/AIR_*/SPHERE_DRAG_COEFF/
-// FLAG_*/computeDragAccel）单源于 physicsConstants.js，与本文件读者无差。
-
-// 碎片间碰撞参数（本引擎专属）
+// ─── 本引擎专属常量（手写引擎的碎片间碰撞模型，Rapier 引擎不需要）───
 const SPATIAL_HASH_CELL = 0.6 // 空间散列网格尺寸 ≈ 最大碎片直径
 const RESTITUTION_INTER = 0.1 // 碎片间恢复系数（岩屑近乎非弹性，就地堆积）
 const FRICTION_INTER = 0.75 // 碎片间摩擦系数（高摩擦：碎片落定后不再滚动外滑，坡面更陡更稳定）
@@ -864,35 +855,6 @@ export class BlastPhysicsEngine {
       if (b.flags & FLAG_LANDED) c++
     }
     return c
-  }
-
-  /**
-   * 静止质量比（动画"抛掷结束"判据，质量加权，0~1）。
-   *
-   * 与 getEnergyStats().settledMassRatio 的区别：后者只认 FLAG_LANDED，而
-   * "落地"要求反弹次数用尽或速度 < 1.5 m/s——少数贴合不良/反复滚动的边角石
-   * 永远不置位。实测该比值会在 ~0.993 处进入平台期（约 0.7% 质量永不落地），
-   * 于是"99% 碎片落地"这一时长判据在真实布孔下可能**永不达成**，
-   * 回放时长直接回退到 REPLAY_MAX_DURATION 硬上限（40s）——
-   * 用户实测"波和抛掷早结束了，时间条还剩一大截"的直接根因。
-   *
-   * 本口径以"速度是否可忽略"为准，天然收敛到 1，不受该平台期影响。
-   * @returns {number} 静止质量占比 0~1
-   */
-  get restMassRatio() {
-    let restMass = 0
-    let totalMass = 0
-    for (const b of this.bodies) {
-      if (!(b.flags & FLAG_ALIVE)) continue
-      totalMass += b.mass
-      if (b.flags & FLAG_LANDED) {
-        restMass += b.mass
-        continue
-      }
-      const v2 = b.velX * b.velX + b.velY * b.velY + b.velZ * b.velZ
-      if (v2 <= REST_SPEED * REST_SPEED) restMass += b.mass
-    }
-    return totalMass > 0 ? restMass / totalMass : 0
   }
 
   /**

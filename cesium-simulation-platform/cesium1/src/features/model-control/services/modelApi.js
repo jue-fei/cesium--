@@ -77,16 +77,6 @@ export async function saveModelConfig(configPath, data) {
 }
 
 /**
- * 从 API 加载矿卡配置（统一从 apiConfig 缓存获取）
- */
-export async function fetchTrucks() {
-  if (apiConfig.loaded && apiConfig.trucks) return apiConfig.trucks
-  return new Promise(resolve => {
-    onConfigLoaded(() => resolve(apiConfig.trucks || []))
-  })
-}
-
-/**
  * 从 API 加载钻孔配置（统一从 apiConfig 缓存获取，返回数组）
  */
 export async function fetchBoreholeConfig() {

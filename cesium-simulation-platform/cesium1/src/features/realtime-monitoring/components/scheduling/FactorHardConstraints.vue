@@ -1,6 +1,6 @@
 <template>
   <div
-    class="flex flex-col rounded-xl border border-white/10 bg-white/[0.03] p-4 transition-colors hover:border-white/20"
+    class="rounded-xl border border-white/10 bg-white/[0.03] p-4 transition-colors hover:border-white/20"
   >
     <div class="flex items-center justify-between mb-3">
       <div
@@ -14,7 +14,7 @@
       </div>
     </div>
 
-    <div class="grid flex-1 min-h-0 grid-cols-1 md:grid-cols-2 gap-2 overflow-y-auto pr-1">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
       <div
         v-for="seg in segments"
         :key="seg.id"

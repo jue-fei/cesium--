@@ -36,10 +36,8 @@ from datetime import datetime
 from typing import Any, Optional
 
 from app.services.scheduling.scenario_config import load_scenario
-from app.services.scheduling.deployment_store import load_deployment, apply_deployment
 from app.services.scheduling.muck_data import load_muck_tasks
-from app.services.scheduling.solver_registry import solve_multi_objective
-from app.services.timeseries.ts_store import record_metric
+from app.services.scheduling.multi_objective import solve_pareto
 
 logger = logging.getLogger(__name__)
 
@@ -76,20 +74,12 @@ ROCKBURST_ENERGY_K = 0.6         # 岩爆威胁每 1.0 增 ~60% 避险比耗
 # NSGA-III 选解有效期：超时后视为过时（动态状态已演进），不再消费
 PENDING_EXPIRE_S = 300.0         # 秒（≈60 仿真步）
 
-# 出矿工序优先偏置（3.2 拖拽式设备部署与工序调整）：processOrder 每靠后一级，
-# 贪心派单成本增加 5 个单位（≈4kWh 能耗或 8min 行时的等价权重）——量级低于
-# 典型单趟总成本（数十），只在近均衡候选间体现工序先后，不颠覆能耗主序。
-PROCESS_PRIORITY_BIAS = 5.0
-
 # 多目标优化（NSGA-III/精确穷举）预计算缓存参数：
 #   - 候选内容变化后，距离上次重算至少间隔 OPT_MIN_INTERVAL_S 才重算（过滤高频重算）；
 #   - 即使候选 key 未变，每 OPT_REFRESH_S 也兜底刷新一次（捡拾舍入未覆盖的动态漂移）。
 # 开关：设为 0 可关闭缓存（每帧快照都重算，仅用于调试）。
 OPT_MIN_INTERVAL_S = 10.0
 OPT_REFRESH_S = 60.0
-
-# 时序工况指标记录节流（仿真秒）：避免逐 tick 写入导致序列膨胀
-TS_RECORD_INTERVAL = 5.0
 
 
 # 装备库：铲运机(LHD) 通用规格（外形尺寸/斗容/铰接转弯半径实测量级）
@@ -287,7 +277,6 @@ class SchedulingSimulator:
         self.rng = random.Random(seed)
         self.dt = dt  # 仿真相步(秒)
         self.t = 0.0
-        self._ts_last_t = None  # 上次时序指标记录的仿真时刻（节流用，见 _record_timeseries）
 
         # ---- 场景配置（见 config/scenario_<名>.json）----
         self.scenario_id = self.cfg.get("scenario", "underground-LHD")
@@ -302,7 +291,13 @@ class SchedulingSimulator:
         self.initial_blocks = self.cfg.get("initialBlocks", [])
         self.grade_pct = self.cfg.get("gradePct", {})
         self.muck_level = self.cfg.get("muckLevel", {})
-        self.lhd = {eid: LhdSpec(**e) for eid, e in self.cfg.get("equipment", {}).items()}
+        # 设备规格：过滤场景配置里的非规格字段（如 v2 的 glb 渲染模型路径），
+        # 保证场景 JSON 向前兼容（新增展示字段不影响仿真器构造）
+        _spec_fields = set(LhdSpec.__dataclass_fields__)
+        self.lhd = {
+            eid: LhdSpec(**{k: v for k, v in e.items() if k in _spec_fields})
+            for eid, e in self.cfg.get("equipment", {}).items()
+        }
         # 采矿区任务（需采矿工作量 + 块度等）：数据库 scheduling_muck_task 优先，
         # 跨板块（爆破 blasting_result）反哺块度；无库时场景配置兜底（见 muck_data）。
         self.muck_tasks = load_muck_tasks(self.cfg)
@@ -325,16 +320,6 @@ class SchedulingSimulator:
                 health=0.95 - 0.06 * i, health_factor=1.0, energy_used_kwh=0.0,
                 energy_mapped_t=0.0, ref_energy_t=0.0, fault_rate=0.3, travel_cycles=0,
             ))
-
-        # ---- 拖拽式设备部署与出矿工序顺序（3.2，真源 config/deployments/<场景名>.json）----
-        # 部署待命点覆盖设备初始位置（影响空载去程与贪心派单成本）；工序优先级
-        # 作为贪心派单偏置（见 _dispatch）。文件缺失=未部署，保持既有落位不变；
-        # 无 scenarioKey（直调 build_scenario 的调用方）不启用部署。
-        self.process_order = []
-        if self.cfg.get("scenarioKey"):
-            dep = load_deployment(self.cfg["scenarioKey"])
-            self.process_order = list(dep.get("processOrder") or [])
-            apply_deployment(self, dep.get("deployments") or {}, only_idle=False)
 
         # ---- 段动态 ----
         self.segs = {}
@@ -368,8 +353,6 @@ class SchedulingSimulator:
         # ---- NSGA-III 多目标选解待派单（前端提交后，下次 _dispatch 消费）----
         # 结构：{equipId: {"target": str, "path": [segId...], "source": "nsga3"}}
         self.pending_assignments = {}
-        # 派单乐观并发版本号（3.2.3）：每次成功提交 +1，供多终端冲突仲裁
-        self.assignment_rev = 0
 
         # ---- 多目标优化预计算缓存（后端算好前沿，前端点击板块直接消费）----
         # 按候选内容 key 缓存，仅当候选实质变化（或超时兜底刷新）时重算，
@@ -906,10 +889,6 @@ class SchedulingSimulator:
                     continue
             # 候选装载点：有存量且可到达
             candidates = []
-            # 出矿工序优先偏置（3.2）：processOrder 靠前的采矿点成本更低；
-            # 未列入工序顺序的采矿点按"末位+1"处理（仍可被派，只是无优先权）
-            proc_rank = {mid: i for i, mid in enumerate(self.process_order)}
-            rank_default = max(len(self.process_order), 1)
             for mid, mp in self.muck.items():
                 if mp.stock_t <= 0:
                     continue
@@ -920,7 +899,6 @@ class SchedulingSimulator:
                 congest = max(route.get("congestionSeq") or [0]) if route.get("congestionSeq") else 0.0
                 cost = route["energyTotal"] * 1.2 + route["timeMin"] * 0.6 + \
                        route["hazard"] * 8 + mp.bigBlockRatio * 0.6 + congest * 3
-                cost += proc_rank.get(mid, rank_default) * PROCESS_PRIORITY_BIAS
                 candidates.append((cost, mid, route, mp))
             if not candidates:
                 eq.assigned = {}
@@ -1318,14 +1296,14 @@ class SchedulingSimulator:
         cooled_down = now - self._opt_ts >= OPT_MIN_INTERVAL_S
         if OPT_MIN_INTERVAL_S <= 0 or self._opt_cache is None or (stale_key and cooled_down) or timed_refresh:
             try:
-                result = solve_multi_objective(
-                    candidates_list, scenario=self.cfg.get("scenarioKey") or "")
-                stats = dict(result["optStats"])
+                result = solve_pareto(candidates_list)
+                stats = dict(result["stats"])
+                stats["source"] = result["source"]
                 stats["generatedAtSimSec"] = round(self.t, 1)
                 stats["computedAt"] = datetime.now().isoformat()
                 self._opt_cache = {
                     "paretoFront": result["paretoFront"],
-                    "objectiveDefs": result["objectiveDefs"],
+                    "objectiveDefs": result["objectives"],
                     "optStats": stats,
                     "source": result["source"],
                 }
@@ -1406,8 +1384,7 @@ class SchedulingSimulator:
                 "capacityT": spec.capacity_t, "bucketM3": spec.bucket_m3,
                 "widthM": spec.width_m, "heightM": spec.height_m,
                 "turnRadiusM": spec.turn_radius_m,
-                "segId": eq.seg_id, "node": eq.node, "level": eq.level,
-                "segProgress": round(eq.seg_progress, 3),
+                "segId": eq.seg_id, "node": eq.node, "segProgress": round(eq.seg_progress, 3),
                 "state": eq.state, "payloadT": round(eq.payload_t, 1), "loadMode": eq.load_mode,
                 "speedKmh": round(eq.speed_kmh, 1),
                 "posErrorM": eq.pos_error_m, "posConf": eq.pos_conf,
@@ -1456,8 +1433,6 @@ class SchedulingSimulator:
                               "opexSimulatedSavePct": opex_ratio,
                               "units": "能量: kWh(电动)/L(柴油); 成本: 元", "items": equip},
                 "optimization": optimization,
-                "dispatch": {"desc": "派单并发控制（乐观并发版本号）",
-                             "assignmentRev": self.assignment_rev},
             },
         }
 
@@ -1513,26 +1488,7 @@ class SchedulingSimulator:
         self._update_dynamic()
         self._update_muck()
         self._move_equipment()
-        self._record_timeseries()
         return self.snapshot()
-
-    def _record_timeseries(self):
-        """统一时序写入点： fleet 级工况指标入 ts_store（契约 baseline#timeseriesCmps）。
-
-        按仿真时钟节流（TS_RECORD_INTERVAL 秒记录一次）；时间戳用真实时钟
-        （时序存储全局口径 = Unix 秒），仿真快放时按墙钟节流同样成立；
-        写入失败静默（record_metric 内部保证），绝不阻断仿真主循环。
-        """
-        if self._ts_last_t is not None and self.t - self._ts_last_t < TS_RECORD_INTERVAL:
-            return
-        self._ts_last_t = self.t
-        loaded = sum(1 for eq in self.equip if eq.load_mode == "loaded")
-        record_metric("scheduling.fleet_loaded_count", loaded)
-        record_metric("scheduling.fleet_empty_count", len(self.equip) - loaded)
-        record_metric(
-            "scheduling.muck_stock_t",
-            sum(mp.stock_t for mp in self.muck.values()),
-        )
 
 
 # 供调试的便捷构造

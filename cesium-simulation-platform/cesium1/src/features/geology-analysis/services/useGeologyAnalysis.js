@@ -106,10 +106,7 @@ export default function useGeologyAnalysis() {
         console.error('GeologyVisualizer 初始化失败:', e)
         return
       }
-
-      if (store.boreholes.length > 0) {
-        geologyVisualizer.drawBoreholes(store.boreholes)
-      }
+      // 钻孔三维可视化已按需求下线（钻孔查询板块同步移除），数据仍保留在库中
     }
 
     // 从 API 加载钻孔数据
@@ -128,18 +125,7 @@ export default function useGeologyAnalysis() {
     }
   }
 
-  // 监听数据变化并自动更新视图
-  // 监听状态仓库中的数据引用变化
-  watch(
-    boreholes,
-    newBoreholes => {
-      if (geologyVisualizer) {
-        geologyVisualizer.drawBoreholes(newBoreholes)
-      }
-    },
-    { deep: false }
-  ) // 浅引用无需深度监听
-
+  // 监听数据变化并自动更新视图（钻孔绘制已下线，仅保留剖面联动）
   watch(sections, newSections => {
     // 当前按条调用绘制方法
     if (geologyVisualizer) {

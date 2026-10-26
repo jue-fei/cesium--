@@ -99,7 +99,6 @@ DEFAULT_PYMOO_CONFIG = {
 
 # 热路径本地元组（避免每轮 dict 查找）
 _OBJ_META = [(o["id"], o["dir"]) for o in OBJECTIVES]
-_WEIGHT_IDS = frozenset(o["id"] for o in OBJECTIVES)
 
 
 def round2(v, digits=2):
@@ -325,54 +324,7 @@ def _prune_nondominated(pool):
     return [ind for i, ind in enumerate(pool) if not dominated[i]]
 
 
-# =====================================================================
-# 三、权重偏好（外部 ML 权重方案消费端，见 weight_source.py）
-# =====================================================================
-
-def normalize_weights(weights):
-    """归一化权重向量：忽略未知键与负值，总数非正回退等权。
-
-    @param weights: {objectiveId: number}（objectiveId ∈ OBJECTIVES 的 id）
-    @returns {objectiveId: w∈[0,1]}，Σ=1；非法输入抛 ValueError
-    """
-    if not isinstance(weights, dict):
-        raise ValueError("weights 必须是 {objectiveId: number} 字典")
-    raw = {}
-    for k, v in weights.items():
-        if k not in _WEIGHT_IDS:
-            continue
-        try:
-            raw[k] = max(0.0, float(v))
-        except (TypeError, ValueError):
-            continue
-    total = sum(raw.values())
-    if total <= 1e-12:
-        eq = 1.0 / len(OBJECTIVES)
-        return {o["id"]: eq for o in OBJECTIVES}
-    return {k: raw.get(k, 0.0) / total for k, _ in _OBJ_META}
-
-
-def recommend_from_front(pareto_front, weights):
-    """在前沿上做加权推荐（min-max 归一 + 加权和取最小，品位 max 已统一取负口径）。
-
-    @returns 推荐解下标；空前沿返回 -1，单点前沿返回 0。
-    """
-    if not pareto_front:
-        return -1
-    if len(pareto_front) == 1:
-        return 0
-    w = normalize_weights(weights)
-    vec = np.array([
-        [ind["objectives"][oid] * (1.0 if odir == "min" else -1.0) for oid, odir in _OBJ_META]
-        for ind in pareto_front
-    ], dtype=float)
-    span = vec.max(axis=0) - vec.min(axis=0)
-    norm = (vec - vec.min(axis=0)) / np.where(span > 1e-12, span, 1.0)
-    scores = norm @ np.array([w[oid] for oid, _ in _OBJ_META], dtype=float)
-    return int(np.argmin(scores))
-
-
-def solve_pareto(candidates, custom_config=None, weights=None):
+def solve_pareto(candidates, custom_config=None):
     """运行 pymoo NSGA-III 求解帕累托前沿（后端统一引擎，无自研算法）。
 
     离散决策空间（每台设备索引 + 等待档）上单次进化易得稀疏前沿，故按
@@ -381,9 +333,6 @@ def solve_pareto(candidates, custom_config=None, weights=None):
 
     @param candidates: 按设备分组的候选路径（snapshot.factors.optimization.byEquipment 顺序）
     @param custom_config: {generations?, referenceDivisions?, seed?, gradeFloorPct?, restarts?}
-    @param weights: {objectiveId: number} 权重偏好（可选）。归一化后作为额外参考方向
-        追加进 Das-Dennis 参考方向集，引导 NSGA-III 在偏好方向附近加密搜索；
-        None 时行为与原版完全一致（参考方向不变）。
     @returns {paretoFront, objectives, stats, source}
         paretoFront: 仅保留可行非支配方案 [{assignment, objectives, rank, crowdingDistance}]
     """
@@ -406,13 +355,6 @@ def solve_pareto(candidates, custom_config=None, weights=None):
     problem = LhdAssignmentProblem(candidates, cfg["gradeFloorPct"])
     ref_dirs = get_reference_directions(
         "das-dennis", len(OBJECTIVES), n_partitions=cfg["referenceDivisions"])
-
-    # 权重偏好：归一化权重向量（品位 max 已按引擎口径取负最小化，直接同序加权）
-    # 作为额外参考方向追加，原参考方向保持不变 → weights=None 时与原版行为一致
-    pref_weights = normalize_weights(weights) if weights is not None else None
-    if pref_weights is not None:
-        pref_dir = np.array([[pref_weights[oid] for oid, _ in _OBJ_META]], dtype=float)
-        ref_dirs = np.vstack([ref_dirs, pref_dir])
 
     # 多种子重启：各自独立运行 NSGA-III，收集全部可行非支配解
     seen = {}
@@ -470,8 +412,6 @@ def solve_pareto(candidates, custom_config=None, weights=None):
         "feasibleRatio": round2(
             len(pareto_front) / max(1, len(seen)), 3),
     }
-    if pref_weights is not None:
-        stats["preferenceWeights"] = {k: round2(v, 4) for k, v in pref_weights.items()}
     return {
         "paretoFront": pareto_front,
         "objectives": OBJECTIVES,

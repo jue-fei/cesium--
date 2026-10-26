@@ -26,7 +26,6 @@ import {
   computeKLDivergence
 } from '../kcoModelCore.js'
 import { swebrecCdf, swebrecInverse } from '../kcoFormulas.js'
-// 确定性随机数生成器（mulberry32）：单源在 utils/rng.js，避免测试抖动
 import { mulberry32 as makeSeededRng } from '../../utils/rng.js'
 
 // 等质量份额通过率：每片承载相等质量份额，故 = 尺寸 ≤ x 的碎块计数占比

@@ -199,13 +199,12 @@ describe('真实 SceneBuilder 岩体几何回归（防破坏既有形态）', ()
     pre.computeBoundingBox()
     post.computeBoundingBox()
     // z 覆盖 [0, D] 不变（rockBodyMerge 既有断言等价物）。
-    // D = roundDepth + benchLength，其中 roundDepth = 孔深×利用率（2.5×0.85=2.125），
-    // 与 rockBodyMerge 一样从 builder 读取实际进尺，避免硬编码孔深导致口径漂移。
-    const D = sb._rockRoundDepth + sb.benchLength
+    // D = roundDepth + benchLength；roundDepth = 孔深×利用率（文献进尺语义，
+    // 见 buildBenchGeometry：2.5 × 0.85 = 2.125，非孔深本身）
     expect(pre.boundingBox.min.z).toBeCloseTo(0, 4)
-    expect(pre.boundingBox.max.z).toBeCloseTo(D, 2)
+    expect(pre.boundingBox.max.z).toBeCloseTo(2.5 * 0.85 + 40, 2)
     expect(post.boundingBox.min.z).toBeCloseTo(0, 4)
-    expect(post.boundingBox.max.z).toBeCloseTo(D, 2)
+    expect(post.boundingBox.max.z).toBeCloseTo(2.5 * 0.85 + 40, 2)
   })
 
   it('抛光后 pre/post 仍水密（无单面开边，剖切不会露洞）', () => {

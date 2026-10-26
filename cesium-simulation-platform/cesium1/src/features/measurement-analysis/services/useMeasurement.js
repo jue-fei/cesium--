@@ -199,7 +199,16 @@ function destroyHandler(handler) {
 }
 
 function normalizeCartographicSamples(samples) {
-  return samples.map(item => createCartographicSample(item, item?.height))
+  // 未命中采样点 height 为 undefined，用 NaN 标记，
+  // 避免立即落到 0（椭球面海平面）导致折线钻到模型下方
+  return samples.map(
+    item =>
+      new Cesium.Cartographic(
+        item.longitude,
+        item.latitude,
+        Number.isFinite(item?.height) ? item.height : NaN
+      )
+  )
 }
 
 function createCartographicSample(item, height) {
@@ -208,6 +217,160 @@ function createCartographicSample(item, height) {
     item.latitude,
     Number.isFinite(height) ? height : 0
   )
+}
+
+/**
+ * 清洗路途距离采样高度，剔除"贯穿异常"采样点。
+ * 问题来源：sampleHeightMostDetailed 的射线除了命中地表模型，
+ * 还可能命中 globe 表面（高度恒为 0）或穿透地表空隙击中地下模型，
+ * 表现为折线在某点垂直坠落数百米再爬回，"漏"到模型下方。
+ * 判据：相邻采样点水平间隔仅约 step 米，真实矿 surface（含陡帮）每步
+ * 高差不可能超过 limit；超限即视为异常点剔除，按最近可信邻点线性插值补齐。
+ * 若全部采样点无效，则退化为两端点高度的线性过渡。
+ * @returns {number} 清洗后仍可信的采样点数量（0 表示整条线为插值/直线，不可信）
+ */
+function sanitizeTerrainPathHeights(sampled, cartA, cartB, stepMeters) {
+  if (!Array.isArray(sampled) || sampled.length === 0) return 0
+  const n = sampled.length
+  const fillLinear = () => {
+    sampled.forEach((s, i) => {
+      s.height = Cesium.Math.lerp(cartA.height, cartB.height, n > 1 ? i / (n - 1) : 0)
+    })
+    return 0
+  }
+  if (!sampled.some(s => Number.isFinite(s.height))) return fillLinear()
+
+  const step = Number.isFinite(stepMeters) && stepMeters > 0 ? stepMeters : 10
+  const limit = Math.max(50, step * 6)
+
+  const trusted = new Array(n).fill(false)
+  // 前向扫描：与最近可信点高差超限 → 剔除
+  let last = Number.isFinite(cartA.height) ? cartA.height : sampled.find(s => Number.isFinite(s.height)).height
+  for (let i = 0; i < n; i++) {
+    const h = sampled[i].height
+    if (Number.isFinite(h) && Math.abs(h - last) <= limit) {
+      trusted[i] = true
+      last = h
+    }
+  }
+  if (!trusted.some(Boolean)) return fillLinear()
+  // 后向扫描兜底：从 B 端出发，挽回被前向误杀的真实陡坡点
+  last = Number.isFinite(cartB.height) ? cartB.height : last
+  for (let i = n - 1; i >= 0; i--) {
+    if (trusted[i]) {
+      last = sampled[i].height
+      continue
+    }
+    const h = sampled[i].height
+    if (Number.isFinite(h) && Math.abs(h - last) <= limit) {
+      trusted[i] = true
+      last = h
+    }
+  }
+
+  // 可信锚点之间线性插值补齐被剔除的区段（锚点含 A、B 两端点）
+  const anchorIdx = [-1, ...trusted.reduce((acc, t, i) => (t ? (acc.push(i), acc) : acc), []), n]
+  for (let k = 1; k < anchorIdx.length; k++) {
+    const i0 = anchorIdx[k - 1]
+    const i1 = anchorIdx[k]
+    if (i1 - i0 <= 1) continue
+    const ha = i0 === -1 ? cartA.height : sampled[i0].height
+    const hb = i1 === n ? cartB.height : sampled[i1].height
+    for (let j = i0 + 1; j < i1; j++) {
+      sampled[j].height = Cesium.Math.lerp(ha, hb, (j - i0) / (i1 - i0))
+    }
+  }
+  return trusted.filter(Boolean).length
+}
+
+function distancePointToSegment(p, a, b) {
+  const ab = Cesium.Cartesian3.subtract(b, a, new Cesium.Cartesian3())
+  const ap = Cesium.Cartesian3.subtract(p, a, new Cesium.Cartesian3())
+  const lenSq = Cesium.Cartesian3.magnitudeSquared(ab)
+  if (lenSq === 0) return Cesium.Cartesian3.magnitude(ap)
+  const t = Math.max(0, Math.min(1, Cesium.Cartesian3.dot(ap, ab) / lenSq))
+  const closest = Cesium.Cartesian3.add(
+    a,
+    Cesium.Cartesian3.multiplyByScalar(ab, t, new Cesium.Cartesian3()),
+    new Cesium.Cartesian3()
+  )
+  return Cesium.Cartesian3.magnitude(Cesium.Cartesian3.subtract(p, closest, new Cesium.Cartesian3()))
+}
+
+/**
+ * 通道 2：屏幕投影 pickPosition 采样。
+ * 测量点击端点走的就是 pickPosition 管线（实测可用），而
+ * sampleHeightMostDetailed 的离屏射线拾取在 globe.translucency 等
+ * 场景状态下可能整体失效（全部返回 undefined，折线退化为直线）。
+ * 这里把 A、B 投影到屏幕，沿屏幕线段逐点 pickPosition 拿模型表面世界坐标，
+ * 并用"A-B 走廊"过滤视线掠射误命中（打到前景山坡/远处山体）。
+ * 返回长度 numSamples+1 的数组：命中为 Cartesian3，未命中为 null。
+ */
+function getPathScreenSamples(viewer, pointA, pointB, numSamples, pathLength) {
+  const scene = viewer?.scene
+  if (!scene || !scene.pickPositionSupported) return null
+  const toWindow =
+    Cesium.SceneTransforms.worldToWindowCoordinates || Cesium.SceneTransforms.wgs84ToWindowCoordinates
+  if (typeof toWindow !== 'function') return null
+  try {
+    const sa = toWindow(scene, pointA)
+    const sb = toWindow(scene, pointB)
+    if (!sa || !sb) return null
+    const canvas = scene.canvas
+    const pts = new Array(numSamples + 1).fill(null)
+    // 走廊过滤：只剔除明显偏离 A-B 路径的视线掠射误命中（前景山体等）；
+    // 阈值需容纳路径中段的合法地形起伏（矿区深沟可达数十米），
+    // 取 max(50m, 25% 路径长度)，远大于地形起伏、仍远小于真实前景遮挡的偏差
+    const maxCorridor = Math.max(50, pathLength * 0.25)
+    for (let i = 0; i <= numSamples; i++) {
+      const t = i / numSamples
+      const x = Cesium.Math.lerp(sa.x, sb.x, t)
+      const y = Cesium.Math.lerp(sa.y, sb.y, t)
+      if (x < 0 || y < 0 || x > canvas.clientWidth || y > canvas.clientHeight) continue
+      let pos = null
+      try {
+        pos = scene.pickPosition({ x, y })
+      } catch (e) {
+        pos = null
+      }
+      if (pos && distancePointToSegment(pos, pointA, pointB) <= maxCorridor) pts[i] = pos
+    }
+    return pts
+  } catch (e) {
+    warn('measurement', 'getPathScreenSamples', e)
+    return null
+  }
+}
+
+/**
+ * 由屏幕采样命中点构建贴模折线：命中点为锚点，端点 A/B 恒为锚点，
+ * 相邻锚点之间按索引线性插值补齐 miss 段。
+ */
+function buildPositionsFromScreenSamples(pts, pointA, pointB) {
+  const lastIndex = pts.length - 1
+  const anchors = [-1]
+  for (let i = 0; i < pts.length; i++) if (pts[i]) anchors.push(i)
+  anchors.push(lastIndex + 1) // 哨兵：表示端点 B
+  const posAt = idx => (idx === -1 ? pointA : idx === lastIndex + 1 ? pointB : pts[idx])
+  const positions = [Cesium.Cartesian3.clone(pointA)]
+  for (let k = 1; k < anchors.length; k++) {
+    const i0 = anchors[k - 1]
+    const i1 = anchors[k]
+    const pa = posAt(i0)
+    const pb = posAt(i1)
+    for (let j = i0 + 1; j <= Math.min(i1, lastIndex); j++) {
+      const t = (j - i0) / (i1 - i0)
+      positions.push(
+        new Cesium.Cartesian3(
+          Cesium.Math.lerp(pa.x, pb.x, t),
+          Cesium.Math.lerp(pa.y, pb.y, t),
+          Cesium.Math.lerp(pa.z, pb.z, t)
+        )
+      )
+    }
+  }
+  positions.push(Cesium.Cartesian3.clone(pointB))
+  return positions
 }
 
 async function calculateTerrainPath(viewer, pointA, pointB) {
@@ -225,8 +388,29 @@ async function calculateTerrainPath(viewer, pointA, pointB) {
   }
 
   const sampled = await sampleCartographicHeights(viewer, samples)
-  const positions = sampled.map(s =>
-    Cesium.Cartesian3.fromRadians(s.longitude, s.latitude, s.height)
+  const sceneValidRaw = sampled.filter(s => Number.isFinite(s.height)).length
+  // 清洗并取回"可信点"数：垂直射线命中的有限高度可能是 globe（恒 0）或地下模型，
+  // 不能只看 finite 数量，否则整条线被清洗成线性插值 = 两点直线
+  const sceneTrusted = sanitizeTerrainPathHeights(sampled, cartA, cartB, greatCircleDist / numSamples)
+
+  // 双通道：屏幕 pickPosition 采样（与点击拾取同管线）优先，垂直射线采样兜底
+  const screenPts = getPathScreenSamples(viewer, pointA, pointB, numSamples, greatCircleDist)
+  const screenValid = screenPts ? screenPts.filter(Boolean).length : 0
+  const total = numSamples + 1
+
+  let positions
+  let source
+  if (screenValid >= 2 && screenValid >= sceneTrusted) {
+    positions = buildPositionsFromScreenSamples(screenPts, pointA, pointB)
+    source = 'screen-pick'
+  } else {
+    positions = sampled.map(s =>
+      Cesium.Cartesian3.fromRadians(s.longitude, s.latitude, s.height)
+    )
+    source = 'scene-sample'
+  }
+  console.info(
+    `[measurement] 路途采样：scene=${sceneValidRaw}/${total}(可信=${sceneTrusted})，screen=${screenValid}/${total} → 采用 ${source}`
   )
   let totalDistance = 0
   for (let i = 1; i < positions.length; i++) {
@@ -389,7 +573,14 @@ export default function useMeasurement() {
       measurementEntities.value.push(straightLine)
 
       const terrainLine = viewer.entities.add({
-        polyline: { positions, width: 2, material: Cesium.Color.CYAN },
+        polyline: {
+          positions,
+          width: 2,
+          material: Cesium.Color.CYAN,
+          // 地面线：折线强制贴伏地形/3D Tiles 表面，采样点之间也不会切入山体
+          clampToGround: Cesium.GroundPolylinePrimitive.isSupported(viewer.scene),
+          classificationType: Cesium.ClassificationType.BOTH
+        },
         show: isTerrain
       })
       measurementEntities.value.push(terrainLine)
@@ -747,7 +938,9 @@ export default function useMeasurement() {
               polyline: {
                 positions: terrainPositions,
                 width: 2,
-                material: lineColor
+                material: lineColor,
+                clampToGround: Cesium.GroundPolylinePrimitive.isSupported(viewer.scene),
+                classificationType: Cesium.ClassificationType.BOTH
               }
             })
             historyVisualizationEntities.push(line)

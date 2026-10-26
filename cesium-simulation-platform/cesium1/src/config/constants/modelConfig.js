@@ -109,7 +109,8 @@ export const DEFAULT_ADAPTIVE_LOAD_CONFIG = {
 
 export const DEFAULT_POSITION = { longitude: 113.323, latitude: 23.106, height: -26 }
 export const DEFAULT_TRANSFORM = { rotationX: 15, rotationY: 0, rotationZ: 0 }
-export const DEFAULT_MODEL_CONFIG_PATH = '/3d/demo4/tileset.json'
+// 默认加载阿舍勒全矿场景（自带地理定位，位置面板显示模型锚点 86.3394/48.2903）
+export const DEFAULT_MODEL_CONFIG_PATH = '/3d/ashele/tileset.json'
 
 // 以下为运行时兜底值，仅在数据库不可用时使用
 export const getDefaultLodConfig = () => DEFAULT_LOD_CONFIG

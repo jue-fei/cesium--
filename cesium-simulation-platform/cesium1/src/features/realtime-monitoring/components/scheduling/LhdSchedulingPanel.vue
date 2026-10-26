@@ -12,6 +12,14 @@
         </div>
         <div class="sched-head-right">
           <span class="sched-live"><i></i> 实时数据流</span>
+          <button
+            class="sched-expand"
+            :class="{ 'is-on': tunnelLayerOn }"
+            title="在主三维场景(Cesium 总览)中显示巷道实体与铲运机"
+            @click="toggleTunnelLayer"
+          >
+            {{ tunnelLayerOn ? '总览巷道：开' : '总览巷道：关' }}
+          </button>
           <button class="sched-expand" @click="panelFullscreen = true">
             <svg
               class="icon"
@@ -78,16 +86,14 @@
                 :target-pct="opexTargetPct"
               />
             </div>
-            <div v-else class="nsga-placeholder">
-              <div class="nsga-ph-title">NSGA-III 多目标联合调度</div>
-              <p class="nsga-ph-desc">
-                六目标帕累托前沿 · 权重调节 · 方案明细与派单。完整交互（地图 / 权重滑杆 /
-                散点选解）请进入全屏模式查看。
-              </p>
-              <button class="sched-tab nsga-ph-btn" @click="nsgaFullscreen = true">
-                <span class="tab-num">③</span> 放大查看多目标优化
-              </button>
-            </div>
+            <MultiObjectiveLhdView
+              v-else
+              :snapshot="snapshot"
+              :apply-assignment="applyAssignment"
+              :scenario="scenario"
+              :expanded="false"
+              @toggle-expand="nsgaFullscreen = true"
+            />
           </keep-alive>
         </div>
       </div>
@@ -145,7 +151,7 @@
               :snapshot="snapshot"
               :apply-assignment="applyAssignment"
               :scenario="scenario"
-              :expanded="false"
+              :expanded="true"
               @toggle-expand="nsgaFullscreen = true"
             />
           </keep-alive>
@@ -179,26 +185,67 @@
 
 <script setup>
 defineOptions({ name: '井下LHD出矿调度中心' })
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted, shallowRef } from 'vue'
 import { useScheduling } from '../../services/useScheduling.js'
+import { fetchScenarioConfig } from '../../services/scenarioConfig.js'
+import {
+  ensureTunnelLayer,
+  setTunnelLayerVisible,
+  bindLhdStream
+} from '../../services/schedulingCesium.js'
 import SchedHeader from './SchedHeader.vue'
 import FactorHardConstraints from './FactorHardConstraints.vue'
 import FactorDynamic from './FactorDynamic.vue'
 import FactorMuck from './FactorMuck.vue'
 import FactorEquipment from './FactorEquipment.vue'
 import MultiObjectiveLhdView from '../MultiObjectiveLhdView.vue'
-import { ACTIVE_SCENARIO } from '../../../shared/index.js'
 
 // 场景名：巷道/装载点/设备等"可替换内容"来自 config/scenario_<名>.json
-// 运行场景统一取自前端单一真源（shared/services/activeScenario.js）——协作事件流
-// 订阅与部署真源读写必须同场景，否则跨终端操作会被后端按场景分频道丢弃。
-const scenario = ref(ACTIVE_SCENARIO)
+// 默认 ashale（阿舍勒真实巷道 v2：3D 折线/铲运机 glb/巷道实体图层）；
+// large（抽象大型矿）可切，无 v2 几何时前端自动退回抽象渲染。
+const scenario = ref('ashale')
 
 const { snapshot, connectionStatus, reset, applyAssignment } = useScheduling({
   mode: 'websocket',
   autoStart: true,
   scenario: scenario.value
 })
+
+// ===== Cesium 总览层（巷道实体 + 铲运机实体）=====
+const tunnelLayerOn = ref(true)
+const schedConfig = shallowRef(null)
+let unbindLhd = null
+
+onMounted(async () => {
+  fetchScenarioConfig(scenario.value).then(cfg => {
+    schedConfig.value = cfg
+  })
+  await ensureTunnelLayer()
+  unbindLhd = bindLhdStream(
+    () => snapshot.value,
+    () => {
+      const cfg = schedConfig.value
+      if (!cfg) return {}
+      const map = { __nodePos3: {} }
+      for (const s of cfg.segments || []) {
+        if (Array.isArray(s.polyline3)) map[s.id] = s.polyline3
+      }
+      for (const [id, n] of Object.entries(cfg.layout?.nodes || {})) {
+        if (Array.isArray(n.pos3)) map.__nodePos3[id] = n.pos3
+      }
+      return map
+    },
+    eqId => schedConfig.value?.equipment?.[eqId]?.glb || ''
+  )
+})
+onUnmounted(() => {
+  unbindLhd && unbindLhd()
+  unbindLhd = null
+})
+function toggleTunnelLayer() {
+  tunnelLayerOn.value = !tunnelLayerOn.value
+  setTunnelLayerVisible(tunnelLayerOn.value)
+}
 
 const tabs = [
   {
@@ -461,39 +508,11 @@ function handleReset() {
   animation: fadeUp 0.22s ease;
 }
 .factor-stack {
-  /* 双栏并排：充分利用宽屏横向空间；窄屏(对话框/手机)回退单栏。
-     grid-auto-rows:1fr 强制同一行两面板等高（底边对齐），内部列表各自滚动 */
+  /* 双栏并排：充分利用宽屏横向空间；窄屏(对话框/手机)回退单栏 */
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
-  grid-auto-rows: 1fr;
   gap: 14px;
   align-items: stretch;
-}
-/* tab③ 缩回态占位卡：完整 NSGA-III 视图只在全屏/专窗呈现，避免窄容器排版崩坏 */
-.nsga-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 28px 24px;
-  border-radius: 12px;
-  border: 1px dashed rgba(56, 189, 248, 0.35);
-  background: rgba(56, 189, 248, 0.05);
-}
-.nsga-ph-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: #bfdbfe;
-}
-.nsga-ph-desc {
-  margin: 0;
-  max-width: 560px;
-  font-size: 12px;
-  line-height: 1.7;
-  color: #94a3b8;
-}
-.nsga-ph-btn {
-  margin-top: 4px;
 }
 @media (max-width: 760px) {
   .factor-stack {

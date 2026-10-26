@@ -115,10 +115,10 @@ function buildDamageFrame() {
   view.setFloat32(37, bmax[1], false)
   view.setFloat32(41, bmax[2], false)
 
-  // 载荷：int8 分区 id 0~4，按 x-最快轴序
+  // 载荷：int8 分区 id -1(未到达)~4，按 x-最快轴序
   const zones = new Int8Array(voxelCount)
   for (let i = 0; i < voxelCount; i++) {
-    zones[i] = i % 5 // 循环 0,1,2,3,4
+    zones[i] = (i % 6) - 1 // 循环 -1,0,1,2,3,4
     view.setInt8(headerSize + i, zones[i])
   }
 
@@ -231,14 +231,14 @@ describe('二进制帧对称性 - DAMAGE (0x04)', () => {
     }
   })
 
-  it('分区 id 取值范围 0~4', () => {
+  it('损伤帧保留 -1 未到达 sentinel 与 0~4 档位', () => {
     const { buffer } = buildDamageFrame()
     const parser = createParser()
     const view = new DataView(buffer)
     const result = parser._parseDamageField(view, buffer)
 
     for (let i = 0; i < result.zones.length; i++) {
-      expect(result.zones[i]).toBeGreaterThanOrEqual(0)
+      expect(result.zones[i]).toBeGreaterThanOrEqual(-1)
       expect(result.zones[i]).toBeLessThanOrEqual(4)
     }
   })

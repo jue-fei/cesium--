@@ -38,33 +38,15 @@
         <div v-if="section.showDivider" class="h-px bg-white/10 my-6"></div>
       </div>
 
-      <div class="mb-6">
+      <!-- 地下查看 UI 已移除：地下模式默认常开（store 默认值），地表全透明。
+           此区块仅爆破场景激活时显示，两个滑块重定向控制爆破场景岩体/巷道透明度 -->
+      <div v-if="blastingSceneActive" class="mb-6">
         <div class="flex items-center gap-2 mb-4">
           <div class="w-1 h-4 bg-primary rounded-sm"></div>
-          <h4 class="text-sm font-semibold text-text-primary">
-            {{ blastingSceneActive ? '爆破场景透明度' : '地下查看' }}
-          </h4>
-          <span
-            v-if="blastingSceneActive"
-            class="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded"
-          >
+          <h4 class="text-sm font-semibold text-text-primary">爆破场景透明度</h4>
+          <span class="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded">
             已接管爆破场景
           </span>
-        </div>
-
-        <div class="mb-4 flex items-center justify-between">
-          <span class="text-xs text-text-secondary">开启地下查看</span>
-          <label class="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              v-model="undergroundViewEnabled"
-              type="checkbox"
-              class="accent-blue-500"
-              @change="onUndergroundToggle"
-            />
-            <span class="text-xs text-text-secondary">{{
-              undergroundViewEnabled ? '开启' : '关闭'
-            }}</span>
-          </label>
         </div>
 
         <div v-for="control in alphaControls" :key="control.key" class="mb-4">
@@ -95,16 +77,6 @@
             />
           </div>
         </div>
-
-        <div class="flex justify-end pt-1">
-          <button
-            class="px-4 py-1.5 bg-white/10 hover:bg-white/20 text-text-primary text-sm rounded shadow-sm transition-colors border border-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
-            :disabled="!undergroundViewEnabled"
-            @click="enterUndergroundView"
-          >
-            进入地下视角
-          </button>
-        </div>
       </div>
 
       <div class="flex justify-end pt-2 gap-3">
@@ -134,14 +106,11 @@ const {
   modelTransform,
   resetView,
   resetModel,
-  undergroundViewEnabled,
   globeFrontFaceAlpha,
   globeBackFaceAlpha,
   blastingSceneActive,
-  enterUndergroundView,
   onPositionChange,
   onTransformChange,
-  onUndergroundToggle,
   onGlobeAlphaChange
 } = useModelTransformPanelController()
 
@@ -229,9 +198,8 @@ function formatRefControlValue(control) {
   return `${Math.round(Number(control.model.value) || 0)}${control.suffix || ''}`
 }
 
-// 爆破场景激活时，把"地表/背面不透明度"语义替换为"未爆破岩体/已开挖巷道"
+// 此区块仅在爆破场景激活时显示，滑块语义固定为爆破场景的岩体/巷道透明度
 function alphaLabel(control) {
-  if (!blastingSceneActive.value) return control.label
   return control.key === 'back-face-alpha' ? '已开挖巷道透明度' : '未爆破岩体透明度'
 }
 

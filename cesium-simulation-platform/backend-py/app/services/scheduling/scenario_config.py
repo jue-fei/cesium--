@@ -240,11 +240,5 @@ def build_scenario(cfg: dict) -> dict:
 
 
 def load_scenario(name: Optional[str] = None) -> dict:
-    """一步到位：按场景名加载原始配置并解析为仿真器可用的场景 dict。
-
-    附带 scenarioKey（场景名），供按场景名分文件的配套真源（如设备部署
-    config/deployments/<名>.json）定位使用；build_scenario 直调方不携带该键。
-    """
-    out = build_scenario(load_config(name))
-    out["scenarioKey"] = name or DEFAULT_SCENARIO
-    return out
+    """一步到位：按场景名加载原始配置并解析为仿真器可用的场景 dict。"""
+    return build_scenario(load_config(name))

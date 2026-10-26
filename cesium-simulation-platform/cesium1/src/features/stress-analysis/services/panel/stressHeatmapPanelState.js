@@ -17,7 +17,7 @@ export const HEATMAP_PANEL_DEFAULTS = {
   anchorToModel: true,
   blendMode: 'max',
   maskMode: 'none',
-  enableContour: true,
+  enableContour: false,
   contourLevels: 24,
   contourWidth: 0.015,
   enableGlow: false,

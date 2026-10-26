@@ -595,18 +595,6 @@ export function predict3D(x, y, z, variogram, clampRange) {
   return predict3DWithScratch(x, y, z, variogram, null, clampRange)
 }
 
-/**
- * 按值域范围外推钳制预测值：允许 15% 的外推余量（最小 0.01），
- * 避免 kriging 外推在值域之外产生失真极值。
- */
-function clampPredictedValue(predicted, clampRange) {
-  if (clampRange && Array.isArray(clampRange) && clampRange.length === 2) {
-    const margin = Math.max(0.01, (clampRange[1] - clampRange[0]) * 0.15)
-    return Math.max(clampRange[0] - margin, Math.min(clampRange[1] + margin, predicted))
-  }
-  return predicted
-}
-
 export function predict3DWithScratch(x, y, z, variogram, rhsScratch, clampRange) {
   const v = variogram
   if (!v || !v.M || !v.krigMatrixInv || !Number.isInteger(v.n) || v.n <= 0) return 0
@@ -627,7 +615,11 @@ export function predict3DWithScratch(x, y, z, variogram, rhsScratch, clampRange)
   }
   let predicted = sum + evaluateLinearTrend3D(v.trend, x, y, z)
   if (!Number.isFinite(predicted)) predicted = 0
-  return clampPredictedValue(predicted, clampRange)
+  if (clampRange && Array.isArray(clampRange) && clampRange.length === 2) {
+    const margin = Math.max(0.01, (clampRange[1] - clampRange[0]) * 0.15)
+    predicted = Math.max(clampRange[0] - margin, Math.min(clampRange[1] + margin, predicted))
+  }
+  return predicted
 }
 
 /**
@@ -681,7 +673,11 @@ export function predict3DWithVariance(x, y, z, variogram, clampRange) {
 
   let predicted = sum + evaluateLinearTrend3D(v.trend, x, y, z)
   if (!Number.isFinite(predicted)) predicted = 0
-  return { value: clampPredictedValue(predicted, clampRange), variance }
+  if (clampRange && Array.isArray(clampRange) && clampRange.length === 2) {
+    const margin = Math.max(0.01, (clampRange[1] - clampRange[0]) * 0.15)
+    predicted = Math.max(clampRange[0] - margin, Math.min(clampRange[1] + margin, predicted))
+  }
+  return { value: predicted, variance }
 }
 
 function fillKrigingRightHandSide(rhs, x, y, z, variogram) {
@@ -1064,11 +1060,9 @@ function buildKrigingField({
   // 强制保持原始应力点位置的精确值
   enforceExactPointValues(framesOut, exactConstraintPoints, exactConstraintSeries, grid, xs, ys, zs)
 
-  // 验证精确点保持效果（仅在开发模式下）。
-  // 刻意保留的 DEV 诊断钩子：校验结果仅用于断点调试（diagnostics-only），
-  // 不影响插值输出，发布构建中该分支会被整体剔除。
+  // 验证精确点保持效果（仅在开发模式下）
   if (import.meta.env.DEV) {
-    validateExactPointValues(
+    const validation = validateExactPointValues(
       framesOut,
       exactConstraintPoints,
       exactConstraintSeries,
@@ -1077,6 +1071,9 @@ function buildKrigingField({
       ys,
       zs
     )
+    if (!validation.valid) {
+      // Validation is diagnostics-only; interpolation keeps the computed field.
+    }
   }
 
   const result = {
@@ -1263,11 +1260,9 @@ function buildIdwField({
   // 强制保持原始应力点位置的精确值
   enforceExactPointValues(framesOut, exactConstraintPoints, exactConstraintSeries, grid, xs, ys, zs)
 
-  // 验证精确点保持效果（仅在开发模式下）。
-  // 刻意保留的 DEV 诊断钩子：校验结果仅用于断点调试（diagnostics-only），
-  // 不影响插值输出，发布构建中该分支会被整体剔除。
+  // 验证精确点保持效果（仅在开发模式下）
   if (import.meta.env.DEV) {
-    validateExactPointValues(
+    const validation = validateExactPointValues(
       framesOut,
       exactConstraintPoints,
       exactConstraintSeries,
@@ -1276,6 +1271,9 @@ function buildIdwField({
       ys,
       zs
     )
+    if (!validation.valid) {
+      // Validation is diagnostics-only; interpolation keeps the computed field.
+    }
   }
 
   return {

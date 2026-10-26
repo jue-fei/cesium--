@@ -19,7 +19,7 @@ export function createDefaultHeatmapDisplay() {
     anchorToModel: true,
     blendMode: 'max',
     maskMode: 'none',
-    enableContour: true,
+    enableContour: false,
     contourLevels: 24,
     contourWidth: 0.04,
     enableGlow: false,

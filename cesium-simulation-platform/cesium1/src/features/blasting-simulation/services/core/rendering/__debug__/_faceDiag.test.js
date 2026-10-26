@@ -92,10 +92,7 @@ describe('face plane wind / overlap diagnostics', () => {
       th = 15
     const ctx = sb
     const tunnelShape = sb._createTunnelShape(0, W, Hw, R, th)
-    // 主线 SceneBuilder 已无 _createRockShape（更名为 _buildInflatedRockShape，签名多了 rockThickness）
-    const rockShape = sb._buildInflatedRockShape
-      ? sb._buildInflatedRockShape(W, Hw, R, ctx.rockThickness || 5)
-      : null
+    const rockShape = sb._createRockShape ? sb._createRockShape(W, Hw, R, th) : null
     const roundDepth = 2.125
     const ringShape = sb._buildRockRingShape(W, Hw, R, ctx.rockThickness || 5, tunnelShape)
     const extrudeOpts = { bevelEnabled: false, steps: 48, curveSegments: 64 }

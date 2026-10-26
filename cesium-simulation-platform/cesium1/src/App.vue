@@ -21,7 +21,7 @@
     @step-frame="stepFrame"
     @rate-change="setPlaybackRate"
     @replay-blast="replayBlast"
-    @frame-change="_f => setFrame(_f, true)"
+    @frame-change="setFrame"
     @speed-change="onSpeedChange"
     @toggle-loop="toggleLoop"
     @mark-ab-loop="markAbLoopPoint"
@@ -74,14 +74,11 @@ import GlobalMessage from './components/GlobalMessage.vue'
 import PlaybackFloatingPanel from './features/blasting-simulation/components/PlaybackFloatingPanel.vue'
 import {
   TOOL_REGISTRY,
-  ACTIVE_SCENARIO,
   useBlasting,
   useClipping,
   useGeologyAnalysis,
   useMeasurement,
-  useModel,
-  useMonitoring,
-  useCollab
+  useModel
 } from '@/features/shared/index.js'
 
 import useViewer from './composables/useViewer.js'
@@ -100,7 +97,6 @@ const { initClippingManager } = useClipping()
 const { initGeologyManager } = useGeologyAnalysis()
 const { loadMeasurementHistory } = useMeasurement()
 const { showMessage: notify } = useMessage()
-const { initMonitoringManager, destroyMonitoringManager } = useMonitoring()
 const { initBlastingManager } = useBlasting()
 const {
   dataset,
@@ -129,9 +125,6 @@ const onSpeedChange = v => {
 }
 const { activeTool, closeTool } = useUI()
 
-// 跨终端协同（3.2.2）：应用级启动一次协作事件订阅（他端操作全局提示 + 面板联动）
-const collab = useCollab()
-
 const lifecycle = useLifecycle()
 const fps = model.fps
 const adaptiveLoadState = model.adaptiveLoadState
@@ -140,7 +133,6 @@ const bootstrap = createAppBootstrap({
   model,
   clipping: { initClippingManager },
   geology: { initGeologyManager },
-  monitoring: { initMonitoringManager, destroyMonitoringManager },
   blasting: { initBlastingManager },
   measurement: { loadMeasurementHistory },
   lifecycle
@@ -157,11 +149,6 @@ const activeToolName = computed(
 )
 
 onMounted(async () => {
-  // 跨终端协同：订阅他端操作（独立于 Cesium 初始化，先于 3D 场景就绪即可用）
-  // 订阅场景取平台运行场景单一真源——须与调度/部署写操作携带的 scenario 一致，
-  // 否则后端按场景分频道的协作广播无人订阅（跨终端操作不可见）。
-  collab.start(ACTIVE_SCENARIO)
-
   let viewerInstance = null
   try {
     viewerInstance = await bootstrap.start('cesiumContainer')
@@ -184,7 +171,6 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  collab.stop()
   sessionDetach?.()
   bootstrap.stop()
 })

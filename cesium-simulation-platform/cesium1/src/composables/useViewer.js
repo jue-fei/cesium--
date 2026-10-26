@@ -1,12 +1,9 @@
 import { storeToRefs } from 'pinia'
 import * as Cesium from 'cesium'
 import { useViewerStore } from '@/stores/viewerStore.js'
-import {
-  getDisplayQualityProfile,
-  getRenderEnhancementManager,
-  getTerrainQualityProfile
-} from '@/features/shared/index.js'
+import { getDisplayQualityProfile, getTerrainQualityProfile } from '@/features/shared/index.js'
 import { logger } from '@/utils/logger.js'
+import { getRenderEnhancementManager } from '@/features/lod-optimization/services/renderEnhancementManager.js'
 
 const VIEWER_INIT_MARK_START = 'viewer-init:start'
 const VIEWER_INIT_MARK_END = 'viewer-init:end'
@@ -49,6 +46,7 @@ export default function useViewer() {
     Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN || ''
 
     const v = new Cesium.Viewer(containerId, {
+      baseLayer: false,           // 不加载影像底图（与模型预览页一致：深色背景而非地球影像）
       infoBox: false,
       timeline: false,
       animation: false,
@@ -60,9 +58,34 @@ export default function useViewer() {
       navigationHelpButton: false,
       navigationInstructionsInitiallyVisible: false,
       fullscreenButton: false,
-      terrainProvider: undefined,
       contextOptions: { webgl: { preserveDrawingBuffer: true } }
     })
+
+    // 深色底球 + 关闭雾效（与 输出/地表外场_3DTiles/preview.html 同配置）
+    v.scene.globe.baseColor = Cesium.Color.fromCssColorString('#16202e')
+    v.scene.fog.enabled = false
+
+    // 真实地形开关：Cesium 相机控制器的移动/缩放步长会按"相机离地表（含地形）的高度"
+    // 自动缩放，接入 World Terrain 后贴地时触感明显变慢，且地下/地上不一致。
+    // 默认关闭（与模型预览页一致，移动触感全局均匀）；测量功能对椭球面地形采样返回 0 高度，
+    // 与地形接入失败时的回退路径相同。需要真实地形时改回 true 即可。
+    const ENABLE_WORLD_TERRAIN = false
+    if (ENABLE_WORLD_TERRAIN) {
+      try {
+        const terrain = await Cesium.createWorldTerrainAsync()
+        v.terrainProvider = terrain
+        logger.info('viewer', 'Cesium World Terrain 已接入')
+      } catch (terrainErr) {
+        logger.warn('viewer', 'World Terrain 接入失败，回退椭球面', null, terrainErr)
+      }
+    }
+
+    // MSAA 4x 对倾斜摄影/大面积纹理场景收益小、带宽开销大，默认关闭（省 10-20% 帧预算）
+    try {
+      v.scene.msaaSamples = 1
+    } catch (msaaErr) {
+      // WebGL1 或不支持时忽略
+    }
 
     const cc = v.cesiumWidget.creditContainer
     if (cc) cc.style.display = 'none'
@@ -75,6 +98,8 @@ export default function useViewer() {
     applyDisplayQuality(displayQuality.value)
     applyTerrainQuality(terrainQuality.value)
     store.setViewer(v)
+    // 调试暴露：控制台可用 __cesiumViewer 直接访问（诊断采样/拾取问题时使用）
+    if (typeof window !== 'undefined') window.__cesiumViewer = v
 
     // 接入渲染增强（AO / 太阳光照 / 阴影）——解决单色模型细节看不清的问题
     try {

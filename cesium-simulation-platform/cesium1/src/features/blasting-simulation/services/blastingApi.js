@@ -4,15 +4,13 @@
  * 后端 GET 响应字段为 camelCase（由后端 _row_to_camel 转换），
  * POST/PUT 请求体使用 snake_case 字段名以匹配 Pydantic schema，
  * 本模块在发送前自动将 camelCase 对象转换为 snake_case。
- * 请求（3.2.1 起）统一注入协作身份头（X-Client-Id / X-Operator），后端据此刻画审计 actor。
  */
-import { identityHeaders } from '../../shared/services/collabIdentity.js'
 
 const API_BASE = '/api/blasting'
 
 async function request(url, options = {}) {
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...identityHeaders(), ...options.headers },
+    headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options
   })
   if (!res.ok) {
@@ -246,24 +244,4 @@ export function validateKco(input = {}) {
     method: 'POST',
     body: JSON.stringify(payload)
   }).then(r => r.data)
-}
-
-// ─── 静态预设/标定集（后端 config/*.json 单文件真源下发） ───────────────
-
-/**
- * 获取萨道夫斯基标定集（文献实测预设 + 平台默认 K/α）
- * 数据真源在后端 config/blasting_sadosky.json，经 GET /api/blasting/sadosky-presets 下发。
- * @returns {Promise<{presets: Array<{key,label,k,alpha,source}>, default: {k,alpha,source}}>}
- */
-export function fetchSadoskyPresets() {
-  return request(`${API_BASE}/sadosky-presets`).then(r => r.data)
-}
-
-/**
- * 获取 KCO 场地预设（3 套典型工程场景：公路隧道/地铁隧道/矿山巷道）
- * 数据真源在后端 config/kco_site_presets.json，经 GET /api/blasting/kco-site-presets 下发。
- * @returns {Promise<Object>} 形如 { <key>: { label, RMD, RDI, HF, Q, q, B, S, d, SANFO, H, xmax, b } }
- */
-export function fetchKcoSitePresets() {
-  return request(`${API_BASE}/kco-site-presets`).then(r => r.data?.presets || {})
 }

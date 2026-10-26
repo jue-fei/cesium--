@@ -42,7 +42,8 @@ export const DEFAULT_KCO_PARAMS = {
   RDI: 15, // 岩石密度影响(0-20)
   HF: 25, // 硬度因子(0-30)
   xmax: 2.0, // 最大块度尺寸(m)
-  b: 2.0 // Swebrec曲线弯曲参数
+  b: 2.0, // Swebrec曲线弯曲参数
+  interHoleDelayMs: 0 // 孔间微差延时(ms)：>0 启用延时-块度修正（标定范围 8~32ms，0=不修正）
 }
 
 export const KCO_SOURCE_MODE = {
@@ -51,10 +52,96 @@ export const KCO_SOURCE_MODE = {
 }
 
 /**
- * 场地预设（SITE_PRESETS）已后端化：数据真源在后端 backend-py/config/kco_site_presets.json，
- * 经 GET /api/blasting/kco-site-presets 下发，由 BlastKcoPanel.vue 运行时拉取后注入
- * BlastKcoEditor 下拉。本纯计算模块不再持有副本（工程经验典型值，非标定）。
+ * 【延时-块度经验修正】（刘步青 2026，鞍钢哑巴岭采区 7 组孔间微差现场实测回归）
+ *
+ * Kuz-Ram/Swebrec 经典模型不含延时项；实测表明孔间微差显著影响块度
+ * （短延时应力波叠加增强破碎、长延时各孔独立作用块度粗化）。对平台 KCO 基线
+ * （x50_KCO、x80_KCO）回归得到乘法修正因子（对数空间最小二乘，相对误差最优）：
+ *
+ *   f50(Δt) = D50(Δt)/x50_KCO ≈ 0.03113 · Δt^0.957    （R² = 0.822）
+ *   f80(Δt) = D80(Δt)/x80_KCO ≈ 0.03123 · Δt^1.058    （R² = 0.677）
+ *
+ * 标定范围 Δt ∈ [8, 32] ms；范围外按端点截断（不外推）。
+ * 该式为标定场地经验式，用于其他场地建议重新标定（见对比报告 10.3.3）。
  */
+export const DELAY_FRAGMENTATION_CORRECTION = {
+  f50: { c: 0.03113, p: 0.9573 },
+  f80: { c: 0.03123, p: 1.0583 },
+  dtMin: 8, // 标定范围下限(ms)：更短延时不外推，按 8ms 取（叠加最强、块度最细端）
+  dtMax: 32, // 标定范围上限(ms)：更长延时不外推，按 32ms 取
+  source: '刘步青2026 鞍钢哑巴岭采区 7 组孔间微差实测回归（对比报告 10.3.3）'
+}
+
+/**
+ * 计算延时-块度修正因子
+ * @param {number} delayMs - 孔间微差延时(ms)
+ * @returns {{ f50:number, f80:number, delayMs:number, clamped:boolean }|null}
+ *          delayMs 非法（<=0/非数值）时返回 null（不修正）
+ */
+export function delayFragmentationFactor(delayMs) {
+  const dt = Number(delayMs)
+  if (!Number.isFinite(dt) || dt <= 0) return null
+  const { f50, f80, dtMin, dtMax } = DELAY_FRAGMENTATION_CORRECTION
+  const tc = clamp(dt, dtMin, dtMax)
+  return {
+    f50: f50.c * Math.pow(tc, f50.p),
+    f80: f80.c * Math.pow(tc, f80.p),
+    delayMs: dt,
+    clamped: dt < dtMin || dt > dtMax
+  }
+}
+
+/**
+ * 场地预设：按工程场景封装岩石因子 + 装药 + 孔网典型值
+ * 用于 UI 一键填充，避免用户面对裸数值。数值来源：工程经验典型值，非标定。
+ */
+export const SITE_PRESETS = {
+  'highway-tunnel-hard': {
+    label: '公路隧道·中硬岩',
+    RMD: 20,
+    RDI: 15,
+    HF: 25,
+    Q: 10.8, // = q × B × S × H
+    q: 0.8,
+    B: 1.5,
+    S: 2.0,
+    d: 90,
+    SANFO: 100,
+    H: 4.5,
+    xmax: 2.0,
+    b: 2.0
+  },
+  'subway-tunnel-soft': {
+    label: '地铁隧道·软岩',
+    RMD: 12,
+    RDI: 10,
+    HF: 15,
+    Q: 3.2, // = q × B × S × H
+    q: 0.55,
+    B: 1.2,
+    S: 1.6,
+    d: 64,
+    SANFO: 100,
+    H: 3.0,
+    xmax: 1.5,
+    b: 1.8
+  },
+  'mine-drift-hard': {
+    label: '矿山巷道·硬岩',
+    RMD: 25,
+    RDI: 18,
+    HF: 28,
+    Q: 19.8, // = q × B × S × H
+    q: 1.0,
+    B: 1.8,
+    S: 2.2,
+    d: 102,
+    SANFO: 115,
+    H: 5.0,
+    xmax: 2.5,
+    b: 2.2
+  }
+}
 
 /**
  * 炸药类型 → { SANFO 相对ANFO威力, Eg 比能 J/kg }
@@ -135,8 +222,32 @@ export function calculateKCOParams(p = {}) {
 
   const b = clamp(toFiniteNumber(params.b, 2.0), 1.0, 5.0)
   // x80 由 Swebrec 分布数值反解得到，不再用 x50*(1+b^0.3) 估算
-  const x80 = solveX80(x50, xmax, n, b)
-  return { x50, xmax, b, n, A, sourceMode, computedX50, computedN, x80 }
+  let x80 = solveX80(x50, xmax, n, b)
+
+  // 【延时-块度修正】（刘步青2026 现场回归，见 DELAY_FRAGMENTATION_CORRECTION）：
+  // interHoleDelayMs > 0 时启用，f50/f80 分别乘在 x50/x80 上（独立因子——回归显示
+  // D80/D50 比值随延时增大：粗端比细端粗化更快，故不能用"改 x50 后重解 x80"替代）。
+  // 不传或 <=0 时不修正（向后兼容：既有调用方/测试结果不变）。
+  const delayFactor = delayFragmentationFactor(params.interHoleDelayMs)
+  let delayCorrection = null
+  if (delayFactor) {
+    x50 = Math.max(0.01, x50 * delayFactor.f50)
+    x80 = Math.max(0.01, x80 * delayFactor.f80)
+    // 修正后再次执行 x50 ≥ xmax 守卫（短延时修正可能把 x50 压得很小，长延时可能顶到 xmax）
+    if (x50 >= xmax) {
+      x50 = xmax * 0.8
+    }
+    delayCorrection = {
+      applied: true,
+      delayMs: delayFactor.delayMs,
+      f50: delayFactor.f50,
+      f80: delayFactor.f80,
+      clamped: delayFactor.clamped,
+      range: [DELAY_FRAGMENTATION_CORRECTION.dtMin, DELAY_FRAGMENTATION_CORRECTION.dtMax],
+      source: DELAY_FRAGMENTATION_CORRECTION.source
+    }
+  }
+  return { x50, xmax, b, n, A, sourceMode, computedX50, computedN, x80, delayCorrection }
 }
 
 /**
@@ -284,7 +395,10 @@ export function computeKLDivergence(p, q) {
 export default {
   DEFAULT_KCO_PARAMS,
   KCO_SOURCE_MODE,
+  SITE_PRESETS,
   EXPLOSIVE_TYPES,
+  DELAY_FRAGMENTATION_CORRECTION,
+  delayFragmentationFactor,
   calculateUniformityIndex,
   calculateKCOParams,
   sampleSwebrecSize,

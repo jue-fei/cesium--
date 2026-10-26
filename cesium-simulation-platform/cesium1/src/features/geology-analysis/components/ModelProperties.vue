@@ -57,7 +57,7 @@
     class="bg-white/5 rounded-lg p-4 mb-4 border border-white/5 hover:border-blue-500/30 transition-all duration-300"
   >
     <div
-      class="text-sm font-semibold text-blue-100 mb-3 flex items-center gap-2 before:content-[''] before:w-1 before:h-3 before:bg-blue-500 before:rounded-sm"
+      class="text-sm font-semibold text-blue-100 mb-3 flex items-center gap-2 flex-wrap before:content-[''] before:w-1 before:h-3 before:bg-blue-500 before:rounded-sm"
     >
       属性信息: {{ selectedModel.name
       }}<span
@@ -65,6 +65,16 @@
         class="ml-1 text-[10px] text-blue-400"
         title="已关联数据库"
         >◈ DB</span
+      >
+      <span
+        v-if="selectedModel.partitionName"
+        class="px-1.5 rounded text-[10px] leading-5 font-normal"
+        :style="{
+          background: (selectedModel.partitionColor || '#6fb3ff') + '26',
+          color: selectedModel.partitionColor || '#6fb3ff',
+          border: '1px solid ' + (selectedModel.partitionColor || '#6fb3ff') + '55'
+        }"
+        >{{ selectedModel.partitionName }}</span
       >
     </div>
     <div class="grid grid-cols-2 gap-2 bg-black/20 p-2 rounded-md border border-white/5">
@@ -370,17 +380,32 @@ const featureSnapshot = computed(() => {
   }
 })
 
+const MODEL_TYPE_CN = {
+  beneficiation: '选矿设施',
+  surface: '地表设施',
+  hoisting: '提升运输',
+  ventilation: '通风排水',
+  mining: '采掘工程',
+  geology: '矿体',
+  mobile: '移动装备',
+  sensing: '感知监测'
+}
+
 const basicFeatureEntries = computed(() => {
   const snapshot = featureSnapshot.value
   if (!snapshot) return []
 
   const dataSource = snapshot._dbLinked ? '数据库' : '3D模型默认'
+  const typeLabel = MODEL_TYPE_CN[snapshot.type] || snapshot.type || '未知'
   const entries = [
     { key: 'ID', value: formatValue(snapshot.id) },
     { key: '名称', value: formatValue(snapshot.name) },
-    { key: '类型', value: formatValue(snapshot.type || '未知') },
+    { key: '类型', value: formatValue(typeLabel) },
     { key: '数据来源', value: dataSource }
   ]
+  if (snapshot.partitionName) {
+    entries.push({ key: '功能分区', value: formatValue(snapshot.partitionName) })
+  }
 
   const featureId = snapshot.feature_id || snapshot.featureId
   if (featureId && featureId !== snapshot.id) {

@@ -11,12 +11,15 @@
  *   2. 应力场反演（弹性球面波本构一阶近似）：
  *      σ_rr = ρ·c_p·v_r（径向压）, σ_θθ = (ν/(1−ν))·σ_rr（切向拉幅值）,
  *      σ_vm = σ_rr/(1−ν)（von Mises）
- *   3. 损伤分区（Persson 模型，基于"波峰几何峰值×波前到达门控"，单位 cm/s）：
- *      0 elastic  (<20)    → 弹性区，无损伤（σ_vm<3.2MPa，低于中硬岩强度）
- *      1 micro_crack (20~50) → 微裂纹萌生
- *      2 crack_growth (50~100) → 裂纹扩展（接近 Persson 700mm/s 判据）
- *      3 fracture (100~200) → 岩体破碎
- *      4 throw (≥200) → 抛掷爆腔
+ *   3. 损伤分区（Bauer & Calder (1971) + Persson et al. (1997) 文献阈值，基于
+ *      "波峰几何峰值×波前到达门控"，单位 cm/s，阈值单源见 vibrationColorScales.js）：
+ *      0 elastic (<25)        → 弹性区，完整岩石不致裂
+ *      1 micro_crack (25~63.5)   → 微裂纹萌生（轻微拉伸层裂）
+ *      2 crack_growth (63.5~254) → 裂隙扩展（强拉伸与径向裂缝）
+ *      3 fracture (254~1500)     → 岩体破碎
+ *      4 crushed (≥1500)         → 粉碎区（近炮腔，Persson 15 m/s crushing 档）
+ *      注：历史上 zone4 曾误标"抛掷区"（50 cm/s）——抛掷是碎片运动学概念（初速
+ *      18~28 m/s，由 fragmentSpecGenerator 速度场负责），与 PPV 分区无对应关系。
  *
  * 坐标系：与 threeBlastingRenderer 一致，采用隧道局部坐标系（局部 ENU 原点）。
  * 默认 blastCenter = [0,0,0]（网格原点）；可通过 options.origin 指定爆心为任意点
@@ -24,100 +27,1448 @@
  * 网格轴序：输出按 WebGL Data3DTexture 要求（x-最快，z-最慢），保证纹理采样正确。
  */
 
-// ─── 模块拆分说明（聚合再出口 barrel）─────────────────────────
-// 本文件实现已按职责拆分至 ./vibration/ 子模块（纯搬运，逻辑/数值/注释语义零改动），
-// 此处仅做聚合再出口：对外符号名、签名与默认导出对象完全不变，既有 import 方
-// （blastingManager、vibrationComputeWorker、contourExtractor、sceneBuilder、
-// vibrationColorScales、vibrationParticleRenderer 及各测试文件）零改动。
-// 子模块结构：
-//   vibration/shared.js        共享常量与底层工具（萨道夫斯基公式/回退默认值、近场修正、
-//                              损伤阈值、径向包络、自由面反射展开、距离/累加/错峰缓存）
-//   vibration/grid.js          buildPpvGrid 体网格生成
-//   vibration/ppvField.js      单源/多源瞬时与峰值 PPV 场、应力反演、装药源解析、峰值缓存槽
-//   vibration/damage.js        损伤分区（Persson 模型）
-//   vibration/timeHistory.js   测点时程 / 衰减剖面 / 单点矢量采样
-//   vibration/surfaceField.js  岩面顶点峰值场（等值线数据源）
-//   vibration/simulator.js     LocalVibrationSimulator 类
-//   vibration/particles.js     VibrationParticleSystem 粒子系统
-//   vibration/computeClient.js VibrationComputeClient Worker 客户端
-// 子模块间下划线前缀内部符号（_ensurePeakSlot 等）不在此聚合导出，保持对外 API 不变。
+// 损伤分区阈值（单位 cm/s）：单源真相在 vibrationColorScales.js（含文献依据注释），
+// 与后端 DAMAGE_THRESHOLDS_CMPS = (25.0, 63.5, 254.0, 1500.0) 保持一致。
+import { DAMAGE_THRESHOLDS_CMPS } from '../rendering/vibrationColorScales.js'
+// 萨道夫斯基 K/α 默认值：单源真相在 vibrationDefaults.js
+import { LOCAL_SIM_DEFAULT_K, LOCAL_SIM_DEFAULT_ALPHA } from '../vibrationDefaults.js'
 
-import {
-  NEAR_FIELD_MULT,
-  NEAR_FIELD_GAIN,
-  cavityRadius,
-  nearFieldRadius,
-  nearFieldGain,
-  DETONATION_GAMMA,
-  ROCK_SIGMA_CD_DEFAULT,
-  ROCK_SIGMA_TD_DEFAULT,
-  BOREHOLE_RADIUS_DEFAULT,
-  damageZoneRadius,
-  normalizeReflections,
-  tunnelFaceBoostFactor,
-  expandSourcesWithReflections,
-  sadoskyPpv,
-  WAVELET_Q
-} from './vibration/shared.js'
-import { buildPpvGrid } from './vibration/grid.js'
-import {
-  computePpvField3d,
-  resolveChargePosition,
-  buildChargeSources,
-  computeMultiSourcePpvField3d,
-  computeStressFieldFromPpv,
-  computeMultiSourcePeakField3d,
-  computePeakField3d
-} from './vibration/ppvField.js'
-import {
-  classifyDamageZones,
-  computePeakDamageZones,
-  computeMultiSourcePeakDamageZones
-} from './vibration/damage.js'
-import {
-  computeMonitorTimeHistory,
-  computePpvDecayProfile,
-  computePointVector
-} from './vibration/timeHistory.js'
-import { computeSurfacePeakField } from './vibration/surfaceField.js'
-import { LocalVibrationSimulator } from './vibration/simulator.js'
-import { VibrationParticleSystem } from './vibration/particles.js'
-import { VibrationComputeClient } from './vibration/computeClient.js'
+/**
+ * 生成 3D 网格坐标（X, Y, Z），覆盖隧道断面范围沿轴向扩展
+ * @param {number} tunnelWidth - 隧道宽度(m)，横向(X)范围 [-w/2, w/2]
+ * @param {number} tunnelHeight - 隧道总高度(m)，竖向(Y)范围 [-h/2, h/2]
+ * @param {number} lengthZ - 沿隧道轴向(Z)长度(m)，范围 [0, lengthZ]
+ * @param {number} nx - X 方向网格数
+ * @param {number} ny - Y 方向网格数
+ * @param {number} nz - Z 方向网格数
+ * @param {Object} [explicitBounds] - 显式边界覆盖 { boundsMin: [x,y,z], boundsMax: [x,y,z] }，
+ *                用于与后端 WS 网格完全对齐（后端 y 边界非对称：[-0.2h, 1.2h]）
+ * @returns {Object} { gridXyz: Float32Array(n*3), gridShape: [nx,ny,nz], boundsMin: [xmin,ymin,zmin], boundsMax: [xmax,ymax,zmax] }
+ */
+export function buildPpvGrid(
+  tunnelWidth,
+  tunnelHeight,
+  lengthZ = 40,
+  nx = 32,
+  ny = 32,
+  nz = 64,
+  explicitBounds = null
+) {
+  let xMin = -tunnelWidth / 2
+  let xMax = tunnelWidth / 2
+  let yMin = -tunnelHeight / 2
+  let yMax = tunnelHeight / 2
+  let zMin = 0
+  let zMax = lengthZ
+  if (explicitBounds?.boundsMin && explicitBounds?.boundsMax) {
+    xMin = explicitBounds.boundsMin[0]
+    yMin = explicitBounds.boundsMin[1]
+    zMin = explicitBounds.boundsMin[2]
+    xMax = explicitBounds.boundsMax[0]
+    yMax = explicitBounds.boundsMax[1]
+    zMax = explicitBounds.boundsMax[2]
+  }
 
-export {
-  NEAR_FIELD_MULT,
-  NEAR_FIELD_GAIN,
-  cavityRadius,
-  nearFieldRadius,
-  nearFieldGain,
-  DETONATION_GAMMA,
-  ROCK_SIGMA_CD_DEFAULT,
-  ROCK_SIGMA_TD_DEFAULT,
-  BOREHOLE_RADIUS_DEFAULT,
-  damageZoneRadius,
-  normalizeReflections,
-  tunnelFaceBoostFactor,
-  expandSourcesWithReflections,
-  sadoskyPpv,
-  WAVELET_Q,
-  buildPpvGrid,
-  computePpvField3d,
-  resolveChargePosition,
-  buildChargeSources,
-  computeMultiSourcePpvField3d,
-  computeStressFieldFromPpv,
-  computeMultiSourcePeakField3d,
-  computePeakField3d,
-  classifyDamageZones,
-  computePeakDamageZones,
-  computeMultiSourcePeakDamageZones,
-  computeMonitorTimeHistory,
-  computePpvDecayProfile,
-  computePointVector,
-  computeSurfacePeakField,
-  LocalVibrationSimulator,
-  VibrationParticleSystem,
-  VibrationComputeClient
+  const gridShape = [nx, ny, nz]
+  const nTotal = nx * ny * nz
+  const gridXyz = new Float32Array(nTotal * 3)
+
+  let idx = 0
+  for (let zi = 0; zi < nz; zi++) {
+    const z = zMin + ((zMax - zMin) * (zi + 0.5)) / nz
+    for (let yi = 0; yi < ny; yi++) {
+      const y = yMin + ((yMax - yMin) * (yi + 0.5)) / ny
+      for (let xi = 0; xi < nx; xi++) {
+        const x = xMin + ((xMax - xMin) * (xi + 0.5)) / nx
+        gridXyz[idx * 3 + 0] = x
+        gridXyz[idx * 3 + 1] = y
+        gridXyz[idx * 3 + 2] = z
+        idx++
+      }
+    }
+  }
+
+  return {
+    gridXyz,
+    gridShape,
+    boundsMin: [xMin, yMin, zMin],
+    boundsMax: [xMax, yMax, zMax]
+  }
+}
+
+/**
+ * 萨道夫斯基经验公式计算 PPV（质点峰值速度，单位 m/s）
+ * @param {number} chargeKg - 总装药量(kg)
+ * @param {number} distance - 采样点到爆心距离(m)
+ * @param {Object} options - { K: 场地常数, alpha: 衰减指数, minStandoff: 最小距离下限 }
+ * @returns {number} PPV (m/s)
+ */
+export function sadoskyPpv(chargeKg, distance, options = {}) {
+  const K = options.K ?? 200.0
+  const alpha = options.alpha ?? 1.5
+  const minStandoff = options.minStandoff ?? 0.5
+  const r = Math.max(distance, minStandoff)
+  // K 单位为 cm/s → 转换为 m/s 需要 ×0.01
+  return K * Math.pow(chargeKg ** (1 / 3) / r, alpha) * 0.01
+}
+
+/**
+ * 计算指定时刻的 3D PPV 场
+ * @param {Float32Array} gridXyz - 网格坐标数组 [x0,y0,z0, x1,y1,z1, ...]
+ * @param {number} chargeKg - 总装药量(kg)
+ * @param {number} t - 当前模拟时间(s)
+ * @param {Object} options - 岩体介质参数
+ * @param {number} [options.K=200] - 萨道夫斯基场地常数
+ * @param {number} [options.alpha=1.5] - 萨道夫斯基衰减指数
+ * @param {number} [options.beta=0.02] - 介质阻尼系数（物理）
+ * @param {number} [options.visualBeta=0.8] - 可视化时变衰减（1/s，非物理阻尼）：
+ *                仅用于展示"实时质点速度"的波峰回落过程——波前扫过后速度按该常数
+ *                指数衰减，使动画呈现"到达→峰值→回落"的瞬时演化，而非全场恒为峰值色
+ * @param {number} [options.cp=4500] - 纵波速度(m/s)
+ * @param {number} [options.minStandoff=0.5] - 最小距离下限
+ * @param {number[]} [options.origin] - 爆心在网格局部坐标系中的坐标 [x,y,z]，缺省 [0,0,0]
+ * @returns {Float32Array} PPV 数组，长度 = gridXyz.length / 3，单位 m/s
+ */
+// ─── 距离场预计算缓存（单槽） ───
+// 网格点与热源几何在 LocalVibrationSimulator 生命周期内固定，因此 (点,源) 的距离 r
+// 与模拟时刻 t 无关。多源场在每次（0.2s）全量重算时需跑 nS×nPts 次的 sqrt + exp，
+// 其中 sqrt 距离每次都在重复计算。这里按 (gridXyz 引用 + 源指纹 + minStandoff +
+// visualCp) 只算一次并缓存，之后各时刻重算用查表替换 sqrt，显著降低"每次计算"耗时。
+const _distCache = { grid: null, fp: null, dist: null }
+function _distFingerprint(src, minStandoff, visualCp) {
+  let fp = minStandoff + '|' + visualCp + '|'
+  for (let s = 0; s < src.length; s++) {
+    fp +=
+      src[s].x.toFixed(3) +
+      ',' +
+      src[s].y.toFixed(3) +
+      ',' +
+      src[s].z.toFixed(3) +
+      ',' +
+      src[s].chargeKg.toFixed(2) +
+      ',' +
+      src[s].delay.toFixed(4) +
+      ';'
+  }
+  return fp
+}
+function _getDistCache(gridXyz, src, minStandoff, visualCp) {
+  const fp = _distFingerprint(src, minStandoff, visualCp)
+  if (_distCache.grid === gridXyz && _distCache.fp === fp && _distCache.dist) return _distCache.dist
+  const nPts = gridXyz.length / 3
+  const nS = src.length
+  const dist = new Float32Array(nS * nPts)
+  for (let s = 0; s < nS; s++) {
+    const sx = src[s].x
+    const sy = src[s].y
+    const sz = src[s].z
+    const base = s * nPts
+    for (let i = 0; i < nPts; i++) {
+      const dx = gridXyz[i * 3] - sx
+      const dy = gridXyz[i * 3 + 1] - sy
+      const dz = gridXyz[i * 3 + 2] - sz
+      const r = Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz), minStandoff)
+      dist[base + i] = r
+    }
+  }
+  _distCache.grid = gridXyz
+  _distCache.fp = fp
+  _distCache.dist = dist
+  return dist
+}
+
+export function computePpvField3d(gridXyz, chargeKg, t, options = {}, out = null) {
+  const K = options.K ?? 200.0
+  const alpha = options.alpha ?? 1.5
+  const beta = options.beta ?? 0.02
+  const visualBeta = options.visualBeta ?? 0.8
+  const cp = options.cp ?? 4500.0
+  const visualCp = options.visualCp ?? cp
+  const minStandoff = options.minStandoff ?? 0.5
+  const origin = options.origin ?? null
+  const ox = origin ? Number(origin[0]) || 0 : 0
+  const oy = origin ? Number(origin[1]) || 0 : 0
+  const oz = origin ? Number(origin[2]) || 0 : 0
+
+  const nPoints = gridXyz.length / 3
+  const ppv = out ?? new Float32Array(nPoints)
+
+  for (let i = 0; i < nPoints; i++) {
+    const x = gridXyz[i * 3 + 0]
+    const y = gridXyz[i * 3 + 1]
+    const z = gridXyz[i * 3 + 2]
+    // 爆心在局部坐标 (ox,oy,oz)（缺省为原点），即掏槽孔爆破位置
+    const dx = x - ox
+    const dy = y - oy
+    const dz = z - oz
+    const r = Math.sqrt(dx * dx + dy * dy + dz * dz)
+    const arrival = r / visualCp // 波前到达时间（可视化速度）
+    if (t < arrival) {
+      ppv[i] = 0 // 波前未到达
+      continue
+    }
+    // 实时质点速度 = 萨道夫斯基峰值 × 指数时间衰减（物理 β + 可视化回落 visualBeta）
+    const peak = sadoskyPpv(chargeKg, r, { K, alpha, minStandoff })
+    ppv[i] = peak * Math.exp(-(beta + visualBeta) * (t - arrival))
+  }
+
+  return ppv
+}
+
+/**
+ * 由单孔几何推算单个装药源的位置（装药源坐标，爆破应力波由此孔出发）
+ *
+ * 坐标系与平台一致：x=掌子面内横向（左右）、y=掌子面内竖向、z=掌子面轴向（进入岩体为正）。
+ * 掌子面位于 z=faceOffset；collar 位于 (posX, posY, faceOffset)。
+ *
+ * 装药沿炮孔布置、偏孔底（底部起爆）。装药源中心取装药段中点：
+ *   - 已知 chargeLength（装药段长）时，源距孔口 = depth − chargeLength/2；
+ *   - 缺省时按"底部 60%"经验（cd = 0.6·depth）。
+ *
+ * 两类布孔方向：
+ *   1. 楔形/倾斜掏槽孔（cut，inclination>0）：孔口分列掏槽核心两侧、孔底向核心收敛
+ *      —— 这是楔形掏槽"多应力波叠加增强"的几何本源。横向收敛量 lat=depth·sinθ、
+ *      轴向进尺 axial=depth·cosθ，方向由孔口指向掏槽孔组质心 (center.x, center.y)。
+ *      故各掏槽孔装药源在孔底汇拢，应力波在该区域重叠干涉，不再呈单一同心圆。
+ *   2. 直孔/辅助/周边孔（inclination≈0）：沿孔轴向内，位移由 inclination/azimuth
+ *      按 sceneBuilder._buildHoleMeshes 的 Euler XYZ 旋转约定计算，与绘制炮孔对齐。
+ *
+ * @param {Object} h - 炮孔数据 { posX, posY, depth, chargeLength, inclinationAngle/azimuth,
+ *                       holeType/type, chargeKg, delayMs, isEmptyHole, id }
+ * @param {number} faceOffset - 掌子面轴向位置(m)
+ * @param {Object} center - 掏槽孔质心 { x, y }（用于楔形孔向内收敛）
+ * @returns {{x:number,y:number,z:number,chargeKg:number,delayMs:number,id?:*} | null}
+ *          空孔或未装药孔返回 null（不参与应力波源）
+ */
+export function resolveChargePosition(h, faceOffset, center) {
+  const q = Number(h.chargeKg)
+  if (!(q > 0) || !!h.isEmptyHole) return null
+
+  const type = String(h?.holeType || h?.type || 'production').toLowerCase()
+  const isCut = type === 'cut' || type === 'easing'
+  const depth = Math.max(0.2, Number(h.depth) || 2.5)
+  const cxl = Number(h.chargeLength)
+  const cd = Number.isFinite(cxl) && cxl > 0 ? Math.max(0.2, depth - cxl * 0.5) : depth * 0.6
+  const inc = Math.max(0, Number(h.inclinationAngle ?? h.inclination) || 0) * (Math.PI / 180)
+
+  const collarX = Number(h.posX) || 0
+  // posY=0 是合法孔位（底板孔/环形辅助孔最低点恰在 y=0，见 kunyang 设计二环 r=1.3、
+  // 中心 y=1.3），旧实现用 `!== 0` 判空会把这类孔误判为缺失、回退到掏槽质心高度
+  // （y 向偏差可达 1m 以上）。现仅以 isFinite 判缺失。
+  const collarY = Number.isFinite(Number(h.posY)) ? Number(h.posY) : center.y
+  const collarZ = faceOffset
+
+  if (isCut && inc > 0.02) {
+    // 楔形掏槽：孔底向掏槽核心收敛（核心 = 掏槽孔质心）
+    const dvx = (center.x || 0) - collarX
+    const dvy = (center.y || 0) - collarY
+    const dl = Math.hypot(dvx, dvy) || 1
+    const lat = depth * Math.sin(inc)
+    const axial = depth * Math.cos(inc)
+    return {
+      x: collarX + (dvx / dl) * lat,
+      y: collarY + (dvy / dl) * lat,
+      z: collarZ + axial,
+      chargeKg: q,
+      delayMs: Number(h.delayMs) || 0,
+      id: h.id
+    }
+  }
+
+  // 直孔/辅助/周边：按绘制炮孔的 Euler XYZ 旋转约定计算孔内偏移
+  const azi = (Number(h.inclinationAzimuth ?? h.azimuth) || 0) * (Math.PI / 180)
+  const rx = -Math.sin(azi) * inc
+  const ry = Math.cos(azi) * inc
+  return {
+    x: collarX - cd * Math.cos(rx) * Math.sin(ry),
+    y: collarY - cd * Math.sin(rx),
+    z: collarZ + cd * Math.cos(rx) * Math.cos(ry),
+    chargeKg: q,
+    delayMs: Number(h.delayMs) || 0,
+    id: h.id
+  }
+}
+
+/**
+ * 从炮孔列表构建多应力波源（用于本地多源叠加模拟）
+ * @param {Array} holes - 炮孔数据列表
+ * @param {number} faceOffset - 掌子面轴向位置(m)
+ * @param {Object} cutCenter - 掏槽孔质心 { x, y }（楔形孔向内收敛的基准）
+ * @returns {Array} 装药源列表 [{x,y,z,chargeKg,delayMs,id}]；无有效源时返回空数组
+ */
+export function buildChargeSources(holes, faceOffset, cutCenter) {
+  if (!Array.isArray(holes) || holes.length === 0) return []
+  const center = cutCenter || { x: 0, y: 0 }
+  const sources = []
+  for (const h of holes) {
+    const s = resolveChargePosition(h, faceOffset, center)
+    if (s) sources.push(s)
+  }
+  return sources
+}
+
+/**
+ * 按起爆段（同 delayMs = 同段同时起爆）做**等效药量归一**（GB6722 微差爆破最大段药量口径）
+ *
+ * 【为什么需要】萨道夫斯基公式 V = K·(Q^{1/3}/R)^α 的药量是**立方根标度**：同段 N 孔
+ * 齐爆时远场振幅只按 (Σq)^{1/3} 增长（单孔值的 N^(α/3) 倍，α=1.58 时 N^0.53），而不是
+ * N 倍。若把 N 个孔的**峰值振幅直接矢量相加**，远场会按 N^1 标度放大，系统性偏大
+ * N^(1−α/3) 倍（42 孔 ≈ ×6；再对"最大段药量"口径 ≈ ×12），使 PPV/应力/损伤分区
+ * 被整体放大、破碎区边界（半径 ∝ 振幅^(1/α)）随之膨胀数倍。
+ *
+ * 【做法】在**源构建阶段**一次性完成标度修正：同段第 s 孔取等效场药量
+ *     w_g = Q_g^{1/3} / (Σ_{s∈g} q_s^{α/3})^{1/α}
+ *     q_eff,s = (w_g · q_s^{1/3})³
+ * 使"同段各源振幅之和 ≡ 等效药量 Q_g 单源振幅"（远场严格相等；近场保留逐孔位置，
+ * 波前仍从每个炮孔起始、干涉形态不变）。段间各按本段药量辐射，跨段如何组合由各
+ * 场计算路径决定（瞬时场矢量叠加=波场干涉；峰值判据取各段最大，见 computeMultiSourcePeakDamageZones）。
+ *
+ * 归一结果写入源的 `fieldChargeKg`（场计算用药量）；`chargeKg` 保留真实单孔药量
+ * ——JWL/FDTD 精确解、统计与 UI 仍用真实药量，不受归一影响。
+ *
+ * @param {Array} sources - [{x,y,z,chargeKg,delayMs}]（buildChargeSources 输出）
+ * @param {number} [alpha=LOCAL_SIM_DEFAULT_ALPHA] - 萨道夫斯基衰减指数
+ * @returns {Array} 新数组（源对象追加 fieldChargeKg）；无有效源时原样返回
+ */
+export function applyDelayGroupNormalization(sources, alpha = LOCAL_SIM_DEFAULT_ALPHA) {
+  if (!Array.isArray(sources) || sources.length === 0) return sources
+  const a = Number(alpha) > 0 ? Number(alpha) : LOCAL_SIM_DEFAULT_ALPHA
+  // 按延时（ms 取整）分组：同延时 = 同段同时起爆
+  const groups = new Map()
+  for (const s of sources) {
+    const q = Number(s?.chargeKg) || 0
+    if (!(q > 0)) continue
+    const key = Math.round(Number(s?.delayMs) || 0)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(s)
+  }
+  // 源对象 → 场计算用药量（q_eff = w³·q）
+  const effQ = new Map()
+  for (const list of groups.values()) {
+    let sumQ = 0
+    let sumP = 0 // Σ q^{α/3}（振幅空间求和，保证远场严格等效）
+    for (const s of list) {
+      const q = Number(s.chargeKg)
+      sumQ += q
+      sumP += Math.pow(q, a / 3)
+    }
+    if (!(sumQ > 0) || !(sumP > 0)) continue
+    const w = Math.pow(sumQ, 1 / 3) / Math.pow(sumP, 1 / a)
+    for (const s of list) {
+      effQ.set(s, Math.pow(w * Math.pow(Number(s.chargeKg), 1 / 3), 3))
+    }
+  }
+  return sources.map(s => {
+    const fq = effQ.get(s)
+    return fq > 0 ? { ...s, fieldChargeKg: fq } : { ...s }
+  })
+}
+
+/**
+ * 按最低损伤阈值为经验模型估算采样域，给有效损伤轮廓留出透明缓冲，避免被矩形场盒裁断。
+ * 在体素上限内按基准步长扩展；域很大时均匀降采样，不增加超限的实时计算量。
+ * 注意：该估算只用于 Sadowsky 分类场的显示域，不是物理边界或安全结论。
+ */
+export function estimateDamageAwareGrid(options = {}) {
+  const boundsMin = (options.boundsMin || [-9, -7.5, 0]).map(Number)
+  const boundsMax = (options.boundsMax || [9, 7.5, 40]).map(Number)
+  const baseShape = (options.gridShape || [24, 32, 48]).map(n =>
+    Math.max(2, Math.floor(Number(n) || 2))
+  )
+  const min = boundsMin.slice(0, 3)
+  const max = boundsMax.slice(0, 3)
+  const alpha = Number(options.alpha) > 0 ? Number(options.alpha) : LOCAL_SIM_DEFAULT_ALPHA
+  const K = Number(options.K) > 0 ? Number(options.K) : LOCAL_SIM_DEFAULT_K
+  const thresholdCmps = Number(options.thresholdCmps) > 0 ? Number(options.thresholdCmps) : 25
+  const padding = Math.max(0, Number(options.paddingMeters) || 1.5)
+  const sources = (Array.isArray(options.sources) ? options.sources : []).filter(
+    source => Number(source?.fieldChargeKg ?? source?.chargeKg) > 0
+  )
+  let estimatedRadius = 0
+
+  const includeSourceGroup = group => {
+    const weightedSources = group
+      .map(source => {
+        const q = Number(source.fieldChargeKg ?? source.chargeKg)
+        const weight = Math.pow(Math.max(q, 0), alpha / 3)
+        const pos = source.pos || [source.x, source.y, source.z]
+        return { weight, pos: pos.map(value => Number(value) || 0) }
+      })
+      .filter(source => source.weight > 0)
+    const totalWeight = weightedSources.reduce((sum, source) => sum + source.weight, 0)
+    if (!(totalWeight > 0)) return
+    const center = [0, 1, 2].map(axis => {
+      const weightedPosition = weightedSources.reduce(
+        (sum, source) => sum + source.pos[axis] * source.weight,
+        0
+      )
+      return weightedPosition / totalWeight
+    })
+    const spread = [0, 1, 2].map(axis =>
+      Math.max(...weightedSources.map(source => Math.abs(source.pos[axis] - center[axis])))
+    )
+    const equivalentCharge = Math.pow(totalWeight, 3 / alpha)
+    const radius = Math.pow(equivalentCharge, 1 / 3) * Math.pow(K / thresholdCmps, 1 / alpha)
+    const halfExtent = radius + padding
+    estimatedRadius = Math.max(estimatedRadius, radius)
+    for (let axis = 0; axis < 3; axis++) {
+      min[axis] = Math.min(min[axis], center[axis] - halfExtent - spread[axis])
+      max[axis] = Math.max(max[axis], center[axis] + halfExtent + spread[axis])
+    }
+  }
+
+  if (sources.length > 0) {
+    const normalized = applyDelayGroupNormalization(sources, alpha)
+    const groups = new Map()
+    normalized.forEach(source => {
+      const key = Math.round(Number(source.delayMs) || 0)
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(source)
+    })
+    groups.forEach(includeSourceGroup)
+  } else {
+    const origin = Array.isArray(options.origin)
+      ? options.origin.map(value => Number(value) || 0)
+      : [options.origin?.x || 0, options.origin?.y || 0, options.origin?.z || 0]
+    const charge = Math.max(0, Number(options.chargeKg) || 0)
+    const radius = Math.pow(charge, 1 / 3) * Math.pow(K / thresholdCmps, 1 / alpha)
+    estimatedRadius = radius
+    for (let axis = 0; axis < 3; axis++) {
+      min[axis] = Math.min(min[axis], origin[axis] - radius - padding)
+      max[axis] = Math.max(max[axis], origin[axis] + radius + padding)
+    }
+  }
+
+  const baseSpacing = [0, 1, 2].map(axis =>
+    Math.max((boundsMax[axis] - boundsMin[axis]) / (baseShape[axis] - 1), 1e-3)
+  )
+  let gridShape = [0, 1, 2].map(axis =>
+    Math.max(2, Math.round((max[axis] - min[axis]) / baseSpacing[axis]) + 1)
+  )
+  const maxVoxels = Math.max(8, Math.floor(Number(options.maxVoxels) || 60000))
+  let count = gridShape.reduce((product, value) => product * value, 1)
+  while (count > maxVoxels) {
+    const scale = Math.max(0.5, Math.cbrt(maxVoxels / count) * 0.98)
+    gridShape = gridShape.map(value => Math.max(2, Math.floor((value - 1) * scale) + 1))
+    count = gridShape.reduce((product, value) => product * value, 1)
+  }
+
+  return { boundsMin: min, boundsMax: max, gridShape, estimatedDamageRadius: estimatedRadius }
+}
+
+/**
+ * 计算指定时刻的 3D PPV 场 —— 多装药源矢量叠加（波场干涉，非单一同心圆）
+ *
+ * 物理模型：N 个装药源（对应掏槽/辅助/周边各炮孔的装药段）在不同位置、按各自
+ * delayMs 时序依次起爆。每个源发出一个球面波：
+ *
+ *   v_s(t) = K·(q_s^(1/3)/r_s)^α · exp(−(β+βv)·(t − delay_s − r_s/c̄)) · H(t − delay_s − r_s/c̄)
+ *
+ * 各源的瞬时质点速度是**矢量**：方向沿各自径向单位向量 u_s = (p − src_s)/r_s。
+ * 某点的总瞬时质点速度 = 各源波场矢量和：v(p,t) = Σ_s v_s(t)·u_s，
+ * 其模长 |v| 即为 PPV。由于各源位置分离、起爆时序错开，矢量和会产生
+ * 相长/相消干涉：掏槽孔在孔底汇拢处源间距离小时相长（核心高应力增强），
+ * 源间距离大或相位错开处出现干涉瓣——正是"多应力波叠加"的真实波场形态，
+ * 不再是一个药包中心的单一同心圆。σ_vm 由该 PPV 线性反演（computeStressFieldFromPpv），
+ * 故应力场同样呈现非同心、多源干涉的斑块结构。
+ *
+ * 空源（无装药孔）时退化为单源（源在 options.origin，缺省网格原点），
+ * 与 computePpvField3d 行为一致，保证向后兼容。
+ *
+ * @param {Float32Array} gridXyz - 网格坐标 (N×3)
+ * @param {number} t - 模拟时间(s)
+ * @param {Object} options - { K, alpha, beta, visualBeta, cp, visualCp, minStandoff,
+ *                            sources: [{x,y,z,chargeKg,delayMs}], origin }
+ * @param {Float32Array} [out] - 复用输出缓冲区
+ * @returns {Float32Array} PPV 数组（m/s）
+ */
+export function computeMultiSourcePpvField3d(gridXyz, t, options = {}, out = null) {
+  const sources = (options.sources || []).filter(s => Number(s.chargeKg) > 0)
+  if (sources.length === 0)
+    return computePpvField3d(gridXyz, options.chargeKg ?? 100, t, options, out)
+
+  const K = options.K ?? 200.0
+  const alpha = options.alpha ?? 1.5
+  const beta = options.beta ?? 0.02
+  const visualBeta = options.visualBeta ?? 0.8
+  const visualCp = options.visualCp ?? options.cp ?? 4500.0
+  const minStandoff = options.minStandoff ?? 0.5
+
+  const src = sources.map(s => ({
+    x: Number(s.x) || 0,
+    y: Number(s.y) || 0,
+    z: Number(s.z) || 0,
+    // 场计算用药量：优先取起爆段等效药量归一值（applyDelayGroupNormalization 写入），
+    // 缺省回退真实单孔药量（无归一数据时保持向后兼容）
+    chargeKg: Number(s.fieldChargeKg ?? s.chargeKg),
+    delay: (Number(s.delayMs) || 0) / 1000
+  }))
+
+  const nPoints = gridXyz.length / 3
+  const ppv = out ?? new Float32Array(nPoints)
+  const distTable = _getDistCache(gridXyz, src, minStandoff, visualCp)
+
+  for (let i = 0; i < nPoints; i++) {
+    const x = gridXyz[i * 3 + 0]
+    const y = gridXyz[i * 3 + 1]
+    const z = gridXyz[i * 3 + 2]
+    let vx = 0
+    let vy = 0
+    let vz = 0
+    for (let s = 0; s < src.length; s++) {
+      const srcS = src[s]
+      const dx = x - srcS.x
+      const dy = y - srcS.y
+      const dz = z - srcS.z
+      const r = distTable[s * nPoints + i] // 满足 t 时由缓存查表，省去每帧重复 sqrt
+      const arrival = srcS.delay + r / visualCp
+      if (t < arrival) continue // 该源波前未到达
+      const peak = sadoskyPpv(srcS.chargeKg, r, { K, alpha, minStandoff })
+      const a = peak * Math.exp(-(beta + visualBeta) * (t - arrival))
+      const inv = 1 / Math.max(r, 1e-6)
+      vx += a * dx * inv
+      vy += a * dy * inv
+      vz += a * dz * inv
+    }
+    ppv[i] = Math.sqrt(vx * vx + vy * vy + vz * vz)
+  }
+  return ppv
+}
+
+/**
+ * 由 PPV 场反演 von Mises 等效应力场（弹性球面波一阶近似）
+ * @param {Float32Array} ppv - PPV 场数组 (m/s)
+ * @param {Object} options - 岩体参数
+ * @param {number} [options.rho=2650] - 岩体密度(kg/m³)
+ * @param {number} [options.cp=4500] - 纵波速度(m/s)
+ * @param {number} [options.nu=0.25] - 泊松比
+ * @returns {Float32Array} σ_vm 等效应力场，单位 Pa
+ *
+ * 爆破应力波在岩体中产生两种破坏性应力（岩体爆破破坏/生成裂隙的机制）：
+ *   - 径向压应力 σ_rr = ρ·c_p·v_r（加载相，波阻抗关系）
+ *   - 切向拉应力 σ_θθ = ν/(1−ν)·σ_rr（切向受拉，方向与径向相反；σ_θθ≥σ_t
+ *     抗拉强度处产生径向裂隙，是爆破成缝的主因）
+ * von Mises：σ_1=σ_rr（压）、σ_2=σ_3=−σ_θθ（拉）→ σ_vm = σ_rr/(1−ν)
+ * 与后端 blast_physics.py::stress_field_from_ppv 完全一致。
+ *
+ * 适用范围与局限（弹性假设标注）：
+ *   - 弹性一阶近似，仅适用于中远场（r > 5R_charge，R_charge 为药包半径）；
+ *   - 近场（爆腔附近）存在塑性变形与卸载拉应力，弹性预测偏低，
+ *     需配合损伤分区（classifyDamageZones）修正理解。
+ *
+ * 理论依据：
+ *   - Hwang & Mohanty, Int. J. Rock Mech. Min. Sci., 2005（球面波应力-速度关系）
+ *   - 罗章喜, 爆炸与冲击 1982, 3:34-40（冲击波使岩石切向受拉）
+ *   - Wang X. et al., Processes 2023, 11(9):2805（σ_θ = −b·σ_r, b = ν/(1−ν)）
+ *   - 梁瑞等, 高压物理学报 2022, 36(6):064202（裂隙区径向压力+切向拉力，Mises 判据）
+ */
+export function computeStressFieldFromPpv(ppv, options = {}, out = null) {
+  const rho = options.rho ?? 2650.0
+  const cp = options.cp ?? 4500.0
+  const nu = options.nu ?? 0.25
+
+  const nPoints = ppv.length
+  const sigmaVm = out ?? new Float32Array(nPoints)
+
+  // σ_vm = ρ·c_p·v / (1−ν)——径向压 + 切向拉（幅值 ν/(1−ν)·σ_rr）的等效应力。
+  // 相比旧的弹性一维应变式 σ_vm=σ_rr·(1−2ν)/(1−ν)，本式体现了爆破破坏由
+  // 切向拉应力主导的力学机制，数值更贴近实测应力幅值。
+  const vmFactor = 1.0 / (1.0 - nu)
+
+  for (let i = 0; i < nPoints; i++) {
+    const ppv_i = ppv[i]
+    sigmaVm[i] = rho * cp * ppv_i * vmFactor
+  }
+
+  return sigmaVm
+}
+
+/**
+ * PPV 场分类为损伤分区（Persson 模型）
+ * @param {Float32Array} ppv - PPV 场数组 (m/s)
+ * @param {number[]} [thresholds] - 阈值数组 (cm/s)，默认 DAMAGE_THRESHOLDS_CMPS（Bauer-Calder/Persson 文献口径）
+ * @returns {Int8Array} 分区 id 数组：0~4，对应 elastic → crushed（粉碎区）
+ */
+export function classifyDamageZones(ppv, thresholds = DAMAGE_THRESHOLDS_CMPS, out = null) {
+  const nPoints = ppv.length
+  const zones = out ?? new Int8Array(nPoints)
+
+  for (let i = 0; i < nPoints; i++) {
+    const ppvCmps = ppv[i] * 100.0 // m/s → cm/s
+    let zone = 0
+    for (let t = 0; t < thresholds.length; t++) {
+      if (ppvCmps >= thresholds[t]) {
+        zone = t + 1
+      }
+    }
+    // 上限：≥last 阈值 → zone = len(thresholds) = 4，共 0~4 五级
+    zones[i] = zone
+  }
+
+  return zones
+}
+
+/**
+ * 按"该点波峰几何峰值 × 波前到达门控"计算损伤分区（与播放方向无关的确定性算法）
+ *
+ * 损伤是每个点经历过的最大 PPV 的不可逆判据。对时变衰减场 v(t)=peak·e^(−D(t−arrival))
+ * （单调递减），"经历过的峰值"到任意时刻 t（t≥arrival）都等于 full peak（到达时刻的值），
+ * 故分区 = digitize(峰值 cm/s)，仅以波前是否到达（t ≥ r/c̄）作门控；未到达编码为 -1，
+ * 以区别于已到达且低于最低损伤阈值的 zone 0。
+ *
+ * 相比"逐帧峰值累积"，本式是纯确定的：同一时刻 (r,t) 无论正放、回拉、拖进度条都得到
+ * 相同结果，修复"回拉进度条时损伤模式时序错乱"；并与后端默认经验模型的 DAMAGE 规则保持一致。
+ *
+ * @param {Float32Array} gridXyz - 网格坐标数组 (N×3)
+ * @param {number} chargeKg - 总装药量(kg)
+ * @param {number} t - 当前模拟时间(s)
+ * @param {Object} options - { K, alpha, minStandoff, visualCp, origin }（与 computePpvField3d 一致）
+ * @param {Int8Array} [out] - 复用输出缓冲区
+ * @returns {Int8Array} 分区 id 数组（-1=未分类，0~4=档位）
+ */
+export function computePeakDamageZones(gridXyz, chargeKg, t, options = {}, out = null) {
+  const K = options.K ?? LOCAL_SIM_DEFAULT_K
+  const alpha = options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA
+  const minStandoff = options.minStandoff ?? 0.5
+  const visualCp = options.visualCp ?? 35.0
+  const origin = options.origin ?? null
+  const ox = origin ? Number(origin[0]) || 0 : 0
+  const oy = origin ? Number(origin[1]) || 0 : 0
+  const oz = origin ? Number(origin[2]) || 0 : 0
+
+  const nPoints = gridXyz.length / 3
+  const zones = out ?? new Int8Array(nPoints)
+
+  for (let i = 0; i < nPoints; i++) {
+    const x = gridXyz[i * 3 + 0]
+    const y = gridXyz[i * 3 + 1]
+    const z = gridXyz[i * 3 + 2]
+    const dx = x - ox
+    const dy = y - oy
+    const dz = z - oz
+    const r = Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz), minStandoff)
+    // 波前未到达：未分类 sentinel，与已到达的弹性区 zone 0 区分。
+    if (t < r / visualCp) {
+      zones[i] = -1
+      continue
+    }
+    // 峰值 PPV（无时变衰减）→ cm/s → Persson 档位
+    const cm = sadoskyPpv(chargeKg, r, { K, alpha, minStandoff }) * 100.0
+    let zone = 0
+    for (let th = 0; th < DAMAGE_THRESHOLDS_CMPS.length; th++) {
+      if (cm >= DAMAGE_THRESHOLDS_CMPS[th]) zone = th + 1
+    }
+    zones[i] = zone
+  }
+
+  return zones
+}
+
+/**
+ * 多源模式损伤分区（**段等效单源标量场，段间取最大**，波前到达门控，确定性算法）
+ *
+ * 与单源 computePeakDamageZones 同语义：损伤是不可逆的峰值判据（无时间衰减）。
+ *
+ * 【口径】GB6722 微差爆破"最大段药量"+ 萨道夫斯基等效集中药包：同段各炮孔装药量
+ * 求和 Q_g、置于段内装药质心，按单源标量场 V=K(Q_g^(1/3)/R)^α 计算；段间取各段
+ * 包络的最大值——不同段波峰错峰到达，不可逆损伤峰值不跨段叠加。
+ *
+ * 【为什么不能逐源矢量叠加】K/α 经验公式是"等效集中药包"的标量峰值包络（回归数据
+ * 为实测合成振速，隐含单源假定）。把同段各炮孔拆成空间分布点源做径向矢量叠加，在
+ * 布孔尺度（掏槽环直径 ~1.6m）附近各孔波传播方向大幅分散、矢量和被系统性抵消
+ * （均匀圆环中心趋近 0），25 cm/s 损伤圈被压小一个数量级——标量经验公式误当矢量场
+ * 用的范畴错误。瞬时波场动画仍用逐源矢量叠加（computeMultiSourcePpvField3d，保留
+ * 多应力波干涉观感），两场口径分离、各自正确。与后端 damage_zone_field_3d_multi 同口径。
+ *
+ * 门控：该段波前（自装药质心）到达后才参与取最大；未分类点为 -1。
+ * 结果随 (t, 源几何) 确定，正放/回拉/拖进度条一致。空源时退化为单源。
+ *
+ * @param {Float32Array} gridXyz - 网格坐标 (N×3)
+ * @param {number} t - 当前模拟时间(s)
+ * @param {Object} options - { K, alpha, minStandoff, visualCp, sources }
+ * @param {Int8Array} [out] - 复用输出缓冲区
+ * @returns {Int8Array} 分区 id 数组（-1=未分类，0~4=档位）
+ */
+export function computeMultiSourcePeakDamageZones(gridXyz, t, options = {}, out = null) {
+  const sources = (options.sources || []).filter(s => Number(s.chargeKg) > 0)
+  if (sources.length === 0) {
+    return computePeakDamageZones(gridXyz, options.chargeKg ?? 100, t, options, out)
+  }
+
+  const K = options.K ?? LOCAL_SIM_DEFAULT_K
+  const alpha = options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA
+  const minStandoff = options.minStandoff ?? 0.5
+  const visualCp = options.visualCp ?? 35.0
+
+  // 段等效：按延时（ms 取整）分组。
+  // Q_g 在**振幅空间**求和：Q_g = (Σ q_i^(α/3))^(3/α) —— 与 applyDelayGroupNormalization
+  // /后端 delay_group_effective_charges 的"段内各源振幅之和 ≡ Q_g 单源振幅"归一口径
+  // 严格一致（直接 Σ q_i 会把等效药量低估一个立方根量级：8 孔×2.4kg 段会被算成
+  // 2.77kg 而非 19.2kg）。装药质心按真实药量加权。
+  const groups = new Map()
+  for (const s of sources) {
+    const q = Number(s.fieldChargeKg ?? s.chargeKg) || 0
+    if (!(q > 0)) continue
+    const key = Math.round(Number(s.delayMs) || 0)
+    let g = groups.get(key)
+    if (!g) {
+      g = { q: 0, p: 0, mx: 0, my: 0, mz: 0, delay: (Number(s.delayMs) || 0) / 1000 }
+      groups.set(key, g)
+    }
+    g.q += q
+    g.p += Math.pow(q, alpha / 3)
+    g.mx += q * (Number(s.x) || 0)
+    g.my += q * (Number(s.y) || 0)
+    g.mz += q * (Number(s.z) || 0)
+  }
+  const groupSrc = []
+  for (const g of groups.values()) {
+    groupSrc.push({
+      x: g.q > 0 ? g.mx / g.q : 0,
+      y: g.q > 0 ? g.my / g.q : 0,
+      z: g.q > 0 ? g.mz / g.q : 0,
+      chargeKg: g.p > 0 ? Math.pow(g.p, 3 / alpha) : 0, // 段等效药量（振幅空间反解）
+      delayMs: g.delay * 1000,
+      delay: g.delay // 秒（_distFingerprint 指纹与到达门控用）
+    })
+  }
+
+  const nPoints = gridXyz.length / 3
+  const zones = out ?? new Int8Array(nPoints)
+  // 段数 ≤ 源数：距离场缓存按段等效单源构建（复用同一 (点,段) 查表机制）
+  const distTable = _getDistCache(gridXyz, groupSrc, minStandoff, visualCp)
+
+  for (let i = 0; i < nPoints; i++) {
+    let cm = 0
+    let anyReady = false
+    for (let g = 0; g < groupSrc.length; g++) {
+      const gs = groupSrc[g]
+      const r = distTable[g * nPoints + i]
+      if (t < gs.delay + r / visualCp) continue // 该段波前未到（自装药质心）
+      anyReady = true
+      // 段等效单源标量峰值（无时变衰减）→ cm/s
+      const peak = sadoskyPpv(gs.chargeKg, r, { K, alpha, minStandoff }) * 100.0
+      if (peak > cm) cm = peak
+    }
+    if (!anyReady) {
+      zones[i] = -1
+      continue
+    }
+    let zone = 0
+    for (let th = 0; th < DAMAGE_THRESHOLDS_CMPS.length; th++) {
+      if (cm >= DAMAGE_THRESHOLDS_CMPS[th]) zone = th + 1
+    }
+    zones[i] = zone
+  }
+  return zones
+}
+
+/**
+ * 本地振动模拟器类，管理网格、逐帧更新、数据推送
+ */
+export class LocalVibrationSimulator {
+  /**
+   * @param {Object} options - 模拟参数
+   * @param {number} options.chargeKg - 总装药量(kg)
+   * @param {number} options.tunnelWidth - 隧道宽度(m)
+   * @param {number} options.tunnelHeight - 隧道总高度(m)
+   * @param {number} [options.lengthZ=40] - 轴向长度(m)
+   * @param {number} [options.nx=48] - X 网格数
+   * @param {number} [options.ny=48] - Y 网格数
+   * @param {number} [options.nz=72] - Z 网格数
+   *
+   *   分辨率说明（性能修复）：多装药源模式下，每帧需对 网格点数 × 源数 做同步
+   *   矢量叠加。原默认 96×96×192=177 万点·源/帧，会把主线程阻塞到秒级（动画卡死）。
+   *   现将默认降到 48×48×72=16.6 万点，且 (点,源) 的距离场由 _getDistCache 一次性
+   *   预计算、之后逐时刻重算直接查表（省去每次 nS×nPts 次的 sqrt）。热力图是光滑场，
+   *   该分辨率仍保留波场干涉形态，而每次全量重算耗时约降到原来的 1/5~1/7。
+   * @param {number} [options.K=30] - 萨道夫斯基 K（已针对隧道尺度可视化校准，见下方说明）
+   * @param {number} [options.alpha=1.5] - 萨道夫斯基 alpha
+   * @param {number} [options.beta=0.02] - 阻尼系数
+   * @param {number} [options.cp=4500] - 纵波速度
+   * @param {number} [options.rho=2650] - 岩体密度
+   * @param {number} [options.nu=0.25] - 泊松比
+   * @param {number[]} [options.origin] - 爆心在网格局部坐标系中的坐标 [x,y,z]（如掏槽孔质心
+   *                [x, y, faceOffset]），缺省 [0,0,0]
+   */
+  constructor(options) {
+    this.chargeKg = options.chargeKg ?? 100
+    this.tunnelWidth = options.tunnelWidth ?? 18
+    this.tunnelHeight = options.tunnelHeight ?? 15
+    this.lengthZ = options.lengthZ ?? 40
+    this.nx = options.nx ?? 48
+    this.ny = options.ny ?? 48
+    this.nz = options.nz ?? 72
+    // 爆心（网格局部坐标，缺省网格原点）——应力波/损伤从实际爆破位置（掏槽孔质心）扩散
+    this._origin = Array.isArray(options.origin) ? options.origin.map(Number) : null
+    // 多装药源：由实际炮孔布孔（楔形掏槽等）推算的装药源列表 [{x,y,z,chargeKg,delayMs}]。
+    // 提供时启用多源矢量叠加（多应力波干涉波场）；为空则退化为单源（原行为）。
+    this._sources = Array.isArray(options.sources) ? options.sources : null
+    // 显式边界（与 WS 网格对齐时传入；null 则按隧道尺寸推导对称边界）
+    this._explicitBounds =
+      options.boundsMin && options.boundsMax
+        ? { boundsMin: options.boundsMin, boundsMax: options.boundsMax }
+        : null
+
+    // 岩体与萨道夫斯基参数
+    // K 默认取 30（而非工程常用 200）：本体积盒尺度为隧道局部（宽度≤18m、纵深≤40m），
+    // 若 K=200，按 Q=100kg 计算即使盒最远角（≈42m）PPV 仍约 22 cm/s，远超 PPV 色阶上限
+    // 15 cm/s，导致整个体积盒饱和成一片红（用户看到的"红色方形"），应力/损伤也被淹没。
+    // K=30 时近爆心 PPV 仍达数十 cm/s（微裂纹/裂隙扩展区，红），远场衰减至 ~1 cm/s（蓝），
+    // 呈现"近红→中绿→远蓝"的球面梯度，使 PPV/应力/损伤三模式均能正确分级显示。
+    this.params = {
+      K: options.K ?? LOCAL_SIM_DEFAULT_K,
+      alpha: options.alpha ?? LOCAL_SIM_DEFAULT_ALPHA,
+      beta: options.beta ?? 0.02,
+      visualBeta: options.visualBeta ?? 0.8, // 可视化时变衰减（波峰回落实时速度）
+      cp: options.cp ?? 4500,
+      visualCp: options.visualCp ?? 35, // 波前可视传播速度（见 computePpvField3d 注释）
+      rho: options.rho ?? 2650,
+      nu: options.nu ?? 0.25,
+      minStandoff: 0.5,
+      // 爆心（掏槽孔质心）；computePpvField3d / computePeakDamageZones 均以该点为波源
+      origin: this._origin,
+      // 多装药源：提供时 computeAtTime 走多源矢量叠加（多应力波干涉波场）
+      sources: this._sources
+    }
+
+    // 预计算网格
+    const grid = buildPpvGrid(
+      this.tunnelWidth,
+      this.tunnelHeight,
+      this.lengthZ,
+      this.nx,
+      this.ny,
+      this.nz,
+      this._explicitBounds
+    )
+    this.gridXyz = grid.gridXyz
+    this.gridShape = grid.gridShape
+    this.boundsMin = grid.boundsMin
+    this.boundsMax = grid.boundsMax
+
+    // 缓存上一帧计算结果
+    this._lastT = -1
+    this._cachedPpv = null
+    this._cachedSigmaVm = null
+    this._cachedZones = null
+
+    // 预分配输出缓冲区（computeAtTime 每帧调用，避免 new Float32Array(65536)×2 + Int8Array(65536) 导致 GC 压力）
+    const nPoints = this.nx * this.ny * this.nz
+    this._ppvBuf = new Float32Array(nPoints)
+    this._sigmaBuf = new Float32Array(nPoints)
+    this._zoneBuf = new Int8Array(nPoints)
+  }
+
+  /** 获取网格信息（供渲染器初始化） */
+  getGridInfo() {
+    return {
+      gridShape: this.gridShape,
+      boundsMin: this.boundsMin,
+      boundsMax: this.boundsMax,
+      gridSampleMode: 'centers'
+    }
+  }
+
+  /**
+   * 计算指定时刻的三场数据（PPV/应力/损伤）
+   * @param {number} t - 模拟时间(s)
+   * @returns {Object} { ppv: Float32Array, sigmaVm: Float32Array, zones: Int8Array }
+   *          输出已按 WebGL 轴序（x-最快）排列，可直接传给 blastVibrationFieldRenderer
+   *
+   * 轴序说明：buildPpvGrid 生成的 gridXyz 已是 x-最快（zi 最外层、xi 最内层，
+   * idx = zi*ny*nx + yi*nx + xi），computePpvField3d / computeStressFieldFromPpv /
+   * classifyDamageZones 均逐点保持该顺序。该顺序与后端 pack_ppv_binary 中
+   * np.transpose(2,1,0) 后的 WebGL 布局完全一致，因此这里不能再调用 reorderForWebGL
+   * （它假设输入为 x-最慢），否则会二次转置导致数据错乱。
+   */
+  computeAtTime(t) {
+    // 全量计算（增量优化意义不大，网格不大，直接计算可保证精度）
+    // 复用预分配缓冲区，避免每帧 576KB 临时数组分配导致 GC 压力
+    const multi = Array.isArray(this.params.sources) && this.params.sources.length > 0
+    const ppv = multi
+      ? computeMultiSourcePpvField3d(this.gridXyz, t, this.params, this._ppvBuf)
+      : computePpvField3d(this.gridXyz, this.chargeKg, t, this.params, this._ppvBuf)
+    const sigmaVm = computeStressFieldFromPpv(ppv, this.params, this._sigmaBuf)
+    // 损伤分区：按"波峰几何峰值 × 波前到达门控"（computePeakDamageZones / 多源版）——
+    // 确定性算法，与播放方向无关：正放/回拉/拖进度条同一时刻结果一致，
+    // 波前到达点显示常驻五色分区；未到达点用 -1 表示未分类，拖动时间轴结果确定。
+    const zones = multi
+      ? computeMultiSourcePeakDamageZones(this.gridXyz, t, this.params, this._zoneBuf)
+      : computePeakDamageZones(this.gridXyz, this.chargeKg, t, this.params, this._zoneBuf)
+
+    this._lastT = t
+    this._cachedPpv = ppv
+    this._cachedSigmaVm = sigmaVm
+    this._cachedZones = zones
+
+    return { ppv, sigmaVm, zones }
+  }
+
+  /**
+   * 重设多装药源（切换爆破事件/炮孔布孔时调用）。
+   * 更新 params.sources 并使下一帧重算（清除缓存）。
+   * 传入空数组/null 则退化为单源模式。
+   * @param {Array|null} sources - [{x,y,z,chargeKg,delayMs}]
+   */
+  setSources(sources) {
+    this._sources = Array.isArray(sources) && sources.length > 0 ? sources : null
+    this.params.sources = this._sources
+    this._lastT = -1
+    this._cachedPpv = null
+    this._cachedSigmaVm = null
+  }
+
+  /** 是否已初始化 */
+  get isReady() {
+    return !!this.gridXyz && this.gridXyz.length > 0
+  }
+}
+
+/**
+ * 振动场计算 Web Worker 客户端
+ *
+ * 把 LocalVibrationSimulator 中最重的逐帧计算（多源矢量叠加 PPV/应力/损伤场）
+ * 卸载到 Worker 线程，避免主线程因"网格点数×源数×幂/指数"计算卡死动画。
+ * 使用 Transferable 零拷贝取回结果；同一时刻只允许一个 compute 请求在途，
+ * requestId 用于识别并丢弃过期的中途结果。
+ */
+export class VibrationComputeClient {
+  constructor() {
+    this._worker = null
+    this._simKey = null // 绑定的 sim 实例引用（识别是否需要重新 config）
+    this._configSig = null // 已下发 Worker 的物理参数签名（K/α/网格/源数），变化时重配
+  }
+
+  get isWorkerAvailable() {
+    return this._worker != null
+  }
+
+  /** 计算已下发配置的参数签名（K/α/介质/网格/源数；setSadoskyParams 原地改参后据此重配） */
+  _signature(sim) {
+    const p = sim.params
+    return [
+      sim.gridXyz ? sim.gridXyz.length : 0,
+      Number(p.K),
+      Number(p.alpha),
+      Number(p.beta),
+      Number(p.visualBeta),
+      Number(p.visualCp),
+      sim.chargeKg,
+      Array.isArray(p.sources) ? p.sources.length : 0
+    ].join('|')
+  }
+
+  /**
+   * 确保 Worker 已启动并为本 sim 配备好网格/参数（只在 sim 或参数变化时重新 config）。
+   * @param {LocalVibrationSimulator} sim
+   * @returns {boolean} Worker 是否就绪（不可用时返回 false，供调用方回退同步计算）
+   */
+  ensure(sim) {
+    if (!sim || !sim.gridXyz) return false
+    const sig = this._signature(sim)
+    if (this._worker && this._simKey === sim && this._configSig === sig) return true
+    if (!this._worker) {
+      try {
+        this._worker = new Worker(new URL('./vibrationComputeWorker.js', import.meta.url), {
+          type: 'module'
+        })
+      } catch (err) {
+        this._worker = null
+        console.warn('[VibrationComputeClient] Worker 启动失败，回退主线程计算', err)
+        return false
+      }
+    }
+    this._simKey = sim
+    this._configSig = sig
+    this._postConfig(sim)
+    return true
+  }
+
+  _postConfig(sim) {
+    // params 深拷贝一份发给 Worker（worker 侧不可变）；含 sources（多装药源）与萨道夫斯基参数
+    const params = {
+      ...sim.params,
+      sources: Array.isArray(sim.params.sources) ? sim.params.sources.map(s => ({ ...s })) : null,
+      origin: sim.params.origin ? sim.params.origin.slice() : null
+    }
+    this._worker.postMessage({
+      type: 'config',
+      gridXyz: sim.gridXyz,
+      params,
+      chargeKg: sim.chargeKg
+    })
+    // 注意：gridXyz 故意不进行 Transferable 转移——主线程 sim 仍需自身 gridXyz
+    // 做同步回退计算(computeAtTime)，转移会 detach 主线程侧缓冲。仅每次 sim 变化
+    // config 一次，结构化克隆 3D 坐标（~数 MB）开销可忽略。
+  }
+
+  /**
+   * 请求计算某时刻三场数据（异步）。
+   * @param {number} t - 模拟时间(s)
+   * @param {number} requestId - 调用方自增 id，用于在回调中丢弃过期结果
+   * @returns {Promise<{ppv:Float32Array,sigmaVm:Float32Array,zones:Int8Array,t:number,requestId:number}> | null}
+   */
+  compute(t, requestId) {
+    if (!this._worker) return null
+    return new Promise(resolve => {
+      const handler = e => {
+        const d = e.data
+        if (!d || d.type !== 'result') return
+        if (d.requestId !== requestId) return // 过期结果，丢弃
+        this._worker.removeEventListener('message', handler)
+        this._worker.removeEventListener('error', handler)
+        resolve({ ppv: d.ppv, sigmaVm: d.sigmaVm, zones: d.zones, t: d.t, requestId: d.requestId })
+      }
+      const error = err => {
+        this._worker.removeEventListener('message', handler)
+        resolve(null) // 计算失败回退：调用方应自行兜底
+        console.warn('[VibrationComputeClient] Worker 计算错误', err)
+      }
+      this._worker.addEventListener('message', handler)
+      this._worker.addEventListener('error', error)
+      this._worker.postMessage({ type: 'compute', t, requestId })
+    })
+  }
+
+  /** 丢弃未决结果并断开 Worker（场景重建/销毁时调用） */
+  dispose() {
+    if (this._worker) {
+      this._worker.terminate()
+      this._worker = null
+    }
+    this._simKey = null
+  }
+}
+
+/**
+ * 振动传播粒子系统（粒子跟随波前扩散，增强可视化效果）
+ * 每个粒子沿径向从爆心向外运动，速度接近纵波速度，存活时间与波前位置匹配
+ */
+export class VibrationParticleSystem {
+  /**
+   * @param {number} maxParticles - 最大粒子数
+   */
+  constructor(maxParticles = 500) {
+    this.maxParticles = maxParticles
+    this.particles = [] // { x, y, z, vx, vy, vz, birthT, lifetime, size, alpha }
+    this._rng = Math.random
+  }
+
+  /**
+   * 在爆心附近发射一批粒子，沿径向扩散
+   * @param {number} t - 当前发射时间
+   * @param {number} count - 发射数量
+   * @param {number} _cp - 纵波速度(m/s)（未使用，保留用于API一致性）
+   */
+  emitBurst(t, count, _cp = 4500) {
+    // 视觉速度：波前粒子用于可视化，与热力图波前可视速度（visualCp≈35m/s）匹配，
+    // 使粒子始终跟随波前在视野内扩散，形成可见的振动传播效果。
+    const visualSpeed = 35 + 15 * this._rng() // 35~50 m/s
+    for (let i = 0; i < count && this.particles.length < this.maxParticles; i++) {
+      // 均匀采样球面方向
+      const theta = this._rng() * 2 * Math.PI
+      const phi = Math.acos(2 * this._rng() - 1)
+      const speed = visualSpeed * (0.8 + 0.4 * this._rng()) // 散射
+      const vx = speed * Math.sin(phi) * Math.cos(theta)
+      const vy = speed * Math.sin(phi) * Math.sin(theta)
+      const vz = speed * Math.cos(phi)
+
+      // 从爆心（原点）附近发射
+      const r0 = 0.5 + 2 * this._rng() // 0.5~2.5m 初始半径
+      const x0 = r0 * Math.sin(phi) * Math.cos(theta)
+      const y0 = r0 * Math.sin(phi) * Math.sin(theta)
+      const z0 = r0 * Math.cos(phi)
+
+      this.particles.push({
+        x: x0,
+        y: y0,
+        z: z0,
+        vx,
+        vy,
+        vz,
+        birthT: t,
+        lifetime: 1.5 + 1.5 * this._rng(), // 存活 1.5~3s，覆盖整个体积盒扩散过程
+        size: 3.0 + 8.0 * this._rng(), // 像素大小（点精灵）
+        alpha: 0.6 + 0.4 * this._rng()
+      })
+    }
+  }
+
+  /**
+   * 更新粒子位置，淘汰过期粒子
+   * @param {number} t - 当前时间(s)
+   * @param {number} dt - 时间步长(s)
+   */
+  update(t, dt) {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i]
+      const age = t - p.birthT
+      if (age > p.lifetime) {
+        this.particles.splice(i, 1)
+        continue
+      }
+      // 简单匀速运动（阻尼可忽略，粒子寿命很短）
+      p.x += p.vx * dt
+      p.y += p.vy * dt
+      p.z += p.vz * dt
+      // alpha 随年龄衰减
+      p.alpha = (1 - age / p.lifetime) * p.alpha
+    }
+  }
+
+  /** 清除所有粒子 */
+  clear() {
+    this.particles.length = 0
+  }
+
+  /** 获取当前活跃粒子 */
+  get activeParticles() {
+    return this.particles
+  }
+}
+
+/**
+ * 波动相位子波的品质因数：双分量 cos/sin 共用，按 Q 指数衰减。
+ * 与 GPU 岩面着色器的 `#define WAVELET_Q 12.0`（sceneBuilder）同值同口径——
+ * 时程曲线与热力图必须用同一套子波，否则"曲线峰值/形态"与"图上色带"对不上。
+ */
+export const MONITOR_WAVELET_Q = 12.0
+
+/**
+ * 计算"某点随时间的振动时程"（探测点 / 监测点用），返回可直接绘图的序列。
+ *
+ * 物理口径与 GPU 岩面着色器（sceneBuilder 的 BENCH_FIELD_FRAGMENT_SHADER）严格一致：
+ * 各装药源按"径向单位向量 × 质点速度"矢量叠加，瞬时量取三分量合成的模长：
+ *   coef = K·q^(α/3)·0.01
+ *   gap  = t − (delay_s + r / visualCp)
+ *   osc  = carrierHz>0 ? sin(2πf·gap)·e^(−πf·gap/Q) : 1     （carrierHz=0 → 纯包络）
+ *   a    = coef·r^(−α)·e^(−(β+βv)·gap)·osc
+ *   v(t) = Σ û_s·a_s ，  |v| = 模长
+ *
+ * 同时输出各分量 vx/vy/vz（供三分量曲线）与全时程峰值 ppv（**不含载波**的包络峰值，
+ * 与损伤分区判据同口径），便于把曲线与热力图逐点对照。
+ *
+ * @param {number[]} point - 采样点 grid 局部坐标 [x,y,z]
+ * @param {Array} sources - 装药源 [{x,y,z,chargeKg,delayMs}]
+ * @param {Float32Array|number[]} times - 采样时刻序列（秒）
+ * @param {Object} [options] - { K, alpha, beta, visualBeta, visualCp, carrierHz, minStandoff }
+ * @returns {{t,vx,vy,vz,vmag:Float32Array, ppv:number, peakT:number}}
+ */
+export function computeMonitorTimeHistory(point, sources, times, options = {}) {
+  const K = Number(options.K) || LOCAL_SIM_DEFAULT_K
+  const alpha = Number(options.alpha) || LOCAL_SIM_DEFAULT_ALPHA
+  const beta = Number(options.beta) || 0.02
+  const visualBeta = Number(options.visualBeta) || 0.8
+  const visualCp = Number(options.visualCp) || 35
+  const minStandoff = Number(options.minStandoff) || 0.5
+  const carrierHz = Number(options.carrierHz) > 0.5 ? Number(options.carrierHz) : 0
+
+  const src = (sources || [])
+    .filter(s => Number(s.chargeKg) > 0)
+    .map(s => ({
+      x: Number(s.x) || 0,
+      y: Number(s.y) || 0,
+      z: Number(s.z) || 0,
+      delay: (Number(s.delayMs) || 0) / 1000,
+      coef: K * Math.pow(Number(s.chargeKg), alpha / 3) * 0.01
+    }))
+
+  const n = times.length
+  const t = new Float32Array(n)
+  const vx = new Float32Array(n)
+  const vy = new Float32Array(n)
+  const vz = new Float32Array(n)
+  const vmag = new Float32Array(n)
+  const invCp = 1 / Math.max(visualCp, 1e-3)
+  // 显示时变衰减与峰值判据衰减分离（同 shader：uDisplayDecay / β+uPpvVisualBeta）
+  const displayDecay =
+    Number(options.displayDecay) > 0 ? Number(options.displayDecay) : beta + visualBeta
+  const peakDecay = beta + visualBeta
+  const twoPiF = 2 * Math.PI * carrierHz
+  const envDecay = carrierHz > 0 ? (Math.PI * carrierHz) / MONITOR_WAVELET_Q : 0
+  const px = Number(point?.[0]) || 0
+  const py = Number(point?.[1]) || 0
+  const pz = Number(point?.[2]) || 0
+
+  let ppv = 0
+  let peakT = 0
+  for (let ti = 0; ti < n; ti++) {
+    const time = times[ti]
+    t[ti] = time
+    let sx = 0
+    let sy = 0
+    let sz = 0
+    // 包络分量（不含载波）：峰值判据与损伤分区同口径
+    let mx = 0
+    let my = 0
+    let mz = 0
+    for (let s = 0; s < src.length; s++) {
+      const ss = src[s]
+      const dx = px - ss.x
+      const dy = py - ss.y
+      const dz = pz - ss.z
+      const r = Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz), minStandoff)
+      const gap = time - (ss.delay + r * invCp)
+      if (gap <= 0) continue
+      // 瞬时分量：用显示衰减（与 shader uDisplayDecay 同口径 → 与热力图逐帧一致）
+      const envDisp = ss.coef * Math.pow(r, -alpha) * Math.exp(-displayDecay * gap)
+      // 峰值包络：用峰值判据衰减（与损伤分区同口径）
+      const envPeak = ss.coef * Math.pow(r, -alpha) * Math.exp(-peakDecay * gap)
+      const osc = carrierHz > 0 ? Math.sin(twoPiF * gap) * Math.exp(-envDecay * gap) : 1
+      const a = envDisp * osc
+      const inv = 1 / Math.max(r, 1e-6)
+      sx += a * dx * inv
+      sy += a * dy * inv
+      sz += a * dz * inv
+      mx += envPeak * dx * inv
+      my += envPeak * dy * inv
+      mz += envPeak * dz * inv
+    }
+    vx[ti] = sx
+    vy[ti] = sy
+    vz[ti] = sz
+    vmag[ti] = Math.sqrt(sx * sx + sy * sy + sz * sz)
+    const pm = Math.sqrt(mx * mx + my * my + mz * mz)
+    if (pm > ppv) {
+      ppv = pm
+      peakT = time
+    }
+  }
+  return { t, vx, vy, vz, vmag, ppv, peakT }
+}
+
+/**
+ * 计算岩面顶点集上的**瞬时质点振速场** |v(t)|（时间相关），供热力图动态满量程统计。
+ *
+ * 与岩面着色器（sceneBuilder 的 BENCH_FIELD_FRAGMENT_SHADER）严格同口径：
+ *   对每个装药源 s（按延时升序）：
+ *     r_s   = max(|p − p_s|, minStandoff)
+ *     arr_s = delay_s + r_s / visualCp
+ *     gap_s = t − arr_s
+ *     amp_s = gap_s > 0 ? smoothstep(0, arrivalRise, gap_s)·w_s·r_s^(−α)·e^(−D·gap_s) : 0
+ *     （D = β + β_visual，w_s = K·q_s^(α/3)·0.01；carrierHz>0 时再乘 cos/sin 载波包络）
+ *     accE += û_s·amp_s·oscC ，accQ += û_s·amp_s·oscS
+ *   |v(t)| = √(|accE|²+|accQ|²) × axialGain(p − origin)
+ *
+ * 与 computeSurfacePeakField 的区别：本函数依赖当前模拟时间 t，逐帧变化 ——
+ * 与热力图显示的瞬时场完全同源（同一时刻同一位置的值一致）。
+ * 峰值场仅用于点拾取的损伤分区判据（包络峰值，与载波无关）。
+ *
+ * @param {Float32Array|number[]} surfaceXyz - 岩面顶点坐标（grid 局部系，N×3）
+ * @param {Object} options - { t, K, alpha, beta, visualBeta, visualCp, minStandoff,
+ *                             arrivalRise, carrierHz, sources, origin, lateralAttn, chargeKg }
+ * @returns {Float32Array} 每顶点瞬时 |v|（m/s）
+ */
+export function computeSurfaceInstantField(surfaceXyz, options = {}) {
+  const t = Number(options.t) || 0
+  // 与 computeSurfacePeakField 同口径回退（调用方 blastingManager 始终显式传 K/α）
+  const K = Number(options.K) || LOCAL_SIM_DEFAULT_K
+  const alpha = Number(options.alpha) || LOCAL_SIM_DEFAULT_ALPHA
+  const beta = Number(options.beta) || 0.02
+  const visualBeta = Number(options.visualBeta) || 0.8
+  // 显示时变衰减(1/s)：与 shader 的 uDisplayDecay 同口径。缺省退回 β+β_visual
+  // （旧口径：亮带很厚、看不出行波；显式给 displayDecay 时呈薄亮环向外推进）。
+  const displayDecay =
+    Number(options.displayDecay) > 0 ? Number(options.displayDecay) : beta + visualBeta
+  const visualCp = Number(options.visualCp) || 35
+  const minStandoff = Number(options.minStandoff) || 0.5
+  const lateralAttn = Number(options.lateralAttn) > 0 ? Number(options.lateralAttn) : 0.95
+  const arrivalRise = Number(options.arrivalRise) >= 0 ? Number(options.arrivalRise) : 0.25
+  const carrierHz = Number(options.carrierHz) > 0.5 ? Number(options.carrierHz) : 0
+  const o = options.origin || [0, 0, 0]
+  const ox = Number(o[0]) || 0
+  const oy = Number(o[1]) || 0
+  const oz = Number(o[2]) || 0
+  const decay = displayDecay
+  const invCp = 1 / Math.max(visualCp, 1e-3)
+  const twoPiF = 2 * Math.PI * carrierHz
+  const envDecay = carrierHz > 0 ? (Math.PI * carrierHz) / MONITOR_WAVELET_Q : 0
+  const smoothstep = (e0, e1, x) => {
+    const u = Math.min(1, Math.max(0, (x - e0) / Math.max(e1 - e0, 1e-9)))
+    return u * u * (3 - 2 * u)
+  }
+  // 轴向延展（与 shader axialGain 同式）：越贴近隧道轴向能量衰减少
+  const axialGain = (px, py, pz) => {
+    const len = Math.sqrt(px * px + py * py + pz * pz) || 1
+    return lateralAttn + (1 - lateralAttn) * smoothstep(0, 0.55, Math.abs(pz / len))
+  }
+
+  const src = (options.sources || [])
+    .filter(s => Number(s.chargeKg) > 0)
+    .map(s => ({
+      x: Number(s.x) || 0,
+      y: Number(s.y) || 0,
+      z: Number(s.z) || 0,
+      delay: (Number(s.delayMs) || 0) / 1000,
+      // 场计算用药量：起爆段等效药量归一值（applyDelayGroupNormalization），缺省回退真实药量
+      coef: K * Math.pow(Number(s.fieldChargeKg ?? s.chargeKg), alpha / 3) * 0.01
+    }))
+  if (src.length === 0) {
+    const q = Math.max(0.001, Number(options.chargeKg) || 100)
+    src.push({ x: ox, y: oy, z: oz, delay: 0, coef: K * Math.pow(q, alpha / 3) * 0.01 })
+  }
+  src.sort((a, b) => a.delay - b.delay)
+
+  const nPoints = Math.floor(surfaceXyz.length / 3)
+  const out = new Float32Array(nPoints)
+  for (let i = 0; i < nPoints; i++) {
+    const px = surfaceXyz[i * 3]
+    const py = surfaceXyz[i * 3 + 1]
+    const pz = surfaceXyz[i * 3 + 2]
+    let ex = 0
+    let ey = 0
+    let ez = 0
+    let qx = 0
+    let qy = 0
+    let qz = 0
+    for (let s = 0; s < src.length; s++) {
+      const ss = src[s]
+      const dx = px - ss.x
+      const dy = py - ss.y
+      const dz = pz - ss.z
+      const r = Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz), minStandoff)
+      const gap = t - (ss.delay + r * invCp)
+      if (gap <= 0) continue
+      const amp =
+        smoothstep(0, arrivalRise, gap) * ss.coef * Math.pow(r, -alpha) * Math.exp(-decay * gap)
+      const inv = 1 / r
+      if (carrierHz > 0) {
+        const w = Math.exp(-envDecay * gap)
+        const oc = amp * Math.cos(twoPiF * gap) * w
+        const os = amp * Math.sin(twoPiF * gap) * w
+        ex += dx * inv * oc
+        ey += dy * inv * oc
+        ez += dz * inv * oc
+        qx += dx * inv * os
+        qy += dy * inv * os
+        qz += dz * inv * os
+      } else {
+        ex += dx * inv * amp
+        ey += dy * inv * amp
+        ez += dz * inv * amp
+      }
+    }
+    const mps = Math.sqrt(ex * ex + ey * ey + ez * ez + qx * qx + qy * qy + qz * qz)
+    out[i] = mps * axialGain(px - ox, py - oy, pz - oz)
+  }
+  return out
+}
+
+/**
+ * 计算岩面顶点集上的**峰值 PPV 场**（时间无关）与波前到达时刻，供点拾取损伤判据。
+ *
+ * 供本地场点/岩面查询使用的解析峰值场；DAMAGE 着色已改为消费分类器纹理，不再依赖此函数。
+ *   peak(p)    = 按起爆段取最大：同段矢量叠加，段间取 max_g |B_g|；
+ *                最后乘轴向延展 agn(p−origin)。
+ *   arrival(p) = min_s (delay_s + r_s / visualCp)
+ * 其中 w_s = K·q_eff,s^(α/3)·0.01（q_eff,s 为起爆段等效药量归一值，见 applyDelayGroupNormalization）。
+ * 【历史注记】曾用"时域错峰叠加（杨年华 2012）"并带可视化衰减 D=β+β_visual：该衰减
+ * 时间常数（τ≈1.2s）远大于段间隔（75ms），跨段波峰实际被错误累加，峰值仍被放大
+ * ≈段数倍。现按规范直接取各段最大，波峰错峰不叠加。
+ *
+ * 【与 GPU 的两处刻意差异（必须保持一致，否则 CPU 场与热力图色带错位）】
+ *   ① 不施加洞身遮挡 occ：GPU 侧已禁用（其圆柱切线投影会在岩面留下 X 形伪影），
+ *      此处同样取 occ ≡ 1；
+ *   ② 不施加工程级 SDF 轮廓放大（GPU 无此项）。
+ *
+ * 峰值场与时间无关 → 每个事件/参数只需算一次。
+ *
+ * @param {Float32Array|number[]} surfaceXyz - 岩面顶点坐标（grid 局部系，N×3）
+ * @param {Object} options - { K, alpha, visualCp, minStandoff,
+ *                             sources, origin, lateralAttn, chargeKg, influenceRadius }
+ * @returns {{peak:Float32Array, arrival:Float32Array}}
+ */
+export function computeSurfacePeakField(surfaceXyz, options = {}) {
+  const K = Number(options.K) || LOCAL_SIM_DEFAULT_K
+  const alpha = Number(options.alpha) || LOCAL_SIM_DEFAULT_ALPHA
+  const visualCp = Number(options.visualCp) || 35
+  const minStandoff = Number(options.minStandoff) || 0.5
+  const lateralAttn = Number(options.lateralAttn) > 0 ? Number(options.lateralAttn) : 0.95
+  const o = options.origin || [0, 0, 0]
+  const ox = Number(o[0]) || 0
+  const oy = Number(o[1]) || 0
+  const oz = Number(o[2]) || 0
+  const invCp = 1 / Math.max(visualCp, 1e-3)
+  const smoothstep = (e0, e1, x) => {
+    const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)))
+    return t * t * (3 - 2 * t)
+  }
+  // 轴向延展（与 shader axialGain 同式）：越贴近隧道轴向能量衰减少
+  const axialGain = (px, py, pz) => {
+    const len = Math.sqrt(px * px + py * py + pz * pz) || 1
+    return lateralAttn + (1 - lateralAttn) * smoothstep(0, 0.55, Math.abs(pz / len))
+  }
+
+  const src = (options.sources || [])
+    .filter(s => Number(s.chargeKg) > 0)
+    .map(s => ({
+      x: Number(s.x) || 0,
+      y: Number(s.y) || 0,
+      z: Number(s.z) || 0,
+      delay: (Number(s.delayMs) || 0) / 1000,
+      // 场计算用药量：起爆段等效药量归一值（applyDelayGroupNormalization），缺省回退真实药量
+      coef: K * Math.pow(Number(s.fieldChargeKg ?? s.chargeKg), alpha / 3) * 0.01
+    }))
+  if (src.length === 0) {
+    // 单源退化：源在 origin，取总装药量（与 shader `uSourceCount<1` 分支一致）
+    const q = Math.max(0.001, Number(options.chargeKg) || 100)
+    src.push({ x: ox, y: oy, z: oz, delay: 0, coef: K * Math.pow(q, alpha / 3) * 0.01 })
+  }
+  // 【关键】必须按延时升序：起爆段分组边界判定依赖它（shader 侧由 JS 排序保证）
+  src.sort((a, b) => a.delay - b.delay)
+  // 起爆段分组（同延时 ms 取整 = 同段同时起爆；与 computeMultiSourcePeakDamageZones 同口径）
+  const groupOf = new Int32Array(src.length)
+  const groupKeys = []
+  for (let s = 0; s < src.length; s++) {
+    const key = Math.round(src[s].delay * 1000)
+    let gi = groupKeys.indexOf(key)
+    if (gi < 0) {
+      gi = groupKeys.length
+      groupKeys.push(key)
+    }
+    groupOf[s] = gi
+  }
+  const nG = groupKeys.length
+
+  const nPoints = Math.floor(surfaceXyz.length / 3)
+  const peak = new Float32Array(nPoints)
+  const arrival = new Float32Array(nPoints).fill(Infinity)
+  const gAcc = new Float64Array(nG * 3)
+  for (let i = 0; i < nPoints; i++) {
+    const px = surfaceXyz[i * 3]
+    const py = surfaceXyz[i * 3 + 1]
+    const pz = surfaceXyz[i * 3 + 2]
+    gAcc.fill(0)
+    let best = 0
+    let arr = Infinity
+    for (let s = 0; s < src.length; s++) {
+      const ss = src[s]
+      const dx = px - ss.x
+      const dy = py - ss.y
+      const dz = pz - ss.z
+      const r = Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz), minStandoff)
+      const ta = ss.delay + r * invCp
+      if (ta < arr) arr = ta
+      const amp = ss.coef * Math.pow(r, -alpha)
+      const inv = 1 / Math.max(r, 1e-6)
+      const gi = groupOf[s]
+      gAcc[gi * 3] += dx * inv * amp
+      gAcc[gi * 3 + 1] += dy * inv * amp
+      gAcc[gi * 3 + 2] += dz * inv * amp
+    }
+    // 段内矢量叠加（同段同相）→ 段幅值；段间取最大（错峰不叠加，规范最大段药量口径）
+    for (let g = 0; g < nG; g++) {
+      const ax = gAcc[g * 3]
+      const ay = gAcc[g * 3 + 1]
+      const az = gAcc[g * 3 + 2]
+      const mag = Math.sqrt(ax * ax + ay * ay + az * az)
+      if (mag > best) best = mag
+    }
+    peak[i] = best * axialGain(px - ox, py - oy, pz - oz)
+    arrival[i] = arr
+  }
+  return { peak, arrival }
 }
 
 export default {
@@ -129,19 +1480,12 @@ export default {
   computePeakDamageZones,
   resolveChargePosition,
   buildChargeSources,
-  normalizeReflections,
-  expandSourcesWithReflections,
+  applyDelayGroupNormalization,
   computeMultiSourcePpvField3d,
   computeMultiSourcePeakDamageZones,
-  computeMultiSourcePeakField3d,
-  computePeakField3d,
-  nearFieldRadius,
-  cavityRadius,
-  nearFieldGain,
-  computeSurfacePeakField,
   computeMonitorTimeHistory,
-  computePointVector,
-  computePpvDecayProfile,
+  computeSurfacePeakField,
+  computeSurfaceInstantField,
   LocalVibrationSimulator,
   VibrationParticleSystem,
   VibrationComputeClient

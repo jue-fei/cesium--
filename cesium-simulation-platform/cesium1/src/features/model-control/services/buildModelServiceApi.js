@@ -13,6 +13,8 @@ export function buildModelServiceApi({
   globeBackFaceAlpha,
   onConfigChange,
   interaction,
+  toggleFollowModel,
+  followedModelId,
   fitToModel,
   resetView,
   resetModel,
@@ -55,6 +57,7 @@ export function buildModelServiceApi({
     globeBackFaceAlpha,
     onConfigChange,
     toggleModelVisibility: model => interaction.toggleModelVisibility(model),
+    setModelsVisibility: (models, visible) => interaction.setModelsVisibility(models, visible),
     updateModelOpacity: model => interaction.updateModelOpacity(model),
     updateGlobalOpacity: newOpacity => {
       globalOpacity.value = Number(newOpacity)
@@ -76,6 +79,8 @@ export function buildModelServiceApi({
       selectedModel.value = model
     },
     highlightModel: model => interaction.highlightModel(model),
+    toggleFollowModel,
+    followedModelId,
     showModelProperties: model => {
       selectedModel.value = model
     },

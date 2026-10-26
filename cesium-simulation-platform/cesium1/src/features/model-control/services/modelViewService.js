@@ -1,4 +1,5 @@
 import { flyToUndergroundView } from './undergroundView.js'
+import { surfaceAnchorLocal } from './modelTransform.js'
 
 export function applyUndergroundView({
   undergroundViewController,
@@ -120,6 +121,28 @@ export function resetModel({
 }) {
   if (!tilesetRef.value || !runtimeState.originalModelMatrix) return
   measurement.clearHistoryVisualization()
+
+  // 自带地表锚点的模型（阿舍勒聚合 tileset）：
+  // 重置目标 = 加载时的初始锚点（而不是 demo 的 DEFAULT_POSITION——
+  // 那会把相对偏移算出 -878m，模型直接坠回原点）。
+  if (surfaceAnchorLocal(tilesetRef.value) && runtimeState.initialPosition) {
+    const resetPosition = { ...runtimeState.initialPosition }
+    const resetTransform = { rotationX: 0, rotationY: 0, rotationZ: 0 }
+    applyModelTransform(
+      tilesetRef.value,
+      runtimeState.originalModelMatrix,
+      resetPosition,
+      resetTransform,
+      runtimeState.originalBoundingSphereCenter
+    )
+    runtimeState.currentTransform = { ...resetTransform }
+    modelPosition.value = resetPosition
+    modelTransform.value = { ...resetTransform }
+    syncUndergroundViewIfNeeded()
+    showOperationMessage('模型已重置到初始位置', 'success')
+    return
+  }
+
   applyModelTransform(
     tilesetRef.value,
     runtimeState.originalModelMatrix,

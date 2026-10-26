@@ -1,99 +1,1780 @@
 {
-  "_说明": "现场调度（井下LHD出矿）场景配置 —— 单一事实来源：后端仿真器与前端渲染/算法均从此文件构建。新增/替换巷道、装载点、设备、分层、布局只需修改本文件，无需改代码。复制本文件为 scenario_<新场景名>.json 即可新增一个场景。",
-  "scenario": "underground-LHD-ashale",
-  "engine": "井下LHD巷道调度仿真",
-
-  "nodeDump": "S0",
-  "tunnelNodes": ["S0", "N1", "N2", "N3", "M1", "N5", "N4", "M2", "N6", "M3", "N7", "M4", "S1"],
-
-  "segments": [
-    { "id": "SEG-01", "a": "S0", "b": "N1", "lengthM": 180, "clearWidthM": 4.8, "clearHeightM": 4.0, "maxGradePct": 8.0, "minTurnRadiusM": 30.0, "smokeBad": false, "rockburstTend": 0.15, "type": "主运输巷" },
-    { "id": "SEG-02", "a": "N1", "b": "N2", "lengthM": 150, "clearWidthM": 4.8, "clearHeightM": 4.0, "maxGradePct": 9.0, "minTurnRadiusM": 26.0, "smokeBad": false, "rockburstTend": 0.20, "type": "主运输巷" },
-    { "id": "SEG-03", "a": "N2", "b": "N3", "lengthM": 160, "clearWidthM": 4.8, "clearHeightM": 4.0, "maxGradePct": 10.0, "minTurnRadiusM": 24.0, "smokeBad": false, "rockburstTend": 0.25, "type": "主运输巷" },
-    { "id": "SEG-04", "a": "M1", "b": "N5", "lengthM": 140, "clearWidthM": 4.8, "clearHeightM": 4.0, "maxGradePct": 9.0, "minTurnRadiusM": 25.0, "smokeBad": false, "rockburstTend": 0.22, "type": "主运输巷" },
-    { "id": "SEG-05", "a": "S0", "b": "N4", "lengthM": 200, "clearWidthM": 4.4, "clearHeightM": 3.8, "maxGradePct": 12.0, "minTurnRadiusM": 16.0, "smokeBad": false, "rockburstTend": 0.30, "type": "中段斜坡道" },
-    { "id": "SEG-06", "a": "N4", "b": "N5", "lengthM": 120, "clearWidthM": 4.4, "clearHeightM": 3.8, "maxGradePct": 11.0, "minTurnRadiusM": 15.0, "smokeBad": false, "rockburstTend": 0.28, "type": "中段斜坡道" },
-    { "id": "SEG-07", "a": "N3", "b": "M2", "lengthM": 150, "clearWidthM": 4.4, "clearHeightM": 3.8, "maxGradePct": 12.0, "minTurnRadiusM": 15.0, "smokeBad": false, "rockburstTend": 0.32, "type": "中段斜坡道" },
-    { "id": "SEG-08", "a": "N2", "b": "M1", "lengthM": 90, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 20.0, "minTurnRadiusM": 9.0, "smokeBad": true, "rockburstTend": 0.45, "type": "采场出矿道" },
-    { "id": "SEG-09", "a": "N5", "b": "M2", "lengthM": 85, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 13.0, "minTurnRadiusM": 8.0, "smokeBad": false, "rockburstTend": 0.40, "type": "采场出矿道" },
-    { "id": "SEG-10", "a": "M3", "b": "N6", "lengthM": 80, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 13.5, "minTurnRadiusM": 7.5, "smokeBad": true, "rockburstTend": 0.50, "type": "采场出矿道" },
-    { "id": "SEG-11", "a": "N6", "b": "M4", "lengthM": 70, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 20.0, "minTurnRadiusM": 9.0, "smokeBad": true, "rockburstTend": 0.48, "type": "采场出矿道" },
-    { "id": "SEG-12", "a": "N3", "b": "N6", "lengthM": 110, "clearWidthM": 4.0, "clearHeightM": 3.4, "maxGradePct": 14.0, "minTurnRadiusM": 7.0, "smokeBad": true, "rockburstTend": 0.78, "type": "高应力修复段" },
-    { "id": "SEG-13", "a": "N7", "b": "M3", "lengthM": 95, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 12.5, "minTurnRadiusM": 8.5, "smokeBad": true, "rockburstTend": 0.70, "type": "采场出矿道" },
-    { "id": "SEG-14", "a": "S1", "b": "N7", "lengthM": 130, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 12.0, "minTurnRadiusM": 9.5, "smokeBad": false, "rockburstTend": 0.35, "type": "联络通道" },
-    { "id": "SEG-15", "a": "M4", "b": "S1", "lengthM": 125, "clearWidthM": 4.2, "clearHeightM": 3.6, "maxGradePct": 12.5, "minTurnRadiusM": 8.0, "smokeBad": true, "rockburstTend": 0.55, "type": "联络通道" }
-  ],
-
-  "levelsMeta": ["主运输水平", "上部出矿分段", "中部联络/通风水平", "深部放矿水平", "底部转运/运输水平"],
-  "levelSegs": {
-    "0": ["SEG-01", "SEG-02", "SEG-03", "SEG-04", "SEG-05", "SEG-06", "SEG-07", "SEG-08", "SEG-09", "SEG-10", "SEG-11", "SEG-12", "SEG-13", "SEG-14", "SEG-15"],
-    "1": ["SEG-01", "SEG-02", "SEG-03", "SEG-05", "SEG-06", "SEG-04", "SEG-08", "SEG-09", "SEG-07"],
-    "2": ["SEG-01", "SEG-02", "SEG-08", "SEG-04", "SEG-06", "SEG-05", "SEG-12", "SEG-13", "SEG-10"],
-    "3": ["SEG-12", "SEG-07", "SEG-09", "SEG-10", "SEG-13", "SEG-11", "SEG-14", "SEG-15"],
-    "4": ["SEG-01", "SEG-05", "SEG-14", "SEG-15", "SEG-11", "SEG-10"]
-  },
-  "levelDepthM": [0, 22, 44, 62, 80],
-
-  "initialBlocks": [
-    { "seg": "SEG-07", "reason": "岩爆预警" },
-    { "seg": "SEG-11", "reason": "炮烟浓度超限" }
-  ],
-
-  "muckPoints": [
-    { "id": "M1", "zone": "A采场", "gantry": "3#装矿横巷", "blastCycle": "本轮爆破3h", "muckShape": "半锥体散堆", "spreadR_m": 9.0, "heightM_m": 2.2, "initialStockT": 420 },
-    { "id": "M2", "zone": "B采场", "gantry": "5#装矿横巷", "blastCycle": "本轮爆破5h", "muckShape": "楔形偏堆", "spreadR_m": 11.0, "heightM_m": 2.6, "initialStockT": 480 },
-    { "id": "M3", "zone": "C采场", "gantry": "7#装矿横巷", "blastCycle": "上轮残堆", "muckShape": "宽缓扁堆", "spreadR_m": 13.0, "heightM_m": 2.0, "initialStockT": 260 },
-    { "id": "M4", "zone": "D采场", "gantry": "9#装矿横巷", "blastCycle": "本轮爆破1h", "muckShape": "高陡爆堆", "spreadR_m": 8.0, "heightM_m": 3.1, "initialStockT": 350 }
-  ],
-  "gradePct": { "M1": 0.6, "M2": 0.8, "M3": 0.5, "M4": 1.2 },
-  "muckLevel": { "M1": 0, "M2": 0, "M3": 2, "M4": 3, "S1": 0 },
-
-  "equipment": {
-    "LHD-01": { "model": "ST-14 井下铰接铲运机", "width_m": 3.10, "height_m": 3.10, "capacity_t": 14.0, "bucket_m3": 7.6, "turn_radius_m": 7.2, "max_grade_empty_pct": 25.0, "max_grade_loaded_pct": 15.0, "rated_speed_empty": 9.0, "rated_speed_loaded": 7.0, "empty_energy": 6.0, "loaded_energy_k": 0.34, "energy_type": "electric", "diesel_l_per_km": 0.0 },
-    "LHD-02": { "model": "ST-6 中型铰接铲运机", "width_m": 2.60, "height_m": 2.85, "capacity_t": 6.0, "bucket_m3": 3.2, "turn_radius_m": 6.0, "max_grade_empty_pct": 26.0, "max_grade_loaded_pct": 16.0, "rated_speed_empty": 9.5, "rated_speed_loaded": 7.5, "empty_energy": 4.2, "loaded_energy_k": 0.30, "energy_type": "electric", "diesel_l_per_km": 0.0 },
-    "LHD-03": { "model": "Toro-007 柴油铰接铲运机", "width_m": 2.90, "height_m": 2.95, "capacity_t": 7.0, "bucket_m3": 3.8, "turn_radius_m": 6.6, "max_grade_empty_pct": 24.0, "max_grade_loaded_pct": 14.0, "rated_speed_empty": 8.5, "rated_speed_loaded": 6.5, "empty_energy": 0.0, "loaded_energy_k": 0.0, "energy_type": "diesel", "diesel_l_per_km": 2.6 },
-    "LHD-04": { "model": "ST-8 重载铰接铲运机", "width_m": 3.20, "height_m": 3.20, "capacity_t": 8.0, "bucket_m3": 4.4, "turn_radius_m": 7.4, "max_grade_empty_pct": 23.0, "max_grade_loaded_pct": 13.5, "rated_speed_empty": 8.2, "rated_speed_loaded": 6.2, "empty_energy": 5.0, "loaded_energy_k": 0.32, "energy_type": "electric", "diesel_l_per_km": 0.0 }
-  },
-
-  "indicatorSpecs": {
-    "posErrorWorkM": 0.30,
-    "posErrorTravelM": 0.80,
-    "blockRecognitionRatePct": 90,
-    "blockThresholdCm": 10,
-    "hazardZoneBiasM": 5.0,
-    "opexReductionTargetPct": 10.0
-  },
-
-  "layout": {
-    "_说明": "前端可视化布局：viewBox 为 2D 画布坐标范围；nodes 为节点 2D 布局坐标（type: dump=卸载点 / muck=装载点 / node=交叉节点）；levels 为三维分层（y=深度、shift=平面错位、activity=活动度）；nodeElevation 为各节点三维高程（顶层用）",
-    "viewBox": { "x": 0, "y": 0, "width": 390, "height": 300 },
-    "nodes": {
-      "S0": { "x": 50, "y": 40, "label": "S0 卸载点", "type": "dump" },
-      "N1": { "x": 140, "y": 40, "label": "N1", "type": "node" },
-      "N2": { "x": 230, "y": 40, "label": "N2", "type": "node" },
-      "N3": { "x": 320, "y": 40, "label": "N3", "type": "node" },
-      "M1": { "x": 80, "y": 110, "label": "M1 A采场", "type": "muck" },
-      "N5": { "x": 140, "y": 110, "label": "N5", "type": "node" },
-      "N4": { "x": 80, "y": 80, "label": "N4", "type": "node" },
-      "M2": { "x": 320, "y": 110, "label": "M2 B采场", "type": "muck" },
-      "N6": { "x": 320, "y": 180, "label": "N6", "type": "node" },
-      "M3": { "x": 170, "y": 180, "label": "M3 C采场", "type": "muck" },
-      "N7": { "x": 230, "y": 180, "label": "N7", "type": "node" },
-      "M4": { "x": 320, "y": 250, "label": "M4 D采场", "type": "muck" },
-      "S1": { "x": 230, "y": 250, "label": "S1 备用卸点", "type": "dump" }
-    },
-    "levels": [
-      { "name": "主运输水平", "y": 36, "shift": { "x": 0, "z": 0 }, "activity": 0.5 },
-      { "name": "上部出矿分段", "y": 14, "shift": { "x": 22, "z": -12 }, "activity": 0.8 },
-      { "name": "中部联络/通风水平", "y": -8, "shift": { "x": -16, "z": 14 }, "activity": 0.4 },
-      { "name": "深部放矿水平", "y": -30, "shift": { "x": 26, "z": -22 }, "activity": 0.9 },
-      { "name": "底部转运/运输水平", "y": -52, "shift": { "x": -12, "z": 18 }, "activity": 0.7 }
+ "_说明": "现场调度（井下LHD出矿）场景配置 —— 单一事实来源：后端仿真器与前端渲染/算法均从此文件构建。新增/替换巷道、装载点、设备、分层、布局只需修改本文件，无需改代码。复制本文件为 scenario_<新场景名>.json 即可新增一个场景。 【v2】叠加真实巷道 3D 几何: layout.nodes[].pos3=节点 mine 系锚点; segments[].polyline3=沿真实巷道的折线(mine 系, z=海拔); equipment[].glb=铲运机模型。调度算法图与 v1 完全一致。 【v2】叠加真实巷道 3D 几何: layout.nodes[].pos3=节点 mine 系锚点; segments[].polyline3=沿真实巷道的折线(mine 系, z=海拔); equipment[].glb=铲运机模型。调度算法图与 v1 完全一致。 【v2】叠加真实巷道 3D 几何: layout.nodes[].pos3=节点 mine 系锚点; segments[].polyline3=沿真实巷道的折线(mine 系, z=海拔); equipment[].glb=铲运机模型。调度算法图与 v1 完全一致。 【v2】叠加真实巷道 3D 几何: layout.nodes[].pos3=节点 mine 系锚点; segments[].polyline3=沿真实巷道的折线(mine 系, z=海拔); equipment[].glb=铲运机模型。调度算法图与 v1 完全一致。 【v2】叠加真实巷道 3D 几何: layout.nodes[].pos3=节点 mine 系锚点; segments[].polyline3=沿真实巷道的折线(mine 系, z=海拔); equipment[].glb=铲运机模型。调度算法图与 v1 完全一致。 【v2】叠加真实巷道 3D 几何: layout.nodes[].pos3=节点 mine 系锚点; segments[].polyline3=沿真实巷道的折线(mine 系, z=海拔); equipment[].glb=铲运机模型。调度算法图与 v1 完全一致。 【v2】叠加真实巷道 3D 几何: layout.nodes[].pos3=节点 mine 系锚点; segments[].polyline3=沿真实巷道的折线(mine 系, z=海拔); equipment[].glb=铲运机模型。调度算法图与 v1 完全一致。",
+ "scenario": "underground-LHD-ashale-v2",
+ "engine": "井下LHD巷道调度仿真",
+ "nodeDump": "S0",
+ "tunnelNodes": [
+  "S0",
+  "N1",
+  "N2",
+  "N3",
+  "M1",
+  "N5",
+  "N4",
+  "M2",
+  "N6",
+  "M3",
+  "N7",
+  "M4",
+  "S1"
+ ],
+ "segments": [
+  {
+   "id": "SEG-01",
+   "a": "S0",
+   "b": "N1",
+   "lengthM": 180,
+   "clearWidthM": 4.8,
+   "clearHeightM": 4.0,
+   "maxGradePct": 8.0,
+   "minTurnRadiusM": 30.0,
+   "smokeBad": false,
+   "rockburstTend": 0.15,
+   "type": "主运输巷",
+   "polyline3": [
+    [
+     -858.73,
+     3167.83,
+     -11.87
     ],
-    "nodeElevation": {
-      "S0": 30, "N1": 30, "N2": 30, "N3": 30, "N4": 30,
-      "N5": 6, "N6": 6, "N7": 6,
-      "S1": -6,
-      "M1": -12, "M2": -12, "M3": -30, "M4": -30
-    }
+    [
+     -858.53,
+     3156.76,
+     -11.87
+    ],
+    [
+     -952.27,
+     3137.22,
+     -24.86
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -861.2,
+     3116.53,
+     -37.2
+    ]
+   ],
+   "level3": -37.1
+  },
+  {
+   "id": "SEG-02",
+   "a": "N1",
+   "b": "N2",
+   "lengthM": 150,
+   "clearWidthM": 4.8,
+   "clearHeightM": 4.0,
+   "maxGradePct": 9.0,
+   "minTurnRadiusM": 26.0,
+   "smokeBad": false,
+   "rockburstTend": 0.2,
+   "type": "主运输巷",
+   "polyline3": [
+    [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    [
+     -761.68,
+     3135.15,
+     -99.59
+    ],
+    [
+     -753.78,
+     3130.13,
+     0.18
+    ]
+   ],
+   "level3": -33.1
+  },
+  {
+   "id": "SEG-03",
+   "a": "N2",
+   "b": "N3",
+   "lengthM": 160,
+   "clearWidthM": 4.8,
+   "clearHeightM": 4.0,
+   "maxGradePct": 10.0,
+   "minTurnRadiusM": 24.0,
+   "smokeBad": false,
+   "rockburstTend": 0.25,
+   "type": "主运输巷",
+   "polyline3": [
+    [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -773.98,
+     3127.34,
+     0.39
+    ]
+   ],
+   "level3": -33.0
+  },
+  {
+   "id": "SEG-04",
+   "a": "M1",
+   "b": "N5",
+   "lengthM": 140,
+   "clearWidthM": 4.8,
+   "clearHeightM": 4.0,
+   "maxGradePct": 9.0,
+   "minTurnRadiusM": 25.0,
+   "smokeBad": false,
+   "rockburstTend": 0.22,
+   "type": "主运输巷",
+   "polyline3": [
+    [
+     -710.56,
+     3177.67,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -696.3,
+     3176.63,
+     -0.0
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -686.36,
+     3188.95,
+     -0.03
+    ]
+   ],
+   "level3": -39.9
+  },
+  {
+   "id": "SEG-05",
+   "a": "S0",
+   "b": "N4",
+   "lengthM": 200,
+   "clearWidthM": 4.4,
+   "clearHeightM": 3.8,
+   "maxGradePct": 12.0,
+   "minTurnRadiusM": 16.0,
+   "smokeBad": false,
+   "rockburstTend": 0.3,
+   "type": "中段斜坡道",
+   "polyline3": [
+    [
+     -858.73,
+     3167.83,
+     -11.87
+    ],
+    [
+     -858.53,
+     3156.76,
+     -11.87
+    ],
+    [
+     -952.27,
+     3137.22,
+     -24.86
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -861.2,
+     3116.53,
+     -37.2
+    ],
+    [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    [
+     -761.68,
+     3135.15,
+     -99.59
+    ],
+    [
+     -753.78,
+     3130.13,
+     0.18
+    ],
+    [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -773.98,
+     3127.34,
+     0.39
+    ],
+    [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -773.98,
+     3127.34,
+     0.39
+    ]
+   ],
+   "level3": -34.5
+  },
+  {
+   "id": "SEG-06",
+   "a": "N4",
+   "b": "N5",
+   "lengthM": 120,
+   "clearWidthM": 4.4,
+   "clearHeightM": 3.8,
+   "maxGradePct": 11.0,
+   "minTurnRadiusM": 15.0,
+   "smokeBad": false,
+   "rockburstTend": 0.28,
+   "type": "中段斜坡道",
+   "polyline3": [
+    [
+     -753.78,
+     3130.13,
+     0.18
+    ],
+    [
+     -761.68,
+     3135.15,
+     -99.59
+    ],
+    [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -773.98,
+     3127.34,
+     0.39
+    ],
+    [
+     -710.56,
+     3177.67,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -696.3,
+     3176.63,
+     -0.0
+    ],
+    [
+     -723.09,
+     3178.38,
+     -0.11
+    ],
+    [
+     -761.68,
+     3135.15,
+     -99.59
+    ],
+    [
+     -710.56,
+     3177.67,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -696.3,
+     3176.63,
+     -0.0
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -686.36,
+     3188.95,
+     -0.03
+    ]
+   ],
+   "level3": -39.8
+  },
+  {
+   "id": "SEG-07",
+   "a": "N3",
+   "b": "M2",
+   "lengthM": 150,
+   "clearWidthM": 4.4,
+   "clearHeightM": 3.8,
+   "maxGradePct": 12.0,
+   "minTurnRadiusM": 15.0,
+   "smokeBad": false,
+   "rockburstTend": 0.32,
+   "type": "中段斜坡道",
+   "polyline3": [
+    [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -773.98,
+     3127.34,
+     0.39
+    ],
+    [
+     -753.78,
+     3130.13,
+     0.18
+    ],
+    [
+     -761.68,
+     3135.15,
+     -99.59
+    ],
+    [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -773.98,
+     3127.34,
+     0.39
+    ],
+    [
+     -710.56,
+     3177.67,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -696.3,
+     3176.63,
+     -0.0
+    ],
+    [
+     -723.09,
+     3178.38,
+     -0.11
+    ],
+    [
+     -761.68,
+     3135.15,
+     -99.59
+    ],
+    [
+     -710.56,
+     3177.67,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -696.3,
+     3176.63,
+     -0.0
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -686.36,
+     3188.95,
+     -0.03
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -676.88,
+     3200.0,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -666.54,
+     3200.34,
+     -0.06
+    ],
+    [
+     -772.85,
+     3129.86,
+     -99.73
+    ],
+    [
+     -665.22,
+     3212.06,
+     0.08
+    ],
+    [
+     -666.54,
+     3200.34,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -676.88,
+     3200.0,
+     -0.06
+    ],
+    [
+     -662.08,
+     3225.23,
+     0.04
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -693.95,
+     3238.6,
+     -0.37
+    ],
+    [
+     -761.84,
+     3137.6,
+     -99.73
+    ],
+    [
+     -697.13,
+     3238.93,
+     -0.39
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -701.89,
+     3239.42,
+     -0.43
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -715.6,
+     3227.02,
+     0.0
+    ],
+    [
+     -732.38,
+     3228.54,
+     -0.77
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -747.2,
+     3229.7,
+     -0.98
+    ],
+    [
+     -732.38,
+     3228.54,
+     -0.77
+    ],
+    [
+     -717.5,
+     3215.36,
+     -0.03
+    ]
+   ],
+   "level3": -38.9
+  },
+  {
+   "id": "SEG-08",
+   "a": "N2",
+   "b": "M1",
+   "lengthM": 90,
+   "clearWidthM": 4.2,
+   "clearHeightM": 3.6,
+   "maxGradePct": 20.0,
+   "minTurnRadiusM": 9.0,
+   "smokeBad": true,
+   "rockburstTend": 0.45,
+   "type": "采场出矿道",
+   "polyline3": [
+    [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -773.98,
+     3127.34,
+     0.39
+    ],
+    [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -773.98,
+     3127.34,
+     0.39
+    ],
+    [
+     -753.78,
+     3130.13,
+     0.18
+    ],
+    [
+     -761.68,
+     3135.15,
+     -99.59
+    ],
+    [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -773.98,
+     3127.34,
+     0.39
+    ],
+    [
+     -710.56,
+     3177.67,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -696.3,
+     3176.63,
+     -0.0
+    ],
+    [
+     -723.09,
+     3178.38,
+     -0.11
+    ],
+    [
+     -761.68,
+     3135.15,
+     -99.59
+    ],
+    [
+     -710.56,
+     3177.67,
+     -0.06
+    ]
+   ],
+   "level3": -35.0
+  },
+  {
+   "id": "SEG-09",
+   "a": "N5",
+   "b": "M2",
+   "lengthM": 85,
+   "clearWidthM": 4.2,
+   "clearHeightM": 3.6,
+   "maxGradePct": 13.0,
+   "minTurnRadiusM": 8.0,
+   "smokeBad": false,
+   "rockburstTend": 0.4,
+   "type": "采场出矿道",
+   "polyline3": [
+    [
+     -686.36,
+     3188.95,
+     -0.03
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -676.88,
+     3200.0,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -666.54,
+     3200.34,
+     -0.06
+    ],
+    [
+     -772.85,
+     3129.86,
+     -99.73
+    ],
+    [
+     -665.22,
+     3212.06,
+     0.08
+    ],
+    [
+     -666.54,
+     3200.34,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -676.88,
+     3200.0,
+     -0.06
+    ],
+    [
+     -662.08,
+     3225.23,
+     0.04
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -693.95,
+     3238.6,
+     -0.37
+    ],
+    [
+     -761.84,
+     3137.6,
+     -99.73
+    ],
+    [
+     -697.13,
+     3238.93,
+     -0.39
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -701.89,
+     3239.42,
+     -0.43
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -715.6,
+     3227.02,
+     0.0
+    ],
+    [
+     -732.38,
+     3228.54,
+     -0.77
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -747.2,
+     3229.7,
+     -0.98
+    ],
+    [
+     -732.38,
+     3228.54,
+     -0.77
+    ],
+    [
+     -717.5,
+     3215.36,
+     -0.03
+    ]
+   ],
+   "level3": -37.5
+  },
+  {
+   "id": "SEG-10",
+   "a": "M3",
+   "b": "N6",
+   "lengthM": 80,
+   "clearWidthM": 4.2,
+   "clearHeightM": 3.6,
+   "maxGradePct": 13.5,
+   "minTurnRadiusM": 7.5,
+   "smokeBad": true,
+   "rockburstTend": 0.5,
+   "type": "采场出矿道",
+   "polyline3": [
+    [
+     -701.67,
+     3263.06,
+     0.0
+    ],
+    [
+     -699.35,
+     3267.1,
+     0.04
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -676.32,
+     3263.42,
+     0.41
+    ]
+   ],
+   "level3": -24.8
+  },
+  {
+   "id": "SEG-11",
+   "a": "N6",
+   "b": "M4",
+   "lengthM": 70,
+   "clearWidthM": 4.2,
+   "clearHeightM": 3.6,
+   "maxGradePct": 20.0,
+   "minTurnRadiusM": 9.0,
+   "smokeBad": true,
+   "rockburstTend": 0.48,
+   "type": "采场出矿道",
+   "polyline3": [
+    [
+     -676.32,
+     3263.42,
+     0.41
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -690.76,
+     3238.59,
+     -0.33
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -693.95,
+     3238.6,
+     -0.37
+    ],
+    [
+     -761.84,
+     3137.6,
+     -99.73
+    ],
+    [
+     -697.13,
+     3238.93,
+     -0.39
+    ],
+    [
+     -708.76,
+     3252.29,
+     -0.42
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -733.37,
+     3254.0,
+     -0.68
+    ],
+    [
+     -708.76,
+     3252.29,
+     -0.42
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -733.37,
+     3254.0,
+     -0.68
+    ],
+    [
+     -704.15,
+     3265.95,
+     -0.68
+    ]
+   ],
+   "level3": -35.8
+  },
+  {
+   "id": "SEG-12",
+   "a": "N3",
+   "b": "N6",
+   "lengthM": 110,
+   "clearWidthM": 4.0,
+   "clearHeightM": 3.4,
+   "maxGradePct": 14.0,
+   "minTurnRadiusM": 7.0,
+   "smokeBad": true,
+   "rockburstTend": 0.78,
+   "type": "高应力修复段",
+   "polyline3": [
+    [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -773.98,
+     3127.34,
+     0.39
+    ],
+    [
+     -753.78,
+     3130.13,
+     0.18
+    ],
+    [
+     -761.68,
+     3135.15,
+     -99.59
+    ],
+    [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -773.98,
+     3127.34,
+     0.39
+    ],
+    [
+     -710.56,
+     3177.67,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -696.3,
+     3176.63,
+     -0.0
+    ],
+    [
+     -723.09,
+     3178.38,
+     -0.11
+    ],
+    [
+     -761.68,
+     3135.15,
+     -99.59
+    ],
+    [
+     -710.56,
+     3177.67,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -696.3,
+     3176.63,
+     -0.0
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -686.36,
+     3188.95,
+     -0.03
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -676.88,
+     3200.0,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -666.54,
+     3200.34,
+     -0.06
+    ],
+    [
+     -772.85,
+     3129.86,
+     -99.73
+    ],
+    [
+     -665.22,
+     3212.06,
+     0.08
+    ],
+    [
+     -666.54,
+     3200.34,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -676.88,
+     3200.0,
+     -0.06
+    ],
+    [
+     -662.08,
+     3225.23,
+     0.04
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -693.95,
+     3238.6,
+     -0.37
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -690.76,
+     3238.59,
+     -0.33
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -676.32,
+     3263.42,
+     0.41
+    ]
+   ],
+   "level3": -41.0
+  },
+  {
+   "id": "SEG-13",
+   "a": "N7",
+   "b": "M3",
+   "lengthM": 95,
+   "clearWidthM": 4.2,
+   "clearHeightM": 3.6,
+   "maxGradePct": 12.5,
+   "minTurnRadiusM": 8.5,
+   "smokeBad": true,
+   "rockburstTend": 0.7,
+   "type": "采场出矿道",
+   "polyline3": [
+    [
+     -693.95,
+     3238.6,
+     -0.37
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -690.76,
+     3238.59,
+     -0.33
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -676.32,
+     3263.42,
+     0.41
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -699.35,
+     3267.1,
+     0.04
+    ],
+    [
+     -701.67,
+     3263.06,
+     0.0
+    ]
+   ],
+   "level3": -37.4
+  },
+  {
+   "id": "SEG-14",
+   "a": "S1",
+   "b": "N7",
+   "lengthM": 130,
+   "clearWidthM": 4.2,
+   "clearHeightM": 3.6,
+   "maxGradePct": 12.0,
+   "minTurnRadiusM": 9.5,
+   "smokeBad": false,
+   "rockburstTend": 0.35,
+   "type": "联络通道",
+   "polyline3": [
+    [
+     -666.54,
+     3200.34,
+     -0.06
+    ],
+    [
+     -772.85,
+     3129.86,
+     -99.73
+    ],
+    [
+     -665.22,
+     3212.06,
+     0.08
+    ],
+    [
+     -666.54,
+     3200.34,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -676.88,
+     3200.0,
+     -0.06
+    ],
+    [
+     -662.08,
+     3225.23,
+     0.04
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -693.95,
+     3238.6,
+     -0.37
+    ]
+   ],
+   "level3": -33.3
+  },
+  {
+   "id": "SEG-15",
+   "a": "M4",
+   "b": "S1",
+   "lengthM": 125,
+   "clearWidthM": 4.2,
+   "clearHeightM": 3.6,
+   "maxGradePct": 12.5,
+   "minTurnRadiusM": 8.0,
+   "smokeBad": true,
+   "rockburstTend": 0.55,
+   "type": "联络通道",
+   "polyline3": [
+    [
+     -704.15,
+     3265.95,
+     -0.68
+    ],
+    [
+     -733.37,
+     3254.0,
+     -0.68
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -708.76,
+     3252.29,
+     -0.42
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -733.37,
+     3254.0,
+     -0.68
+    ],
+    [
+     -697.13,
+     3238.93,
+     -0.39
+    ],
+    [
+     -761.84,
+     3137.6,
+     -99.73
+    ],
+    [
+     -693.95,
+     3238.6,
+     -0.37
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -662.08,
+     3225.23,
+     0.04
+    ],
+    [
+     -666.54,
+     3200.34,
+     -0.06
+    ],
+    [
+     -761.53,
+     3133.08,
+     -99.6
+    ],
+    [
+     -676.88,
+     3200.0,
+     -0.06
+    ],
+    [
+     -665.22,
+     3212.06,
+     0.08
+    ],
+    [
+     -772.85,
+     3129.86,
+     -99.73
+    ],
+    [
+     -666.54,
+     3200.34,
+     -0.06
+    ]
+   ],
+   "level3": -35.4
   }
+ ],
+ "levelsMeta": [
+  "主运输水平",
+  "上部出矿分段",
+  "中部联络/通风水平",
+  "深部放矿水平",
+  "底部转运/运输水平"
+ ],
+ "levelSegs": {
+  "0": [
+   "SEG-01",
+   "SEG-02",
+   "SEG-03",
+   "SEG-04",
+   "SEG-05",
+   "SEG-06",
+   "SEG-07",
+   "SEG-08",
+   "SEG-09",
+   "SEG-10",
+   "SEG-11",
+   "SEG-12",
+   "SEG-13",
+   "SEG-14",
+   "SEG-15"
+  ],
+  "1": [
+   "SEG-01",
+   "SEG-02",
+   "SEG-03",
+   "SEG-05",
+   "SEG-06",
+   "SEG-04",
+   "SEG-08",
+   "SEG-09",
+   "SEG-07"
+  ],
+  "2": [
+   "SEG-01",
+   "SEG-02",
+   "SEG-08",
+   "SEG-04",
+   "SEG-06",
+   "SEG-05",
+   "SEG-12",
+   "SEG-13",
+   "SEG-10"
+  ],
+  "3": [
+   "SEG-12",
+   "SEG-07",
+   "SEG-09",
+   "SEG-10",
+   "SEG-13",
+   "SEG-11",
+   "SEG-14",
+   "SEG-15"
+  ],
+  "4": [
+   "SEG-01",
+   "SEG-05",
+   "SEG-14",
+   "SEG-15",
+   "SEG-11",
+   "SEG-10"
+  ]
+ },
+ "levelDepthM": [
+  0,
+  22,
+  44,
+  62,
+  80
+ ],
+ "initialBlocks": [
+  {
+   "seg": "SEG-07",
+   "reason": "岩爆预警"
+  },
+  {
+   "seg": "SEG-11",
+   "reason": "炮烟浓度超限"
+  }
+ ],
+ "muckPoints": [
+  {
+   "id": "M1",
+   "zone": "A采场",
+   "gantry": "3#装矿横巷",
+   "blastCycle": "本轮爆破3h",
+   "muckShape": "半锥体散堆",
+   "spreadR_m": 9.0,
+   "heightM_m": 2.2,
+   "initialStockT": 420
+  },
+  {
+   "id": "M2",
+   "zone": "B采场",
+   "gantry": "5#装矿横巷",
+   "blastCycle": "本轮爆破5h",
+   "muckShape": "楔形偏堆",
+   "spreadR_m": 11.0,
+   "heightM_m": 2.6,
+   "initialStockT": 480
+  },
+  {
+   "id": "M3",
+   "zone": "C采场",
+   "gantry": "7#装矿横巷",
+   "blastCycle": "上轮残堆",
+   "muckShape": "宽缓扁堆",
+   "spreadR_m": 13.0,
+   "heightM_m": 2.0,
+   "initialStockT": 260
+  },
+  {
+   "id": "M4",
+   "zone": "D采场",
+   "gantry": "9#装矿横巷",
+   "blastCycle": "本轮爆破1h",
+   "muckShape": "高陡爆堆",
+   "spreadR_m": 8.0,
+   "heightM_m": 3.1,
+   "initialStockT": 350
+  }
+ ],
+ "gradePct": {
+  "M1": 0.6,
+  "M2": 0.8,
+  "M3": 0.5,
+  "M4": 1.2
+ },
+ "muckLevel": {
+  "M1": 0,
+  "M2": 0,
+  "M3": 2,
+  "M4": 3,
+  "S1": 0
+ },
+ "equipment": {
+  "LHD-01": {
+   "model": "ST-14 井下铰接铲运机",
+   "width_m": 3.1,
+   "height_m": 3.1,
+   "capacity_t": 14.0,
+   "bucket_m3": 7.6,
+   "turn_radius_m": 7.2,
+   "max_grade_empty_pct": 25.0,
+   "max_grade_loaded_pct": 15.0,
+   "rated_speed_empty": 9.0,
+   "rated_speed_loaded": 7.0,
+   "empty_energy": 6.0,
+   "loaded_energy_k": 0.34,
+   "energy_type": "electric",
+   "diesel_l_per_km": 0.0,
+   "glb": "/3d/ashele/vehicles/lhd_lh410.glb"
+  },
+  "LHD-02": {
+   "model": "ST-6 中型铰接铲运机",
+   "width_m": 2.6,
+   "height_m": 2.85,
+   "capacity_t": 6.0,
+   "bucket_m3": 3.2,
+   "turn_radius_m": 6.0,
+   "max_grade_empty_pct": 26.0,
+   "max_grade_loaded_pct": 16.0,
+   "rated_speed_empty": 9.5,
+   "rated_speed_loaded": 7.5,
+   "empty_energy": 4.2,
+   "loaded_energy_k": 0.3,
+   "energy_type": "electric",
+   "diesel_l_per_km": 0.0,
+   "glb": "/3d/ashele/vehicles/lhd_lh514.glb"
+  },
+  "LHD-03": {
+   "model": "Toro-007 柴油铰接铲运机",
+   "width_m": 2.9,
+   "height_m": 2.95,
+   "capacity_t": 7.0,
+   "bucket_m3": 3.8,
+   "turn_radius_m": 6.6,
+   "max_grade_empty_pct": 24.0,
+   "max_grade_loaded_pct": 14.0,
+   "rated_speed_empty": 8.5,
+   "rated_speed_loaded": 6.5,
+   "empty_energy": 0.0,
+   "loaded_energy_k": 0.0,
+   "energy_type": "diesel",
+   "diesel_l_per_km": 2.6,
+   "glb": "/3d/ashele/vehicles/lhd_lh410.glb"
+  },
+  "LHD-04": {
+   "model": "ST-8 重载铰接铲运机",
+   "width_m": 3.2,
+   "height_m": 3.2,
+   "capacity_t": 8.0,
+   "bucket_m3": 4.4,
+   "turn_radius_m": 7.4,
+   "max_grade_empty_pct": 23.0,
+   "max_grade_loaded_pct": 13.5,
+   "rated_speed_empty": 8.2,
+   "rated_speed_loaded": 6.2,
+   "empty_energy": 5.0,
+   "loaded_energy_k": 0.32,
+   "energy_type": "electric",
+   "diesel_l_per_km": 0.0,
+   "glb": "/3d/ashele/vehicles/lhd_lh514.glb"
+  }
+ },
+ "indicatorSpecs": {
+  "posErrorWorkM": 0.3,
+  "posErrorTravelM": 0.8,
+  "blockRecognitionRatePct": 90,
+  "blockThresholdCm": 10,
+  "hazardZoneBiasM": 5.0,
+  "opexReductionTargetPct": 10.0
+ },
+ "layout": {
+  "_说明": "前端可视化布局：viewBox 为 2D 画布坐标范围；nodes 为节点 2D 布局坐标（type: dump=卸载点 / muck=装载点 / node=交叉节点）；levels 为三维分层（y=深度、shift=平面错位、activity=活动度）；nodeElevation 为各节点三维高程（顶层用）",
+  "viewBox": {
+   "x": 0,
+   "y": 0,
+   "width": 390,
+   "height": 300
+  },
+  "nodes": {
+   "S0": {
+    "x": 50,
+    "y": 40,
+    "label": "S0 卸载点",
+    "type": "dump",
+    "pos3": [
+     -858.73,
+     3167.83,
+     -11.87
+    ],
+    "anchor": "sj_010 -50中段破碎硐室"
+   },
+   "N1": {
+    "x": 140,
+    "y": 40,
+    "label": "N1",
+    "type": "node",
+    "pos3": [
+     -771.78,
+     3130.7,
+     0.26
+    ],
+    "anchor": "路径点(度5)"
+   },
+   "N2": {
+    "x": 230,
+    "y": 40,
+    "label": "N2",
+    "type": "node",
+    "pos3": [
+     -753.78,
+     3130.13,
+     0.18
+    ],
+    "anchor": "路径点(度13)"
+   },
+   "N3": {
+    "x": 320,
+    "y": 40,
+    "label": "N3",
+    "type": "node",
+    "pos3": [
+     -750.37,
+     3129.84,
+     0.16
+    ],
+    "anchor": "路径点(度9)"
+   },
+   "M1": {
+    "x": 80,
+    "y": 110,
+    "label": "M1 A采场",
+    "type": "muck",
+    "pos3": [
+     -710.56,
+     3177.67,
+     -0.06
+    ],
+    "anchor": "cc_005"
+   },
+   "N5": {
+    "x": 140,
+    "y": 110,
+    "label": "N5",
+    "type": "node",
+    "pos3": [
+     -686.36,
+     3188.95,
+     -0.03
+    ],
+    "anchor": "路径点(度32)"
+   },
+   "N4": {
+    "x": 80,
+    "y": 80,
+    "label": "N4",
+    "type": "node",
+    "pos3": [
+     -708.68,
+     3127.08,
+     -0.06
+    ],
+    "anchor": "路径点(度5)"
+   },
+   "M2": {
+    "x": 320,
+    "y": 110,
+    "label": "M2 B采场",
+    "type": "muck",
+    "pos3": [
+     -717.5,
+     3215.36,
+     -0.03
+    ],
+    "anchor": "cc_002"
+   },
+   "N6": {
+    "x": 320,
+    "y": 180,
+    "label": "N6",
+    "type": "node",
+    "pos3": [
+     -676.32,
+     3263.42,
+     0.41
+    ],
+    "anchor": "路径点(度5)"
+   },
+   "M3": {
+    "x": 170,
+    "y": 180,
+    "label": "M3 C采场",
+    "type": "muck",
+    "pos3": [
+     -701.67,
+     3263.06,
+     0.0
+    ],
+    "anchor": "cc_008"
+   },
+   "N7": {
+    "x": 230,
+    "y": 180,
+    "label": "N7",
+    "type": "node",
+    "pos3": [
+     -693.95,
+     3238.6,
+     -0.37
+    ],
+    "anchor": "路径点(度21)"
+   },
+   "M4": {
+    "x": 320,
+    "y": 250,
+    "label": "M4 D采场",
+    "type": "muck",
+    "pos3": [
+     -704.15,
+     3265.95,
+     -0.68
+    ],
+    "anchor": "cc_009"
+   },
+   "S1": {
+    "x": 230,
+    "y": 250,
+    "label": "S1 备用卸点",
+    "type": "dump",
+    "pos3": [
+     -666.54,
+     3200.34,
+     -0.06
+    ],
+    "anchor": "路径点(度5)"
+   }
+  },
+  "levels": [
+   {
+    "name": "主运输水平",
+    "y": 36,
+    "shift": {
+     "x": 0,
+     "z": 0
+    },
+    "activity": 0.5
+   },
+   {
+    "name": "上部出矿分段",
+    "y": 14,
+    "shift": {
+     "x": 22,
+     "z": -12
+    },
+    "activity": 0.8
+   },
+   {
+    "name": "中部联络/通风水平",
+    "y": -8,
+    "shift": {
+     "x": -16,
+     "z": 14
+    },
+    "activity": 0.4
+   },
+   {
+    "name": "深部放矿水平",
+    "y": -30,
+    "shift": {
+     "x": 26,
+     "z": -22
+    },
+    "activity": 0.9
+   },
+   {
+    "name": "底部转运/运输水平",
+    "y": -52,
+    "shift": {
+     "x": -12,
+     "z": 18
+    },
+    "activity": 0.7
+   }
+  ],
+  "nodeElevation": {
+   "S0": 30,
+   "N1": 30,
+   "N2": 30,
+   "N3": 30,
+   "N4": 30,
+   "N5": 6,
+   "N6": 6,
+   "N7": 6,
+   "S1": -6,
+   "M1": -12,
+   "M2": -12,
+   "M3": -30,
+   "M4": -30
+  }
+ },
+ "schemaVersion": 2,
+ "real3d": {
+  "tunnelGlb": "/3d/ashele/tunnel_solid/tunnel_solid.glb",
+  "indexUrl": "/3d/ashele/tunnel_solid/tunnel_solid_index.json",
+  "vehicleBase": "/3d/ashele/vehicles/",
+  "crs": "mine-local (x east, y north, z elevation m)"
+ }
 }

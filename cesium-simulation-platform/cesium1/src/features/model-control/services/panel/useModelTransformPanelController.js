@@ -10,12 +10,9 @@ export function useModelTransformPanelController() {
     updateTransform,
     resetView,
     resetModel,
-    undergroundViewEnabled,
     globeFrontFaceAlpha,
     globeBackFaceAlpha,
-    setUndergroundViewEnabled,
-    updateGlobeTranslucency,
-    enterUndergroundView
+    updateGlobeTranslucency
   } = useModel()
 
   // 爆破场景活跃状态（由工具桥订阅，面板据此把控件重定向到 three 场景）
@@ -39,17 +36,14 @@ export function useModelTransformPanelController() {
   return {
     modelPosition,
     modelTransform,
-    undergroundViewEnabled,
     globeFrontFaceAlpha,
     globeBackFaceAlpha,
     blastingSceneActive,
     resetView,
     resetModel,
-    enterUndergroundView,
     syncOpacityFromScene,
     onPositionChange: () => updatePosition(modelPosition.value),
     onTransformChange: () => updateTransform(modelTransform.value),
-    onUndergroundToggle: () => setUndergroundViewEnabled(undergroundViewEnabled.value),
     onGlobeAlphaChange: () => {
       // 爆破模式：两个 alpha 滑块重定向到爆破 three 场景对象（岩体/巷道）透明度
       if (blastingSceneTools.active) {

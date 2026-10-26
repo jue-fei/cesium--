@@ -51,11 +51,8 @@ const PPV_HEADER_BYTES = 45
 export const CommandType = {
   START: 'start',
   STOP: 'stop',
-  PING: 'ping',
-  SEEK: 'seek'
+  PING: 'ping'
 }
-
-import { computeBackoffMs } from '../../../../shared/realtime/backoff.js'
 
 export class BlastingWsConnector {
   /**
@@ -228,7 +225,7 @@ export class BlastingWsConnector {
     if (view.byteLength < expectedBytes) {
       throw new Error(
         `float field payload size mismatch: got ${view.byteLength}, expected ${expectedBytes} ` +
-          `(grid ${gridW}x${gridH}x${gridD}=${voxelCount} voxels)`
+        `(grid ${gridW}x${gridH}x${gridD}=${voxelCount} voxels)`
       )
     }
 
@@ -273,7 +270,7 @@ export class BlastingWsConnector {
   /**
    * 解析损伤分区场（0x04，与后端 pack_damage_binary 对应）
    *
-   * 头部格式与 float 帧一致；载荷为 N×int8 分区 id（0~4），单字节无字节序问题。
+   * 头部格式与 float 帧一致；载荷为 N×int8 分区 id（-1 未分类，0~4 档位），单字节无字节序问题。
    * int8 直读（DataView.getInt8），轴序由后端 _webgl_flatten_3d 保证 x-最快。
    *
    * @returns {Object} { frame, t, gridShape, boundsMin, boundsMax, zones: Int8Array }
@@ -303,7 +300,7 @@ export class BlastingWsConnector {
     if (view.byteLength < expectedBytes) {
       throw new Error(
         `damage field payload size mismatch: got ${view.byteLength}, expected ${expectedBytes} ` +
-          `(grid ${gridW}x${gridH}x${gridD}=${voxelCount} voxels)`
+        `(grid ${gridW}x${gridH}x${gridD}=${voxelCount} voxels)`
       )
     }
 
@@ -364,7 +361,6 @@ export class BlastingWsConnector {
    * @param {Object} [opts.rockParams] - 岩体参数 {density,pWaveSpeed,sWaveSpeed,...}（可选）
    * @param {number} [opts.k] - 萨道夫斯基场地常数（可选，默认 30）
    * @param {number} [opts.alpha] - 萨道夫斯基衰减指数（可选，默认 1.5）
-   * @param {Array} [opts.reflections] - 掌子面镜象反射配置 [{axis:'z',value,coeff}]（可选）
    */
   startStream(duration, timestep, holes, opts = {}) {
     const payload = { type: CommandType.START, duration, timestep, holes }
@@ -372,6 +368,13 @@ export class BlastingWsConnector {
     if (opts.chargeKg !== undefined) payload.chargeKg = Number(opts.chargeKg)
     if (Array.isArray(opts.blastCenter)) {
       payload.blastCenter = opts.blastCenter.map(Number)
+    }
+    // 显示域 = 全岩体：场计算网格边界（grid 局部坐标，由前端按岩体包围盒下发）。
+    // 后端据此构建覆盖整个岩体的采样网格，热力图不再被隧道推算域裁剪
+    // （缺失该字段时后端回退到默认域，场域与岩体几何错位 → PPV/应力热力图整片缺失）
+    if (Array.isArray(opts.fieldBoundsMin) && Array.isArray(opts.fieldBoundsMax)) {
+      payload.fieldBoundsMin = opts.fieldBoundsMin.map(Number)
+      payload.fieldBoundsMax = opts.fieldBoundsMax.map(Number)
     }
     if (opts.tunnelWidth !== undefined) payload.tunnelWidth = Number(opts.tunnelWidth)
     if (opts.tunnelHeight !== undefined) payload.tunnelHeight = Number(opts.tunnelHeight)
@@ -384,36 +387,12 @@ export class BlastingWsConnector {
     if (opts.alpha !== undefined) payload.alpha = Number(opts.alpha)
     // 多装药源（各炮孔装药段位置/药量/延时）：后端据此做多应力波矢量叠加（非单一同心圆）
     if (Array.isArray(opts.sources)) payload.sources = opts.sources
-    // 波场传播包络半径（m）：由岩体几何实测确定，后端据此收束场；损伤半径产生规则不变
-    if (opts.influenceRadius !== undefined) payload.influenceRadius = Number(opts.influenceRadius)
-    // 掌子面自由面反射（镜象源法）：[{axis:'z', value: faceZ, coeff}]，null=不加反射
-    if (opts.reflections !== undefined) payload.reflections = opts.reflections
-    this.send(payload)
-  }
-
-  /**
-   * 【实时生效】推流进行中热更新场参数（包络半径），无需重启后端。
-   * 后端收到后重算确定性峰值包络（influence_radius 参与）并推送当前时刻校正帧。
-   * @param {Object} opts - { influenceRadius }
-   */
-  updateFieldParams(opts = {}) {
-    const payload = { type: 'setFieldParams' }
-    if (opts.influenceRadius !== undefined) payload.influenceRadius = Number(opts.influenceRadius)
     this.send(payload)
   }
 
   /** 停止模拟推送 */
   stopStream() {
     this.send({ type: CommandType.STOP })
-  }
-
-  /**
-   * 请求后端复位模拟游标到指定帧（拖进度条/jump 跳变用）。
-   * 后端据此重置 peak_ppv 并从 0..target 重算累积峰值，避免未来帧峰值提前暴露。
-   * @param {number} frame - 目标帧号
-   */
-  sendSeek(frame) {
-    this.send({ type: CommandType.SEEK, frame: Math.max(0, Math.round(frame)) })
   }
 
   _startHeartbeat() {
@@ -451,11 +430,10 @@ export class BlastingWsConnector {
       return
     }
     this._reconnectAttempts++
-    // 退避策略单源：shared/realtime/backoff.js（契约 baseline#realtimeWsCmps.backoff）
-    const delay = computeBackoffMs(this._reconnectAttempts, {
-      baseMs: RECONNECT_BASE_DELAY_MS,
-      capMs: RECONNECT_MAX_DELAY_MS
-    })
+    const delay = Math.min(
+      RECONNECT_BASE_DELAY_MS * 2 ** (this._reconnectAttempts - 1),
+      RECONNECT_MAX_DELAY_MS
+    )
     console.info(
       `[BlastingWs] reconnecting in ${delay}ms (attempt ${this._reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`
     )

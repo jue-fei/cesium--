@@ -16,8 +16,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pymysql import Connection
 
 from app.database import get_db
-from app.services.audit import append as audit_append
-from app.services.collab.identity import client_identity
 from app.services.blasting.kco_validator import KCOInput, calculate_kco
 from app.services.blasting.blast_physics import (
     BlastSource,
@@ -26,12 +24,6 @@ from app.services.blasting.blast_physics import (
     sadosky_vibration,
 )
 from app.services.blasting.compare import compare_multiple_events
-from app.services.blasting.literature_design_config import build_literature_payload
-from app.services.blasting.static_preset_config import (
-    build_hoek_brown_mi_payload,
-    build_kco_site_presets_payload,
-    build_sadosky_payload,
-)
 from app.schemas import KCOValidateRequest, JwlRequest, VibrationRequest
 from app.security import require_token
 
@@ -544,10 +536,6 @@ def get_event(event_id: str, db: Connection = Depends(get_db)):
             design = _legacy_design_to_camel(row)
             design["holes"] = _legacy_holes_to_camel(row.get("炮孔设计"))
             result = _legacy_result_to_camel(row)
-            # 文献设计注入：按事件匹配静态 JSON（config/blasting_designs），前端只消费渲染
-            literature = build_literature_payload(event_id, event.get("name"))
-            if literature:
-                design["literature"] = literature
             return {"code": 0, "data": {"event": event, "design": design, "result": result}}
 
         cursor.execute(
@@ -581,17 +569,12 @@ def get_event(event_id: str, db: Connection = Depends(get_db)):
     design = _to_camel(design_row, DESIGN_FIELDS)
     design["holes"] = holes
     result = _to_camel(result_row, RESULT_FIELDS)
-    # 文献设计注入：按事件匹配静态 JSON（config/blasting_designs），前端只消费渲染
-    literature = build_literature_payload(event_id, event.get("name"))
-    if literature:
-        design["literature"] = literature
     return {"code": 0, "data": {"event": event, "design": design, "result": result}}
 
 
 @router.post("/events", dependencies=[Depends(require_token)])
 @router.post("/events/", dependencies=[Depends(require_token)])
-def create_event(body: dict, db: Connection = Depends(get_db),
-                 identity: dict = Depends(client_identity)):
+def create_event(body: dict, db: Connection = Depends(get_db)):
     """创建事件：INSERT blasting_events + 级联创建 blasting_design/blasting_result 空行"""
     data = _from_camel(body, EVENT_FIELDS_REV)
     data.pop("event_id", None)  # event_id 始终由后端生成
@@ -630,18 +613,11 @@ def create_event(body: dict, db: Connection = Depends(get_db),
             logger.error("创建事件失败 event_id=%s: %s", event_id, e, exc_info=True)
             raise HTTPException(status_code=500, detail=f"创建事件失败: {e}")
 
-    # 3.3 操作审计：新建爆破事件
-    audit_append(
-        "blasting.event.create",
-        f"新建爆破事件 {data.get('name') or event_id}（药量 {data.get('charge_kg')} kg）",
-        detail={"eventId": event_id, "name": data.get("name"), "fields": sorted(data.keys())},
-        identity=identity,
-    )
     return {"code": 0, "msg": "爆破事件创建成功", "data": {"eventId": event_id}}
 
+
 @router.put("/events/{event_id}", dependencies=[Depends(require_token)])
-def update_event(event_id: str, body: dict, db: Connection = Depends(get_db),
-                 identity: dict = Depends(client_identity)):
+def update_event(event_id: str, body: dict, db: Connection = Depends(get_db)):
     """更新事件基本信息（blasting_events 表，不允许修改 event_id）"""
     data = _from_camel(body, EVENT_FIELDS_REV)
     data.pop("event_id", None)
@@ -657,19 +633,11 @@ def update_event(event_id: str, body: dict, db: Connection = Depends(get_db),
             f"UPDATE blasting_events SET {set_clause} WHERE event_id=%s", values
         )
         db.commit()
-    # 3.3 操作审计：修改爆破事件
-    audit_append(
-        "blasting.event.update",
-        f"修改爆破事件 {event_id}：{len(data)} 个字段",
-        detail={"eventId": event_id, "fields": sorted(data.keys())},
-        identity=identity,
-    )
     return {"code": 0, "msg": "爆破事件更新成功"}
 
 
 @router.delete("/events/{event_id}", dependencies=[Depends(require_token)])
-def delete_event(event_id: str, db: Connection = Depends(get_db),
-                 identity: dict = Depends(client_identity)):
+def delete_event(event_id: str, db: Connection = Depends(get_db)):
     """删除事件：blasting_events 删除后，design/holes/result 通过 ON DELETE CASCADE 自动级联"""
     with db.cursor() as cursor:
         cursor.execute(
@@ -678,13 +646,6 @@ def delete_event(event_id: str, db: Connection = Depends(get_db),
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="爆破事件未找到")
         db.commit()
-    # 3.3 操作审计：删除爆破事件
-    audit_append(
-        "blasting.event.delete",
-        f"删除爆破事件 {event_id}（设计/炮孔/效果级联删除）",
-        detail={"eventId": event_id},
-        identity=identity,
-    )
     return {"code": 0, "msg": "爆破事件删除成功"}
 
 
@@ -701,15 +662,12 @@ def get_design(event_id: str, db: Connection = Depends(get_db)):
             row = cursor.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="爆破设计未找到")
-            design = _legacy_design_to_camel(row)
-            holes = _legacy_holes_to_camel(row.get("炮孔设计"))
-            # 文献设计注入：按事件匹配静态 JSON（config/blasting_designs），前端只消费渲染
-            literature = build_literature_payload(event_id, row.get("名称"))
-            if literature:
-                design["literature"] = literature
             return {
                 "code": 0,
-                "data": {"design": design, "holes": holes},
+                "data": {
+                    "design": _legacy_design_to_camel(row),
+                    "holes": _legacy_holes_to_camel(row.get("炮孔设计")),
+                },
             }
 
         cursor.execute(
@@ -720,21 +678,13 @@ def get_design(event_id: str, db: Connection = Depends(get_db)):
         design_row = cursor.fetchone()
         if not design_row:
             raise HTTPException(status_code=404, detail="爆破设计未找到")
-        # 事件名称仅用于文献设计匹配（event_id 结尾未命中时按关键词兜底）
-        cursor.execute("SELECT name FROM blasting_events WHERE event_id = %s", (event_id,))
-        name_row = cursor.fetchone()
         holes = _get_holes(cursor, event_id)
     design = _to_camel(design_row, DESIGN_FIELDS)
-    # 文献设计注入：按事件匹配静态 JSON（config/blasting_designs），前端只消费渲染
-    literature = build_literature_payload(event_id, (name_row or {}).get("name"))
-    if literature:
-        design["literature"] = literature
     return {"code": 0, "data": {"design": design, "holes": holes}}
 
 
 @router.post("/events/{event_id}/design", dependencies=[Depends(require_token)])
-def save_design(event_id: str, body: dict, db: Connection = Depends(get_db),
-                identity: dict = Depends(client_identity)):
+def save_design(event_id: str, body: dict, db: Connection = Depends(get_db)):
     """保存爆破设计（事务：upsert blasting_design + 批量替换 blasting_design_holes）"""
     design_data = _from_camel(body, DESIGN_FIELDS_REV)
     design_data.pop("event_id", None)
@@ -789,13 +739,6 @@ def save_design(event_id: str, body: dict, db: Connection = Depends(get_db),
             logger.error("保存设计失败 event_id=%s holes=%d: %s", event_id, len(holes), e, exc_info=True)
             raise HTTPException(status_code=500, detail=f"保存设计失败: {e}")
 
-    # 3.3 操作审计：保存爆破设计（设计字段 + 炮孔批量替换）
-    audit_append(
-        "blasting.design.save",
-        f"保存爆破设计：事件 {event_id}，{len(holes)} 个炮孔",
-        detail={"eventId": event_id, "holes": len(holes), "fields": sorted(design_data.keys())},
-        identity=identity,
-    )
     return {"code": 0, "msg": "爆破设计保存成功"}
 
 
@@ -830,8 +773,7 @@ def get_result(event_id: str, db: Connection = Depends(get_db)):
 
 
 @router.put("/events/{event_id}/result", dependencies=[Depends(require_token)])
-def update_result(event_id: str, body: dict, db: Connection = Depends(get_db),
-                  identity: dict = Depends(client_identity)):
+def update_result(event_id: str, body: dict, db: Connection = Depends(get_db)):
     """更新爆破效果（blasting_result 表，不允许修改 event_id）"""
     data = _from_camel(body, RESULT_FIELDS_REV)
     data.pop("event_id", None)
@@ -850,13 +792,6 @@ def update_result(event_id: str, body: dict, db: Connection = Depends(get_db),
             f"UPDATE blasting_result SET {set_clause} WHERE event_id=%s", values
         )
         db.commit()
-    # 3.3 操作审计：录入爆破效果
-    audit_append(
-        "blasting.result.save",
-        f"录入爆破效果：事件 {event_id}，{len(data)} 个字段",
-        detail={"eventId": event_id, "fields": sorted(data.keys())},
-        identity=identity,
-    )
     return {"code": 0, "msg": "爆破效果更新成功"}
 
 
@@ -1033,34 +968,3 @@ def physics_vibration(req: VibrationRequest):
         "chargeKg": req.chargeKg,
         "distance": req.distance,
     }}
-
-
-# ============================================================
-# 静态预设/标定集下发（config/*.json 单文件真源，GET 无需鉴权）
-# ============================================================
-
-@router.get("/sadosky-presets")
-def read_sadosky_presets():
-    """萨道夫斯基标定集：文献实测预设 6 条 + 平台默认 K/α（真源 config/blasting_sadosky.json）。
-
-    返回 { code:0, data:{ presets:[{key,label,k,alpha,source}], default:{k,alpha,source} } }。
-    """
-    return {"code": 0, "data": build_sadosky_payload()}
-
-
-@router.get("/kco-site-presets")
-def read_kco_site_presets():
-    """KCO 场地预设：3 套典型工程场景参数（真源 config/kco_site_presets.json）。
-
-    返回 { code:0, data:{ presets:{ <key>: {label, RMD, ..., b} } } }。
-    """
-    return {"code": 0, "data": build_kco_site_presets_payload()}
-
-
-@router.get("/hoek-brown-mi")
-def read_hoek_brown_mi():
-    """Hoek-Brown m_i 岩性表 + 硬岩典型 UCS 分档（真源 config/hoek_brown_mi.json）。
-
-    返回 { code:0, data:{ mi, miGroupMeta, typicalUCS, defaultTypicalUCS, fallback } }。
-    """
-    return {"code": 0, "data": build_hoek_brown_mi_payload()}

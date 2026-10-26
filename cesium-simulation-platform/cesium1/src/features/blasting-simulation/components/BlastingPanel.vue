@@ -206,41 +206,19 @@
           :vibration-modes="VIBRATION_MODES"
           :vibration-mode="vibrationDisplayMode"
           :vibration-field-info="vibrationFieldInfo"
+          :vibration-field-enabled="vibrationFieldEnabled"
           :sadosky-params="sadoskyParams"
-          :field-range="fieldRange"
           :ppv-pick-enabled="ppvPickEnabled"
           :picked-ppv="pickedPpv"
           :white-model-enabled="whiteModelEnabled"
-          :iso-line-enabled="isoLineEnabled"
-          :translucent-enabled="translucentEnabled"
-          :norm-mode="normMode"
           :carrier-hz="carrierHz"
-          :contour-density="contourDensity"
-          :contour-stats="contourStats"
-          :current-frame="currentFrame"
-          :max-frame="maxFrame"
-          :vector-field-on="vectorFieldOn"
           :point-history="pointHistory"
-          :ppv-decay-data="ppvDecayData"
           @set-vibration-mode="setVibrationDisplayMode"
           @update-sadosky-params="setSadoskyParams"
           @toggle-ppv-pick="togglePpvPick"
           @toggle-white-model="setWhiteModelEnabled"
-          @toggle-iso-line="setIsoLineEnabled"
-          @toggle-translucent="setTranslucentEnabled"
-          @set-norm-mode="setVibrationNormMode"
           @set-carrier-hz="setVibrationCarrierHz"
-          @set-contour-density="setVibrationContourDensity"
-          @toggle-vector-field="setVectorFieldOn"
-        />
-        <!-- 监测点（3D 布点 + 三分量时程曲线）+ 雷管延期误差控制 -->
-        <MonitorPointsPanel
-          :monitor-points="monitorPoints"
-          :monitor-pick-active="monitorPickActive"
-          :delay-jitter="delayJitter"
-          @toggle-pick="toggleMonitorPick"
-          @set-delay-jitter="setDelayJitter"
-          @remove="removeMonitorPoint"
+          @toggle-vibration-field="setVibrationFieldEnabled"
         />
         <!-- 视觉图层开关（含烟雾/粉尘等特效），方便在振动场视图下隐藏特效以查看岩体轮廓 -->
         <PlaybackControl
@@ -270,16 +248,12 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted } from 'vue'
 import { Refresh, Close, Collection, Aim } from '@element-plus/icons-vue'
 import { useBlastingPanelController } from '../services/panel/useBlastingPanelController.js'
 import PlaybackControl from './PlaybackControl.vue'
 import BlastDesign from './BlastDesign.vue'
 import HistoryCompare from './HistoryCompare.vue'
 import VibrationFieldPanel from './VibrationFieldPanel.vue'
-import MonitorPointsPanel from './MonitorPointsPanel.vue'
-import { fusionBus, CHANNELS } from '@/services/fusion/FusionBus.js'
-import { getClientId } from '../../shared/services/collabIdentity.js'
 
 defineOptions({ name: '爆破模拟面板' })
 
@@ -302,31 +276,19 @@ const {
   vibrationDisplayMode,
   vibrationFieldInfo,
   setVibrationDisplayMode,
+  // 振动场独立开关（与视觉图层开关解耦）
+  vibrationFieldEnabled,
+  setVibrationFieldEnabled,
   sadoskyParams,
   setSadoskyParams,
-  fieldRange,
   whiteModelEnabled,
   setWhiteModelEnabled,
-  translucentEnabled,
-  setTranslucentEnabled,
-  isoLineEnabled,
-  setIsoLineEnabled,
+  carrierHz,
+  setVibrationCarrierHz,
+  pointHistory,
   ppvPickEnabled,
   pickedPpv,
   togglePpvPick,
-  // 色彩标尺 / 等值线密度 / 提取诊断（VibrationFieldPanel 控件所需的
-  // props 与事件处理，之前漏解构导致模板读取到 undefined → 控件形同虚设）
-  normMode,
-  setVibrationNormMode,
-  carrierHz,
-  setVibrationCarrierHz,
-  contourDensity,
-  setVibrationContourDensity,
-  contourStats,
-  vectorFieldOn,
-  setVectorFieldOn,
-  ppvDecayData,
-  pointHistory,
   blastDesign,
   dbEvents,
   dbLoading,
@@ -350,33 +312,8 @@ const {
   muckPileMeasure,
   toggleMuckPileOutline,
   replayReady,
-  replayPrecompute,
-  currentFrame,
-  monitorPoints,
-  monitorPickActive,
-  delayJitter,
-  toggleMonitorPick,
-  removeMonitorPoint,
-  setDelayJitter
+  replayPrecompute
 } = useBlastingPanelController()
-
-// 3.2.2 跨终端联动：他端增删改爆破事件 → 重拉事件列表（本机操作已即时刷新，跳过回声）
-const COLLAB_BLASTING_ACTIONS = [
-  'blasting.event.create',
-  'blasting.event.update',
-  'blasting.event.delete'
-]
-let unsubscribeCollab = null
-onMounted(() => {
-  unsubscribeCollab = fusionBus.subscribe(CHANNELS.COLLAB_OPERATION, evt => {
-    if (!evt || evt.clientId === getClientId()) return
-    if (!COLLAB_BLASTING_ACTIONS.includes(evt.action)) return
-    loadDbEvents()
-  })
-})
-onUnmounted(() => {
-  unsubscribeCollab?.()
-})
 
 const tabs = [
   { key: 'preview', label: '效果预览' },

@@ -6,7 +6,7 @@
       :cut-pattern="cutPattern"
       :section-derived="sectionDerived"
       :selected-preset-key="selectedPresetKey"
-      :site-presets="sitePresets"
+      :site-presets="SITE_PRESETS"
       :explosive-types="EXPLOSIVE_TYPES"
       :explosive-type="explosiveType"
       :advanced-open="advancedOpen"
@@ -41,20 +41,25 @@
       @load-preset="loadPreset"
       @delete-preset="deletePreset"
     />
+
+    <div v-if="delayNote" class="mt-2 text-xs delay-note">
+      {{ delayNote }}
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import BlastKcoEditor from './BlastKcoEditor.vue'
 import BlastKcoInsights from './BlastKcoInsights.vue'
+import BlastKcoDelayCurve from './BlastKcoDelayCurve.vue'
 import {
   KCO_SOURCE_MODE,
   calculateKCOParams,
+  SITE_PRESETS,
   EXPLOSIVE_TYPES
 } from '../services/core/computation/kcoModelCore.js'
-import { fetchKcoSitePresets } from '../services/blastingApi.js'
 import { calcTunnelArea } from '../services/core/blastDefaults.js'
 import {
   buildBlastPreviewInsights,
@@ -167,22 +172,20 @@ const kcoXmax = computed(() => {
   return Math.max(0.2, Math.min(5.0, Number.isFinite(value) ? value : 2.0))
 })
 
-const selectedPresetKey = ref('')
-
-// 场地预设：数据真源已后端化（backend-py/config/kco_site_presets.json），
-// 运行时经 GET /api/blasting/kco-site-presets 拉取一次；拉取失败时下拉为空，
-// KCO 参数仍可在编辑器中手动输入。
-const sitePresets = ref({})
-onMounted(async () => {
-  try {
-    sitePresets.value = (await fetchKcoSitePresets()) || {}
-  } catch {
-    sitePresets.value = {}
-  }
+// 延时-块度修正提示（interHoleDelayMs > 0 时显示已应用的因子与截断说明）
+const delayNote = computed(() => {
+  const dc = kcoPreview.value?.delayCorrection
+  if (!dc?.applied) return ''
+  const clampNote = dc.clamped
+    ? `（Δt 超出标定范围 ${dc.range[0]}~${dc.range[1]}ms，已按端点截断）`
+    : ''
+  return `已启用延时-块度修正：Δt=${dc.delayMs}ms，f50=${dc.f50.toFixed(3)}、f80=${dc.f80.toFixed(3)}${clampNote}。经验式来源：刘步青2026 鞍钢哑巴岭现场回归`
 })
 
+const selectedPresetKey = ref('')
+
 function applyPreset() {
-  const preset = sitePresets.value[selectedPresetKey.value]
+  const preset = SITE_PRESETS[selectedPresetKey.value]
   if (!preset) return
   for (const key of Object.keys(preset)) {
     if (key === 'label') continue

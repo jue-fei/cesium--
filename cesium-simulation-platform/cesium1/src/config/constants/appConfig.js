@@ -9,7 +9,9 @@ import { apiConfig } from '@/services/api/initApiConfig.js'
 export const ORE_GRADE_THRESHOLDS = { HIGH: 3.0, MEDIUM: 2.0 }
 export const MODEL_DEFAULTS = { OPACITY: 100, VISIBLE: true }
 export const HIGHLIGHT_CONFIG = {
-  COLOR: Cesium.Color.fromCssColorString('#ffff00'),
+  // 选中高亮：琥珀黄 × 半透明（与模型预览页 preview.html 的点击效果一致）
+  COLOR: Cesium.Color.fromCssColorString('#ffd54a'),
+  ALPHA: 0.5,
   DURATION: 1000
 }
 export const SECTION_CONFIG = {

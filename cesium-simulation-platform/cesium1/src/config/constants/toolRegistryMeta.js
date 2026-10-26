@@ -48,12 +48,6 @@ export const TOOL_REGISTRY_META = [
     componentPath: '@/features/stress-analysis/components/StressPanel.vue'
   },
   {
-    id: 'audit',
-    name: '操作审计',
-    icon: 'Clock',
-    componentPath: '@/features/operation-audit/components/AuditPanel.vue'
-  },
-  {
     id: 'system',
     name: '系统工具',
     icon: 'Setting',
@@ -79,8 +73,6 @@ export function resolveToolLoader(id) {
       return () => import('@/features/lod-optimization/components/LodPanel.vue')
     case 'stress':
       return () => import('@/features/stress-analysis/components/StressPanel.vue')
-    case 'audit':
-      return () => import('@/features/operation-audit/components/AuditPanel.vue')
     case 'system':
       return () => import('@/features/system-tools/components/SystemTools.vue')
     default:

@@ -19,9 +19,12 @@ export const useModelStore = defineStore('model', () => {
   const selectedModel = ref(null)
   const modelConfigRaw = ref(null)
 
-  const undergroundViewEnabled = ref(false)
-  const globeFrontFaceAlpha = ref(20)
-  const globeBackFaceAlpha = ref(20)
+  // 默认开启地下模式：阿舍勒聚合模型含井下工程（矿体/巷道延伸到椭球面以下），
+  // 不开启时地表不透明球体会遮住地下部分；模型加载完成后由 syncUndergroundViewIfNeeded 自动生效。
+  // 地表/背面不透明度默认 0（地表完全看穿）；UI 已移除，仅爆破场景会复用这两个值作滑块初值。
+  const undergroundViewEnabled = ref(true)
+  const globeFrontFaceAlpha = ref(0)
+  const globeBackFaceAlpha = ref(0)
 
   const tileset = shallowRef(null)
   const lodConfig = ref({ ...DEFAULT_LOD_CONFIG })

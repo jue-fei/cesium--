@@ -12,7 +12,6 @@ const API_CONFIG_MARK_END = 'api-config-load:end'
 
 export const apiConfig = {
   modelConfigs: null,
-  trucks: null,
   boreholes: null,
   orebodies: null,
   mineralTypes: null,
@@ -40,7 +39,6 @@ async function fetchJSONSafe(url) {
 
 function resetApiConfig() {
   apiConfig.modelConfigs = null
-  apiConfig.trucks = null
   apiConfig.boreholes = null
   apiConfig.orebodies = null
   apiConfig.mineralTypes = null
@@ -64,16 +62,14 @@ export async function loadApiConfig() {
     apiConfig.error = null
 
     try {
-      // 核心数据：模型 / 矿卡 / 钻孔 / 矿体
-      const [models, trucks, boreholes, orebodies] = await Promise.all([
+      // 核心数据：模型 / 钻孔 / 矿体（矿卡 trucks 已随露天矿调度下线移除）
+      const [models, boreholes, orebodies] = await Promise.all([
         fetchJSON(`${API}/models`),
-        fetchJSON(`${API}/trucks`),
         fetchJSON(`${API}/boreholes`),
         fetchJSON(`${API}/orebodies`)
       ])
 
       apiConfig.modelConfigs = models
-      apiConfig.trucks = trucks
       apiConfig.boreholes = boreholes
       apiConfig.orebodies = orebodies
 
@@ -92,7 +88,6 @@ export async function loadApiConfig() {
       performance.measure('api-config-load', API_CONFIG_MARK_START, API_CONFIG_MARK_END)
       logger.info('api-config', '核心配置加载完成', {
         models: models.length,
-        trucks: trucks.length,
         boreholes: boreholes.length,
         orebodies: orebodies.length
       })

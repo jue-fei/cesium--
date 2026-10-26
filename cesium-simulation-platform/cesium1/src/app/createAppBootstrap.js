@@ -5,7 +5,6 @@ export function createAppBootstrap({
   model,
   clipping,
   geology,
-  monitoring,
   blasting,
   measurement,
   lifecycle
@@ -26,7 +25,6 @@ export function createAppBootstrap({
       await model.initModel()
       clipping.initClippingManager()
       geology.initGeologyManager(viewerInstance)
-      await monitoring.initMonitoringManager(viewerInstance)
       blasting.initBlastingManager(viewerInstance)
       measurement.loadMeasurementHistory?.()
       model.startGlobalFpsMonitoring?.()
@@ -41,7 +39,6 @@ export function createAppBootstrap({
   function stop() {
     model.stopGlobalFpsMonitoring?.()
     lifecycle?.destroyAll?.()
-    monitoring.destroyMonitoringManager?.()
     model.destroyModel?.()
     viewer.destroyViewer?.()
     isStarted = false

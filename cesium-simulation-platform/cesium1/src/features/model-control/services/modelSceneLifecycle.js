@@ -1,5 +1,7 @@
 import * as Cesium from 'cesium'
 import { warn } from '@/utils/errorHandler.js'
+import { logger } from '@/utils/logger.js'
+import { isGeoreferencedTileset, surfaceAnchorLocal, surfaceAnchorWorld } from './modelTransform.js'
 import {
   createModelSelectionSnapshot,
   getPreset,
@@ -78,7 +80,21 @@ export async function load3DModel({
       lodConfig.value = resolveFinalLodConfig(lodConfigParam, presetName, defaultLodConfig)
       adaptiveLoad.syncAdaptiveBaseline(lodConfig.value)
 
-      const tileset = await Cesium.Cesium3DTileset.fromUrl(path, { ...lodConfig.value })
+      const tileset = await Cesium.Cesium3DTileset.fromUrl(path, {
+        ...lodConfig.value,
+        // 视锥焦点渐进：视线中心高精度、边缘自动降精度，大场景帧率提升显著
+        foveatedScreenSpaceError: true,
+        foveatedConeSize: 0.3,
+        foveatedMinimumScreenSpaceError: 24,
+        // 预加载兄弟瓦片：聚合 tileset 的外部引用（地表/井下各层）尽早开始加载
+        preloadSiblings: true,
+        // 大数据集：提高缓存避免反复重新下载/解析已看过的瓦片
+        cacheBytes: 1024 * 1024 * 1024,
+        maximumCacheOverflowBytes: 1024 * 1024 * 1024,
+        // 瓦片加载期不阻塞新请求调度
+        dynamicScreenSpaceError: true,
+        dynamicScreenSpaceErrorDensity: 0.0005
+      })
       viewer.scene.primitives.add(tileset)
       await tileset.readyPromise
 
@@ -92,6 +108,48 @@ export async function load3DModel({
       runtimeState.originalBoundingSphereCenter = Cesium.Cartesian3.clone(
         tileset.boundingSphere.center
       )
+
+      // ===== 自带地表锚点的模型：面板初始值 = 模型标称锚点 =====
+      // 高程基准已在生成端固定（geoid 实测解算：椭球高 852.8 = 海拔 899.3 - 46.5），
+      // 运行时不做 terrain delta 校正——倾斜摄影是厘米级真实地表，
+      // World Terrain/DEM 为 30m 粗格网，强制贴合反而引入几十米级误差。
+      if (isGeoreferencedTileset(tileset) && surfaceAnchorLocal(tileset)) {
+        const surfaceWorld = surfaceAnchorWorld(tileset)
+        const surfaceCarto = surfaceWorld && Cesium.Cartographic.fromCartesian(surfaceWorld)
+        if (!surfaceCarto) {
+          logger.warn('scene', '地表锚点解析失败，按本地模型处理')
+        } else {
+          const resultPosition = {
+            longitude: Cesium.Math.toDegrees(surfaceCarto.longitude),
+            latitude: Cesium.Math.toDegrees(surfaceCarto.latitude),
+            height: surfaceCarto.height
+          }
+          const resultTransform = { rotationX: 0, rotationY: 0, rotationZ: 0 }
+          // geo 模型原生水平姿态：清掉 demo 遗留的 15° X 旋转，位置面板同步锚点
+          runtimeState.currentTransform = { ...resultTransform }
+          runtimeState.initialPosition = { ...resultPosition }
+          await resetViewToModel(tileset)
+          // 渲染增强（与本地模型路径保持一致）
+          try {
+            const enhancement = getRenderEnhancementManager()
+            if (enhancement.state.attached) {
+              tileset.shadows = Cesium.ShadowMode.ENABLED
+              enhancement.applyToTileset(tileset)
+              enhancement.applyAll()
+            }
+          } catch (e) {
+            // 安全忽略：渲染增强应用失败不影响模型加载
+          }
+          return {
+            type: 'success',
+            message: '矿山模型已成功加载',
+            position: { ...resultPosition },
+            transform: { ...resultTransform },
+            lodConfig: lodConfig.value,
+            lodPreset: presetName
+          }
+        }
+      }
 
       applyModelTransform(
         tileset,
@@ -185,13 +243,24 @@ export async function reloadCurrentModelWithLodConfig({
       } else {
         initializeDefaultModelList(preferredSelection)
       }
-      updatePosition(savedPosition)
-      updateTransform(savedTransform)
+      // 自带地表锚点的模型：面板同步为加载器返回的锚点（含地形校正），不回放上一模型位置
+      if (surfaceAnchorLocal(tilesetRef.value)) {
+        if (result.position) modelPosition.value = result.position
+        if (result.transform) modelTransform.value = result.transform
+      } else {
+        updatePosition(savedPosition)
+        updateTransform(savedTransform)
+      }
       syncUndergroundViewIfNeeded()
       restoreCameraView(viewer, cameraSaved)
-      interaction.initModelEventHandler(viewer, tilesetRef, feature =>
+      interaction.initModelEventHandler(viewer, tilesetRef, feature => {
+        // feature 为 null = 点击空白处：清除选中（高亮消失、属性面板收起）
+        if (!feature) {
+          selectedModel.value = null
+          return
+        }
         interaction.handleModelSelection(feature, modelList, selectedModel)
-      )
+      })
     }
     return result
   } catch (error) {
@@ -240,9 +309,14 @@ export async function initModel({
     const viewer = getViewer()
     if (tilesetRef.value) {
       interaction.scanAndStoreFeatures(tilesetRef.value)
-      interaction.initModelEventHandler(viewer, tilesetRef, feature =>
+      interaction.initModelEventHandler(viewer, tilesetRef, feature => {
+        // feature 为 null = 点击空白处：清除选中（高亮消失、属性面板收起）
+        if (!feature) {
+          selectedModel.value = null
+          return
+        }
         interaction.handleModelSelection(feature, modelList, selectedModel)
-      )
+      })
 
       if (currentConfigFile.value) {
         const dbData = await getFeatureDataForConfig(currentConfigFile.value)

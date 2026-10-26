@@ -1,7 +1,0 @@
-{
-  "_comment": "外部机器学习权重服务接入配置（训练与推理在外部完成，平台只消费推荐结果）。enabled=true 且 endpoint 非空时 GET /api/scheduling/weights/recommend 走外部服务，任何失败自动降级等权（source=fallback, degraded=true）。响应契约见 shared-consistency-baseline.json#weightTuningCmps；修改本文件前端零发布。",
-  "enabled": false,
-  "endpoint": "",
-  "timeoutMs": 2000,
-  "modelVersion": ""
-}

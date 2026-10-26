@@ -1,9 +1,10 @@
-import { reactive, ref } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { applyModelTransform } from './modelTransform.js'
 import { bindTilesetLodRuntimeEvents } from '../../lod-optimization/services/lodRuntime.js'
 import { createUndergroundViewController } from './undergroundView.js'
 import { createModelAdaptiveLoadManager } from './modelAdaptiveLoad.js'
 import { createModelInteractionManager } from './modelInteraction.js'
+import { createCameraFollow } from './cameraFollow.js'
 import {
   DEFAULT_TRANSFORM,
   DEFAULT_LOD_CONFIG,
@@ -77,6 +78,32 @@ function createModelServiceContext(storeRefs) {
   const { getViewer, resetViewToModel } = useViewer()
   const measurement = useMeasurement()
   const interaction = createModelInteractionManager()
+  const cameraFollow = createCameraFollow((msg, type) => showOperationMessage(msg, type))
+
+  // 选中持续高亮：任何路径改变选中模型（场景点击/列表属性按钮/信息同步）都生效；
+  // 旧选中恢复正常样式，新选中保持高亮直到切换
+  watch(selectedModel, (model, prev) => {
+    try {
+      const fm = interaction.featureManager
+      if (prev) fm.clearSelectedHighlight(prev.featureId || prev.id)
+      if (model) fm.setSelectedHighlight(model.featureId || model.id)
+    } catch (_) {
+      /* 高亮失败不影响选择流程 */
+    }
+  })
+
+  /**
+   * 视角追随开关：锁定相机到组件包围球，随组件移动；
+   * 未加载的组件先飞往其位置，等瓦片加载后自动锁定；再点一次取消。
+   */
+  const toggleFollowModel = model => {
+    const viewer = getViewer()
+    const result = cameraFollow.toggleFollow(viewer, tilesetRef, model, interaction.featureManager)
+    if (!result.ok) {
+      showOperationMessage(result.reason || '视角追随失败', 'warning')
+    }
+    return result
+  }
   const adaptiveLoad = createModelAdaptiveLoadManager()
   const runtimeState = createRuntimeState()
   const modelConfigIdMap = ref(new Map())
@@ -107,6 +134,8 @@ function createModelServiceContext(storeRefs) {
     resetViewToModel,
     measurement,
     interaction,
+    cameraFollow,
+    toggleFollowModel,
     adaptiveLoad,
     runtimeState,
     modelConfigIdMap,
@@ -422,6 +451,8 @@ function buildModelService(context, lodService, propertyBindings, viewBindings, 
     globeBackFaceAlpha: context.globeBackFaceAlpha,
     onConfigChange: sceneBindings.onConfigChangeWrapped,
     interaction: context.interaction,
+    toggleFollowModel: context.toggleFollowModel,
+    followedModelId: context.cameraFollow.followedId,
     fitToModel: sceneBindings.fitToModelWrapped,
     resetView: viewBindings.resetViewWrapped,
     resetModel: viewBindings.resetModelWrapped,

@@ -13,9 +13,8 @@
  */
 
 import RAPIER from '@dimforge/rapier3d-compat'
-import { DEFAULT_RESTITUTION, DEFAULT_FRICTION, REST_SPEED } from '../blastDefaults.js'
-// 共享物理常量（GRAVITY/SETTLE_*/ENERGY_SAMPLE_INTERVAL/AIR_*/SPHERE_DRAG_COEFF/
-// FLAG_*/computeDragAccel）单源于 physicsConstants.js，与 blastPhysicsEngine.js 一致
+import { DEFAULT_RESTITUTION, DEFAULT_FRICTION } from '../blastDefaults.js'
+// 共享物理常量与 P-01 阻力模型：与 blastPhysicsEngine.js 同一实现（physicsConstants.js 单源）
 import {
   GRAVITY,
   SETTLE_SPEED,
@@ -26,7 +25,7 @@ import {
   FLAG_LANDED
 } from './physicsConstants.js'
 
-// 碰撞分组（enableInterCollision=false 时使用，本引擎专属）
+// 碰撞分组（enableInterCollision=false 时使用）
 const FRAG_GROUPS = 0x00020001 // group=0x0001, mask=0x0002（仅与隧道碰撞）
 const TUNNEL_GROUPS = 0x00010002 // group=0x0002, mask=0x0001（仅与碎片碰撞）
 
@@ -58,6 +57,25 @@ function basisToQuat(rx, ry, rz, ux, uy, uz, fx, fy, fz) {
     qx = (fx + rz) / s
     qy = (fy + uz) / s
     qz = 0.25 * s
+  }
+  // 归一化兜底：本函数假定输入 [right, up, -forward] 为正规旋转矩阵
+  //（约定 right × up = -forward，生产端由 right=dir×up、forward=up×right 保证）。
+  // 若调用方传入左手系组合（如 right=+X、forward=+Z 的测试 bounds），矩阵变为
+  // 反射（det=-1），Shepperd 公式会产出 |q|<1 的非法四元数；Rapier 0.20 的
+  // setRotation 不做归一化，非单位四元数会使固定碰撞体退化成过原点的细针
+  // （实测碎片全部穿地、永不落地，预计算被打满 40s 上限）。归一化对正规输入
+  // 是无操作，对异常输入保证碰撞体姿态有效。
+  const qlen = Math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
+  if (qlen > 1e-9) {
+    qx /= qlen
+    qy /= qlen
+    qz /= qlen
+    qw /= qlen
+  } else {
+    qx = 0
+    qy = 0
+    qz = 0
+    qw = 1
   }
   return { x: qx, y: qy, z: qz, w: qw }
 }
@@ -274,9 +292,14 @@ export class RapierPhysicsEngine {
     }
 
     // 2. 重置力 + 施加空气阻力
+    // 【性能】睡眠体直接跳过：Rapier 不积分睡眠体的力，resetForces/resetTorques
+    // 与 linvel 读取都是纯浪费。被撞醒后 isSleeping()=false，本循环下一步即照常
+    // reset+加阻力，无陈旧力泄漏（冻结前残留的阻力在唤醒步开头即被清掉）。
+    // 尾段（99% 碎片已冻结）每体每步省 ~3 次 WASM 边界调用。
     for (const b of this._fragmentBodies) {
       if (!(b.flags & FLAG_ALIVE)) continue
       const rb = b.rigidBody
+      if (rb.isSleeping()) continue
       rb.resetForces(true)
       rb.resetTorques(true)
 
@@ -378,7 +401,26 @@ export class RapierPhysicsEngine {
   _applySettling() {
     for (const b of this._fragmentBodies) {
       if (!(b.flags & FLAG_ALIVE)) continue
-      const vel = b.rigidBody.linvel()
+      const rb = b.rigidBody
+      // 【性能】睡眠体短路：本引擎冻结（sleep）或 Rapier 自动睡眠的体速度恒为
+      // 0——跳过 linvel()+开方。尾段绝大多数碎片处于睡眠，每体每步省 2 次调用。
+      // 注意补齐语义：Rapier 自动睡眠的"未冻结"体（落在堆上静止、尚未走完
+      // "低速 3 帧"门控）直接标记 LANDED，否则 99% 落地门控可能永远不触发，
+      // 关键帧录制被拖到 40s 硬上限（预计算反而更慢）；冻结体（LANDED）睡眠中
+      // 不可能有速度（被顶飞必先被唤醒 → isSleeping()=false），跳过是安全的。
+      if (rb.isSleeping()) {
+        if (!(b.flags & FLAG_LANDED)) {
+          b.flags |= FLAG_LANDED
+          b.lowSpeedFrames = 0
+          if (this.onBodyLanded && !b.landTriggered) {
+            b.landTriggered = true
+            const pos = rb.translation()
+            this.onBodyLanded({ posX: pos.x, posY: pos.y, posZ: pos.z }, 0)
+          }
+        }
+        continue
+      }
+      const vel = rb.linvel()
       const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z)
 
       if (b.flags & FLAG_LANDED) {
@@ -514,6 +556,39 @@ export class RapierPhysicsEngine {
     })
   }
 
+  /**
+   * 直接把当前状态打包为回放关键帧缓冲（零中间对象分配）。
+   * 字段布局与 blastPhysicsWorker 的 REPLAY_FLOATS_PER_BODY=8 对应：
+   *   [px, py, pz, qx, qy, qz, qw, flags]
+   * 【性能】预计算/直播每 0.05s 步都录制一次关键帧。旧路径 getBodyStates()
+   * 为每碎片创建 JS 对象并做 3 次 WASM 桥接调用（其中 linvel() 的结果根本
+   * 不进关键帧）→ 3000 体 × 800 步累计 ~700 万次桥接调用 + 240 万次对象
+   * 分配（GC 压力）。本方法每碎片仅 2 次桥接调用（translation/rotation），
+   * flags 直接读 JS 侧元数据，是预计算耗时的大头削减项之一。
+   * @param {Float32Array} out - 目标缓冲（长度 ≥ N × floatsPerBody）
+   * @param {number} floatsPerBody - 每碎片 float 数（8）
+   * @returns {number} 实际写入的碎片数
+   */
+  packReplayKey(out, floatsPerBody) {
+    if (!out || !floatsPerBody) return 0
+    const n = Math.min(this._fragmentBodies.length, Math.floor(out.length / floatsPerBody))
+    for (let i = 0; i < n; i++) {
+      const b = this._fragmentBodies[i]
+      const p = b.rigidBody.translation()
+      const r = b.rigidBody.rotation()
+      const o = i * floatsPerBody
+      out[o] = p.x
+      out[o + 1] = p.y
+      out[o + 2] = p.z
+      out[o + 3] = r.x
+      out[o + 4] = r.y
+      out[o + 5] = r.z
+      out[o + 6] = r.w
+      out[o + 7] = b.flags
+    }
+    return n
+  }
+
   /** 存活碎片数量 */
   get aliveFragmentCount() {
     let c = 0
@@ -530,33 +605,6 @@ export class RapierPhysicsEngine {
       if (b.flags & FLAG_LANDED) c++
     }
     return c
-  }
-
-  /**
-   * 静止质量比（动画"抛掷结束"判据，质量加权，0~1）。
-   *
-   * 与 getEnergyStats().settledMassRatio 的区别：后者只认 FLAG_LANDED，而
-   * "落地/冻结"要求低速持续若干帧且有支撑——少数贴合不良或反复受扰被唤醒的
-   * 边角石可能长期不置位，使比值卡在平台期，"99% 碎片落地"这类计数判据
-   * 永不达成 → 回放时长回退到硬上限（时间条虚长数倍）。本口径以速度为准，
-   * 天然收敛到 1。与 BlastPhysicsEngine.restMassRatio 同口径。
-   * @returns {number} 静止质量占比 0~1
-   */
-  get restMassRatio() {
-    let restMass = 0
-    let totalMass = 0
-    for (const b of this._fragmentBodies) {
-      if (!(b.flags & FLAG_ALIVE)) continue
-      totalMass += b.mass
-      if (b.flags & FLAG_LANDED) {
-        restMass += b.mass
-        continue
-      }
-      const vel = b.rigidBody.linvel()
-      const v2 = vel.x * vel.x + vel.y * vel.y + vel.z * vel.z
-      if (v2 <= REST_SPEED * REST_SPEED) restMass += b.mass
-    }
-    return totalMass > 0 ? restMass / totalMass : 0
   }
 
   /**

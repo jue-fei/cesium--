@@ -10,20 +10,12 @@
  *
  * 只要在场景 JSON 的 layout.nodes / segments / levelSegs / layout.levels 中增删巷道，
  * 渲染与 NSGA-III 路径绘制即自动适配，无需修改本文件或组件代码。
- *
- * ⚠️⚠️⚠️ 兜底数据警示（重要）⚠️⚠️⚠️
- * 下文 DEFAULT_VIEW_BOX / DEFAULT_SEGMENT_LINKS / DEFAULT_NODE_POSITIONS /
- * DEFAULT_LEVELS / DEFAULT_LAYOUT 各表，均为后端 config/scenario_*.json 的兜底副本。
- * ⚠️ 数据真源在后端 config/scenario_*.json，本表仅为后端未配置时的兜底；
- * ⚠️ 修改场地布局请改后端配置并同步本表，否则前后端布局将不一致！
  */
 
-// ⚠️ 兜底副本：数据真源在后端 config/scenario_*.json（layout.viewBox），本表仅为后端
-// 未配置时的兜底；修改场地布局请改后端配置并同步本表。
+// 默认 2D 画布范围（与场景配置 layout.viewBox 一致；此处作为兜底）
 export const DEFAULT_VIEW_BOX = { x: 0, y: 0, width: 390, height: 300 }
 
-// ⚠️ 兜底副本：顶层巷道段数据真源在后端 config/scenario_*.json（segments + levelSegs["0"]），
-// 本表仅为后端未配置时的兜底；修改场地布局请改后端配置并同步本表。
+// 顶层默认巷道段（与场景配置 levelSegs["0"] 一致；作为兜底）
 export const DEFAULT_SEGMENT_LINKS = [
   ['SEG-01', 'S0', 'N1'],
   ['SEG-02', 'N1', 'N2'],
@@ -42,8 +34,7 @@ export const DEFAULT_SEGMENT_LINKS = [
   ['SEG-15', 'M4', 'S1']
 ]
 
-// ⚠️ 兜底副本：节点 2D 布局数据真源在后端 config/scenario_*.json（layout.nodes），
-// 本表仅为后端未配置时的兜底；修改场地布局请改后端配置并同步本表。
+// 默认节点 2D 布局（与场景配置 layout.nodes 一致；作为兜底）
 export const DEFAULT_NODE_POSITIONS = {
   S0: { x: 50, y: 40, label: 'S0 卸载点', isDump: true },
   N1: { x: 140, y: 40, label: 'N1' },
@@ -60,8 +51,7 @@ export const DEFAULT_NODE_POSITIONS = {
   S1: { x: 230, y: 250, label: 'S1 备用卸点', isDump: true }
 }
 
-// ⚠️ 兜底副本：三维分层数据真源在后端 config/scenario_*.json（layout.levels），
-// 本表仅为后端未配置时的兜底；修改场地布局请改后端配置并同步本表。
+// 默认三维分层（与场景配置 layout.levels 一致；作为兜底）
 export const DEFAULT_LEVELS = [
   { y: 36, name: '主运输水平', shift: { x: 0, z: 0 }, activity: 0.5 },
   { y: 14, name: '上部出矿分段', shift: { x: 22, z: -12 }, activity: 0.8 },
@@ -93,7 +83,7 @@ const _r3 = v => Math.round(v * 1000) / 1000
 
 function deriveDeepSegments(cfg, nodePositions, levelSegs) {
   const segById = {}
-  for (const s of cfg && Array.isArray(cfg.segments) ? cfg.segments : []) segById[s.id] = s
+  for (const s of (cfg && Array.isArray(cfg.segments) ? cfg.segments : [])) segById[s.id] = s
   const out = []
   const keys = Object.keys(levelSegs || {})
     .map(Number)
@@ -137,12 +127,21 @@ function deriveDeepSegments(cfg, nodePositions, levelSegs) {
 /**
  * 由场景配置构建前端可视化布局对象。
  * @param {object} cfg 后端 /api/scheduling/config 下发的完整场景配置
- * @returns {{ nodePositions, segmentLinks, deepSegments, viewBox, levels, nodeElevation }}
+ * @returns {{ nodePositions, segmentLinks, deepSegments, viewBox, levels, nodeElevation,
+ *             schemaVersion, segPolylines, segByPair, nodePos3, equipGlbs, real3d }}
+ *
+ * v2 (schemaVersion>=2) 额外产出:
+ *   segPolylines[segId]  —— 逻辑段真实 3D 折线 (mine 系 [x,y,z], z=海拔)
+ *   segByPair['a|b']     —— 任意方向节点对 → 定向折线
+ *   nodePos3[nodeId]     —— 逻辑节点 3D 锚点
+ *   equipGlbs[equipId]   —— 设备渲染模型 URL
+ *   real3d               —— 非空时 TunnelMap3D 走真实巷道渲染模式
  */
 export function buildLayout(cfg) {
   const layout = (cfg && cfg.layout) || {}
   const rawNodes = layout.nodes || {}
   const nodePositions = {}
+  const nodePos3 = {}
   for (const [id, n] of Object.entries(rawNodes)) {
     nodePositions[id] = {
       x: n.x,
@@ -150,6 +149,10 @@ export function buildLayout(cfg) {
       label: n.label || id,
       isDump: n.type === 'dump',
       isMuck: n.type === 'muck'
+    }
+    if (Array.isArray(n.pos3)) {
+      nodePositions[id].pos3 = n.pos3
+      nodePos3[id] = n.pos3
     }
   }
   const viewBox = layout.viewBox || DEFAULT_VIEW_BOX
@@ -165,21 +168,55 @@ export function buildLayout(cfg) {
     .filter(s => topIds.has(s.id))
     .map(s => [s.id, s.a, s.b])
   const deepSegments = deriveDeepSegments(cfg, nodePositions, levelSegs)
+
+  // —— v2: 真实 3D 几何透传 ——
+  const schemaVersion = Number(cfg && cfg.schemaVersion) || 1
+  const segPolylines = {}
+  const segByPair = {}
+  for (const s of (cfg && Array.isArray(cfg.segments) ? cfg.segments : [])) {
+    if (Array.isArray(s.polyline3) && s.polyline3.length >= 2) {
+      segPolylines[s.id] = s.polyline3
+      if (s.a && s.b) {
+        segByPair[`${s.a}|${s.b}`] = s.polyline3
+        segByPair[`${s.b}|${s.a}`] = [...s.polyline3].reverse()
+      }
+    }
+  }
+  const equipGlbs = {}
+  const eq = cfg && cfg.equipment
+  if (eq && typeof eq === 'object' && !Array.isArray(eq)) {
+    for (const [id, e] of Object.entries(eq)) {
+      if (e && e.glb) equipGlbs[id] = e.glb
+    }
+  }
+  const real3d =
+    schemaVersion >= 2 && cfg.real3d && Object.keys(segPolylines).length
+      ? {
+          ...cfg.real3d,
+          segPolylines,
+          segByPair,
+          nodePos3,
+          equipGlbs
+        }
+      : null
+
   return {
     nodePositions,
     segmentLinks,
     deepSegments,
     viewBox,
     levels,
-    nodeElevation: layout.nodeElevation || {}
+    nodeElevation: layout.nodeElevation || {},
+    schemaVersion,
+    segPolylines,
+    segByPair,
+    nodePos3,
+    equipGlbs,
+    real3d
   }
 }
 
-/**
- * ⚠️ 兜底副本：无场景配置时的兜底布局（保留旧版视觉，供 pathToPoints 等独立使用）。
- * 数据真源在后端 config/scenario_*.json，本表仅为后端未配置时的兜底；
- * 修改场地布局请改后端配置并同步本表。
- */
+/** 无场景配置时的兜底布局（保留旧版视觉，供 pathToPoints 等独立使用）。 */
 export const DEFAULT_LAYOUT = buildLayout({
   layout: {
     viewBox: DEFAULT_VIEW_BOX,

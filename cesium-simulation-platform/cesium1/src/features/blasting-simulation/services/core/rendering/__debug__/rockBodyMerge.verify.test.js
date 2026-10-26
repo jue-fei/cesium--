@@ -4,6 +4,10 @@ import { SceneBuilder } from '../sceneBuilder.js'
 // canvas stub 单源：../__tests__/helpers/canvasStub.js
 import { installCanvasStub } from '../__tests__/helpers/canvasStub.js'
 
+// createRockTexture() 依赖浏览器 canvas（document.createElement + 2D ctx），
+// 测试环境无 document。此处注入最小 2D canvas/ctx 桩，仅用于几何校验（不实际渲染，
+// THREE.CanvasTexture 只持有引用、测试中不会被上传到 GPU）。
+
 function allFinite(geo) {
   const pos = geo.attributes.position
   for (let i = 0; i < pos.count; i++) {

@@ -38,8 +38,7 @@ import {
   Setting,
   EditPen,
   Histogram,
-  Aim,
-  Clock
+  Aim
 } from '@element-plus/icons-vue'
 import useUI from '@/composables/useUI.js'
 import { TOOL_REGISTRY } from '@/features/shared/index.js'
@@ -57,8 +56,7 @@ const iconMap = {
   Mouse,
   Setting,
   Histogram,
-  Aim,
-  Clock
+  Aim
 }
 
 const getIcon = name => iconMap[name] || Setting

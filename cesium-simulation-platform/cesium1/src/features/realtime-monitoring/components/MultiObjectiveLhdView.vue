@@ -3,7 +3,7 @@
     <!-- ===== 头部：结论性标题 + 状态/统计/操作 ===== -->
     <header class="moo-header">
       <div class="moo-title-block">
-        <div class="moo-kicker">{{ optKicker }}</div>
+        <div class="moo-kicker">NSGA-III · 帕累托前沿优化</div>
         <h2 class="moo-title" :class="expanded && 'moo-title-lg'">井下铲运机多目标联合调度</h2>
       </div>
 
@@ -40,19 +40,6 @@
         <button v-else class="moo-btn" @click="$emit('toggle-expand')">关闭（Esc）</button>
       </div>
     </header>
-
-    <!-- ===== 多终端并发冲突条（3.2.3）：另一终端已更新真源/派单队列 ===== -->
-    <div v-if="conflict" class="collab-conflict" role="alert">
-      <span class="cc-icon">!</span>
-      <div class="cc-body">
-        <div class="cc-title">
-          并发写入冲突{{ conflict.by ? ` · ${conflict.by}` : '' }}
-        </div>
-        <div class="cc-msg">{{ conflict.message }}</div>
-      </div>
-      <button class="cc-btn" @click="conflictRefreshAndRetry">刷新并重试</button>
-      <button class="cc-btn cc-btn-danger" @click="conflictForce">强制覆盖</button>
-    </div>
 
     <!-- ===== 采场摘要卡片 + 按采场筛选切换 ===== -->
     <section class="zone-strip" aria-label="采场摘要与筛选">
@@ -91,115 +78,49 @@
 
     <!-- ===== 证据区：展开态=当前方案整行 + 巷道图主舞台(前沿叠右侧、明细表叠右上) ===== -->
     <section class="moo-evidence">
-      <!-- 建议方案行：左 74%（与下方地图同宽同几何）+ 右列权重调节（与下方帕累托/明细表列对齐） -->
-      <div class="rec-row">
-        <!-- 当前建议方案（展开态位于地图上方整行） -->
-        <div v-if="selected" class="panel rec-panel">
-          <div class="panel-head">
-            <div class="panel-label">
-              当前建议方案
-              <span class="rec-badge">P{{ selectedIndex + 1 }} · 推荐</span>
-            </div>
-            <div class="panel-hint">随点选联动</div>
+      <!-- 当前建议方案（展开态位于地图上方整行） -->
+      <div v-if="selected" class="panel rec-panel">
+        <div class="panel-head">
+          <div class="panel-label">
+            当前建议方案
+            <span class="rec-badge">P{{ selectedIndex + 1 }} · 推荐</span>
           </div>
-          <div class="panel-body rec-body">
-            <div class="rec-obj-grid">
-              <div
-                v-for="obj in objectives"
-                :key="'rec' + obj.id"
-                class="rec-obj"
-                :title="obj.why || obj.desc"
-              >
-                <span class="rec-obj-name">{{ obj.name }}</span>
-                <b class="rec-obj-val" :class="'dir-' + (obj.dir === 'min' ? 'min' : 'max')">
-                  {{ fmt(selected.objectives[obj.id]) }}
-                </b>
-                <span class="rec-obj-dir">
-                  {{ obj.unit ? obj.unit + ' · ' : ''
-                  }}{{ obj.dir === 'min' ? '↓ 越小越好' : '↑ 越大越好' }}
-                </span>
-              </div>
-            </div>
-            <div class="rec-divider"></div>
-            <div class="rec-route-list">
-              <div v-for="(id, i) in equipIds" :key="'rr' + i" class="rec-route-item">
-                <span
-                  class="rec-equip"
-                  :style="{ background: pathColors[i] + '22', color: pathColors[i] }"
-                  >{{ cnId(id) }}</span
-                >
-                <i
-                  v-if="routeZoneOf(i)"
-                  class="rec-zone-dot"
-                  :style="{ background: zoneColorMap[routeZoneOf(i)] }"
-                  :title="'所属采场：' + routeZoneOf(i)"
-                ></i>
-                <span class="rec-target">{{ cnPath(routeStep(i)) }}</span>
-              </div>
-            </div>
-          </div>
+          <div class="panel-hint">随点选联动</div>
         </div>
-
-        <!-- 权重调节：ML 推荐权重 / 手动微调 → 加权推荐方案（右列，与下方帕累托/明细表对齐） -->
-        <div class="panel wt-panel">
-          <div class="panel-head">
-            <div class="panel-label">权重调节</div>
-            <div class="panel-controls">
-              <span
-                v-if="weightSource"
-                class="wt-source"
-                :class="{ 'wt-degraded': weightDegraded }"
-                :title="weightDegraded ? '外部 ML 权重服务未启用/失败，已降级等权' : ''"
-              >
-                {{
-                  weightSource === 'ml-external'
-                    ? 'ML 推荐'
-                    : weightSource === 'manual'
-                      ? '手动'
-                      : '等权降级'
-                }}
+        <div class="panel-body rec-body">
+          <div class="rec-obj-grid">
+            <div
+              v-for="obj in objectives"
+              :key="'rec' + obj.id"
+              class="rec-obj"
+              :title="obj.why || obj.desc"
+            >
+              <span class="rec-obj-name">{{ obj.name }}</span>
+              <b class="rec-obj-val" :class="'dir-' + (obj.dir === 'min' ? 'min' : 'max')">
+                {{ fmt(selected.objectives[obj.id]) }}
+              </b>
+              <span class="rec-obj-dir">
+                {{ obj.unit ? obj.unit + ' · ' : ''
+                }}{{ obj.dir === 'min' ? '↓ 越小越好' : '↑ 越大越好' }}
               </span>
-              <label class="wt-lock" title="锁定当前推荐，前沿刷新不重算；拖动滑杆自动解锁">
-                <input
-                  type="checkbox"
-                  :checked="weightLocked"
-                  @change="lockRecommend($event.target.checked)"
-                />锁定
-              </label>
             </div>
           </div>
-          <div class="panel-body wt-body">
-            <div v-for="o in objectives" :key="o.id" class="wt-row">
-              <span class="wt-name" :title="o.desc">{{ o.name }}</span>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                :value="weightRaw[o.id] || 0"
-                class="wt-slider"
-                :aria-label="`${o.name}权重`"
-                @input="onWeightSlide(o.id, $event)"
-              />
-              <span class="wt-val">{{ Math.round((normW[o.id] || 0) * 100) }}%</span>
-            </div>
-            <div class="wt-actions">
-              <button class="wt-btn" :disabled="weightLoading" @click="loadWeightRecommend">
-                {{ weightLoading ? '获取中…' : 'ML 推荐权重' }}
-              </button>
-              <button
-                class="wt-btn"
-                :disabled="weightSolving || !paretoSize"
-                title="把权重作为偏好参考方向重新运行 NSGA-III"
-                @click="deepSolve"
+          <div class="rec-divider"></div>
+          <div class="rec-route-list">
+            <div v-for="(id, i) in equipIds" :key="'rr' + i" class="rec-route-item">
+              <span
+                class="rec-equip"
+                :style="{ background: pathColors[i] + '22', color: pathColors[i] }"
+                >{{ cnId(id) }}</span
               >
-                {{ weightSolving ? '求解中…' : '按权重重求解' }}
-              </button>
-              <button v-if="result?.overridden" class="wt-btn wt-btn-ghost" @click="resetOverride">
-                恢复快照前沿
-              </button>
+              <i
+                v-if="routeZoneOf(i)"
+                class="rec-zone-dot"
+                :style="{ background: zoneColorMap[routeZoneOf(i)] }"
+                :title="'所属采场：' + routeZoneOf(i)"
+              ></i>
+              <span class="rec-target">{{ cnPath(routeStep(i)) }}</span>
             </div>
-            <div v-if="weightError" class="wt-error">{{ weightError }}</div>
-            <div v-if="weightModelText" class="panel-hint">{{ weightModelText }}</div>
           </div>
         </div>
       </div>
@@ -219,14 +140,6 @@
                     : `方案 ${selectedIndex + 1}`
                 }}
               </div>
-              <button
-                class="deploy-toggle"
-                :class="{ on: deployMode }"
-                :title="deployMode ? '退出拖拽部署模式' : '进入拖拽部署模式：拖拽设备到巷道节点保存待命点'"
-                @click="toggleDeployMode"
-              >
-                {{ deployMode ? '退出部署' : '设备部署' }}
-              </button>
             </div>
             <div class="panel-body">
               <!-- 三维巷道网络：隧道管道 + 节点标记 + 设备巡游 + 派送路线（按采场着色） -->
@@ -241,27 +154,78 @@
                 :levels="levels"
                 :equip-colors="pathColors"
                 :equip-names="equipNames"
-                :equip-ids="equipIds"
-                :deploy-mode="deployMode"
-                :equip-nodes="equipNodes"
                 :node-heights="nodeHeights"
                 :active-seg-id="activeSegId"
+                :real3d="layoutReal3d"
+                :seg-polylines="layout?.segPolylines || {}"
+                :node-pos3="layout?.nodePos3 || {}"
+                :tunnel-glb-url="layout?.real3d?.tunnelGlb || ''"
+                :tunnel-index-url="layout?.real3d?.indexUrl || ''"
+                :equip-glbs="equipGlbs"
                 @select="activeSegId = $event"
                 @clear="activeSegId = ''"
-                @deploy="onDeployDrop"
               />
 
-              <!-- 拖拽式设备部署侧栏（3.2）：部署清单 + 出矿工序优先级编辑 -->
-              <LhdDeployPanel
-                v-if="deployMode"
-                :equipment-items="equipmentItems"
-                :deployments="deployments"
-                :process-order="processOrder"
-                :muck-points="muckPilePoints"
-                :status="deployStatus"
-                :busy="deployBusy"
-                @save-order="onSaveProcessOrder"
-              />
+              <!-- 路段约束详情条：点击巷道段后展开（每段独立编号 + 专有安全信息） -->
+              <div v-if="activeSegId" class="seg-detail">
+                <div class="seg-detail-head">
+                  <b class="seg-detail-id">{{ cnId(activeSegId) }}</b>
+                  <span class="seg-detail-name">{{ segMeta(activeSegId).name || '—' }}</span>
+                  <span class="seg-detail-risk" :class="riskOf(segMeta(activeSegId)).clazz">
+                    {{ riskOf(segMeta(activeSegId)).label }} · 评分{{
+                      riskOf(segMeta(activeSegId)).score
+                    }}
+                  </span>
+                  <span class="seg-detail-status" :class="segState(segMeta(activeSegId)).clazz">
+                    {{ segState(segMeta(activeSegId)).label }}
+                  </span>
+                  <button class="seg-detail-close" title="关闭" @click="activeSegId = ''">×</button>
+                </div>
+                <div
+                  v-if="
+                    segMeta(activeSegId).blocked || segMeta(activeSegId).passableLoaded === false
+                  "
+                  class="seg-detail-alert"
+                >
+                  <span v-if="segMeta(activeSegId).blocked">⚠ 本路段封锁中，暂不通车</span>
+                  <span v-else>⚠ 本路段重载禁行，满载铲运车无法通过</span>
+                </div>
+                <div class="seg-detail-grid">
+                  <div class="sd-item">
+                    <span>净宽</span><b>{{ fmtM(segMeta(activeSegId).clearWidthM) }}</b>
+                  </div>
+                  <div class="sd-item">
+                    <span>净高</span><b>{{ fmtM(segMeta(activeSegId).clearHeightM) }}</b>
+                  </div>
+                  <div class="sd-item">
+                    <span>坡度</span><b>{{ fmtV(segMeta(activeSegId).maxGradePct) }}%</b>
+                  </div>
+                  <div class="sd-item">
+                    <span>转弯半径</span><b>{{ fmtM(segMeta(activeSegId).minTurnRadiusM) }}</b>
+                  </div>
+                  <div class="sd-item">
+                    <span>长度</span><b>{{ fmtM(segMeta(activeSegId).lengthM) }}</b>
+                  </div>
+                  <div class="sd-item">
+                    <span>炮烟</span
+                    ><b :class="barColor(segMeta(activeSegId).smoke)">{{
+                      pct(segMeta(activeSegId).smoke)
+                    }}</b>
+                  </div>
+                  <div class="sd-item">
+                    <span>拥堵</span
+                    ><b :class="barColor(segMeta(activeSegId).congestion)">{{
+                      pct(segMeta(activeSegId).congestion)
+                    }}</b>
+                  </div>
+                  <div class="sd-item">
+                    <span>岩爆</span
+                    ><b :class="barColor(segMeta(activeSegId).rockburst)">{{
+                      pct(segMeta(activeSegId).rockburst)
+                    }}</b>
+                  </div>
+                </div>
+              </div>
 
               <!-- 图例 -->
               <div class="legend-row">
@@ -523,62 +487,6 @@
         <!-- /map-side -->
       </div>
       <!-- /map-row -->
-
-      <!-- 路段约束详情条：点击巷道段后在地图行**下方**展开（每段独立编号 + 专有安全信息）。
-           放在地图行之外：不参与地图卡片的高度分配，地图/右侧栏尺寸不被挤压，只向下撑开页面 -->
-      <div v-if="activeSegId" class="seg-detail">
-        <div class="seg-detail-head">
-          <b class="seg-detail-id">{{ cnId(activeSegId) }}</b>
-          <span class="seg-detail-name">{{ activeSegMeta.name || '—' }}</span>
-          <span class="seg-detail-risk" :class="riskOf(activeSegMeta).clazz">
-            {{ riskOf(activeSegMeta).label }} · 评分{{ riskOf(activeSegMeta).score }}
-          </span>
-          <span class="seg-detail-status" :class="segState(activeSegMeta).clazz">
-            {{ segState(activeSegMeta).label }}
-          </span>
-          <button class="seg-detail-close" title="关闭" @click="activeSegId = ''">×</button>
-        </div>
-        <div
-          v-if="activeSegMeta.blocked || activeSegMeta.passableLoaded === false"
-          class="seg-detail-alert"
-        >
-          <span v-if="activeSegMeta.blocked">⚠ 本路段封锁中，暂不通车</span>
-          <span v-else>⚠ 本路段重载禁行，满载铲运车无法通过</span>
-        </div>
-        <div class="seg-detail-grid">
-          <div class="sd-item">
-            <span>净宽</span><b>{{ fmtM(activeSegMeta.clearWidthM) }}</b>
-          </div>
-          <div class="sd-item">
-            <span>净高</span><b>{{ fmtM(activeSegMeta.clearHeightM) }}</b>
-          </div>
-          <div class="sd-item">
-            <span>坡度</span><b>{{ fmtV(activeSegMeta.maxGradePct) }}%</b>
-          </div>
-          <div class="sd-item">
-            <span>转弯半径</span><b>{{ fmtM(activeSegMeta.minTurnRadiusM) }}</b>
-          </div>
-          <div class="sd-item">
-            <span>长度</span><b>{{ fmtM(activeSegMeta.lengthM) }}</b>
-          </div>
-          <div class="sd-item">
-            <span>炮烟</span
-            ><b :class="barColor(activeSegMeta.smoke)">{{ pct(activeSegMeta.smoke) }}</b>
-          </div>
-          <div class="sd-item">
-            <span>拥堵</span
-            ><b :class="barColor(activeSegMeta.congestion)">{{
-              pct(activeSegMeta.congestion)
-            }}</b>
-          </div>
-          <div class="sd-item">
-            <span>岩爆</span
-            ><b :class="barColor(activeSegMeta.rockburst)">{{
-              pct(activeSegMeta.rockburst)
-            }}</b>
-          </div>
-        </div>
-      </div>
     </section>
 
     <!-- ===== 行动带：执行 + 反馈 + 结论 ===== -->
@@ -588,7 +496,7 @@
           class="moo-btn moo-btn-execute"
           :class="!canExecute && 'is-disabled'"
           :disabled="!canExecute"
-          @click="executeSelected()"
+          @click="executeSelected"
         >
           <span class="btn-icon"></span>
           执行该方案（派单给后端）
@@ -597,16 +505,12 @@
       </div>
       <div class="action-note">
         能耗 · 时效 · 安全 · 协同 · 负载 · 回收 · 采场均衡 · 积压 八要素 → NSGA-III 求帕累托前沿，
-        硬约束：采区全覆盖（有矿采场至少一车）+ 品位下限 {{ gradeFloorPct }}%。候选路线均为「采矿点
-        → 出口」重载 出矿线，按采场着色/标注；跨采场同时运输的共享巷道冲突由「巷道冲突」目标并算。
+        硬约束：采区全覆盖（有矿采场至少一车）+ 品位下限 0.6%。候选路线均为「采矿点 → 出口」重载
+        出矿线，按采场着色/标注；跨采场同时运输的共享巷道冲突由「巷道冲突」目标并算。
         <span class="ref-note"
           >口径：王雷等(2025)、贾纯纯等(2025) 多采场调度/品位容量约束；Wang 等(2020)
-          采场矿石量输入； Freire 等(2023)LHD {{ FREIRE_2023_LHD_SPEED }}、Hooli 等(2024) 装载{{
-            HOOLI_2024_LOAD_TIME
-          }}/卸载{{ HOOLI_2024_DUMP_TIME }}/调整{{
-            HOOLI_2024_ADJUST_TIME
-          }}
-          校核时效。设备规模参照大型地下矿（如 Khoemacau 铜矿 {{ KHOEMACAU_LHD_FLEET_SIZE }} 台
+          采场矿石量输入； Freire 等(2023)LHD 15km/h、Hooli 等(2024) 装载40s/卸载15s/调整30s
+          校核时效。设备规模参照大型地下矿（如 Khoemacau 铜矿 10 台
           LHD；锦丰金矿多中段出矿）。</span
         >
       </div>
@@ -615,38 +519,17 @@
 </template>
 
 <script setup>
-import { ref, computed, shallowRef, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, shallowRef, watch, onMounted } from 'vue'
 import {
   decodeAssignment,
   LHD_OBJECTIVES,
   GRADE_FLOOR_PCT,
   assignmentZoneStats
 } from '../services/lhdSchedulingUtils.js'
-import { buildLayout } from '../services/undergroundLayout.js'
+import { buildLayout, pathToPoints, deriveRiserMeta } from '../services/undergroundLayout.js'
+import { riskScore, riskLevel, baseRiskScore } from '../services/riskUtils.js'
 import { fetchScenarioConfig } from '../services/scenarioConfig.js'
-import {
-  applyAssignment as applyAssignmentApi,
-  fetchDeployment,
-  saveDeployment
-} from '../services/schedulingApi.js'
-import { useMultiObjectiveLhdSort } from './useMultiObjectiveLhdSort.js'
-import { useMultiObjectiveLhdScatter } from './useMultiObjectiveLhdScatter.js'
-import { useMultiObjectiveLhdTunnel } from './useMultiObjectiveLhdTunnel.js'
-import { useWeightTuning } from './useWeightTuning.js'
 import TunnelMap3D from './TunnelMap3D.vue'
-import LhdDeployPanel from './scheduling/LhdDeployPanel.vue'
-import { fusionBus, CHANNELS } from '@/services/fusion/FusionBus.js'
-import { getClientId } from '../../shared/services/collabIdentity.js'
-
-// ===== 文献口径数值（仅供底部 ref-note 口径文案插值展示，勿改字面口径） =====
-/** Freire 等 (2023)：LHD 运行速度参考值 */
-const FREIRE_2023_LHD_SPEED = '15km/h'
-/** Hooli 等 (2024)：装载 / 卸载 / 调整（换位）时长参考值 */
-const HOOLI_2024_LOAD_TIME = '40s'
-const HOOLI_2024_DUMP_TIME = '15s'
-const HOOLI_2024_ADJUST_TIME = '30s'
-/** 设备规模参考：Khoemacau 铜矿 LHD 台数 */
-const KHOEMACAU_LHD_FLEET_SIZE = 10
 
 defineOptions({ name: 'MultiObjectiveLhdView' })
 
@@ -669,45 +552,23 @@ const activeSegId = ref('')
 // 前端打开本板块直接使用，不再在浏览器里运行算法。
 const backendOpt = computed(() => props.snapshot?.factors?.optimization || null)
 
-// 深路径"按权重重求解"返回的前沿覆盖（null = 消费快照预计算前沿）；
-// 恢复/场景切换/快照前沿变化后由用户或兜底逻辑清空
-const solvedOverride = shallowRef(null)
-
 const result = computed(() => {
-  const ov = solvedOverride.value
-  if (ov?.paretoFront?.length) {
-    return {
-      paretoFront: ov.paretoFront,
-      objectives: ov.objectiveDefs?.length ? ov.objectiveDefs : LHD_OBJECTIVES,
-      stats: ov.optStats || null,
-      overridden: true
-    }
-  }
   const opt = backendOpt.value
   if (opt?.paretoFront && Array.isArray(opt.paretoFront) && opt.paretoFront.length > 0) {
     return {
       paretoFront: opt.paretoFront,
       objectives: opt.objectiveDefs?.length ? opt.objectiveDefs : LHD_OBJECTIVES,
-      stats: opt.optStats || null,
-      overridden: false
+      stats: opt.optStats || null
     }
   }
   return null
 })
 
-// 优化结果来源标注：读取后端下发的 optStats.label（求解后端可配置，
-// 前端只消费标签/来源，切换 NSGA-III ↔ 外部 ML 零前端发布）。
+// 优化结果来源标注：后端统一由 pymoo NSGA-III 求解
 const optSourceLabel = computed(() => {
-  if (result.value?.overridden) {
-    const l = result.value?.stats?.label
-    return l ? `按权重重求解 · ${l}` : '按权重重求解'
-  }
-  return backendOpt.value?.optStats?.label || ''
-})
-// 标题 kicker：随实际生效求解后端动态化（source 真源同样在后端 optStats）
-const optKicker = computed(() => {
-  const src = result.value?.stats?.source || backendOpt.value?.optStats?.source
-  return src === 'ml' ? 'ML 求解 · 帕累托前沿优化' : 'NSGA-III · 帕累托前沿优化'
+  const s = backendOpt.value?.optStats?.source
+  if (s === 'nsga3') return '后端 NSGA-III · pymoo'
+  return ''
 })
 const statusLabel = computed(() => (optSourceLabel.value ? '就绪 · 后端预计算' : '就绪'))
 
@@ -718,16 +579,14 @@ onMounted(() => {
   fetchScenarioConfig(props.scenario).then(cfg => {
     if (cfg) layout.value = buildLayout(cfg)
   })
-  loadWeightRecommend()
 })
-// 场景切换时重新拉取配置与推荐权重
+// 场景切换时重新拉取配置
 watch(
   () => props.scenario,
   () => {
     fetchScenarioConfig(props.scenario).then(cfg => {
       layout.value = cfg ? buildLayout(cfg) : null
     })
-    loadWeightRecommend()
   }
 )
 
@@ -861,249 +720,344 @@ const selected = computed(() => paretoFront.value[selectedIndex.value] || null)
 // ===== 帕累托明细表排序：单因子(点列头) / 多因子复合(Shift+点叠加) =====
 // 仅作用于表格行序；选中/散点/当前方案的 canonical 序号(selectedIndex)保持不变，
 // 通过与原始 pfIndex 联动，保证排序切换后选中方案不漂移。
-const { sortKeys, sortRank, sortDirCls, objName, onSortClick, clearSort, sortedRows } =
-  useMultiObjectiveLhdSort({ objectives, paretoFront })
-
-// ===== 巷道网络数据加工：3D 段/节点/分层 + 段安全元数据 + 选中方案路线投影 =====
-const {
-  nodePositions,
-  segmentLines,
-  levels,
-  nodeHeights,
-  metaById,
-  routePoints,
-  equipNames,
-  activeSegMeta,
-  segState,
-  riskOf,
-  fmtM,
-  fmtV,
-  pct,
-  barColor,
-  cnId,
-  cnPath
-} = useMultiObjectiveLhdTunnel({
-  layout,
-  snapshot: computed(() => props.snapshot),
-  activeSegId,
-  selected,
-  candidates,
-  equipIds,
-  equipmentItems
-})
-
-// ===== 拖拽式设备部署与出矿工序调整（3.2）=====
-// 真源在后端（config/deployments/<场景>.json）：拖拽落点/工序顺序经 PUT /api/deployment
-// 保存并即刻应用到运行中的仿真器（空闲设备迁移待命点、贪心派单按工序偏置），
-// 架构纪律与既有一致：前端不持有需发版的数据。
-const deployMode = ref(false)
-const deployments = ref({})
-const processOrder = ref([])
-const deployStatus = ref('')
-const deployBusy = ref(false)
-
-// ===== 3.2.3 多终端乐观并发 =====
-// 部署 rev 由 GET/PUT /api/deployment 回传；派单 rev 由快照 factors.dispatch 下发 +
-// 提交响应回传。写请求带 baseRev，后端 rev 不符返回 code=2 → 冲突条提示。
-const deploymentRev = ref(null)
-const assignmentRev = ref(null)
-const conflict = ref(null) // { kind:'deploy'|'dispatch', message, by, retry }
-
-watch(
-  () => props.snapshot?.factors?.dispatch?.assignmentRev,
-  v => {
-    if (v != null) assignmentRev.value = v
-  },
-  { immediate: true }
-)
-
-/** 刷新并重试：重新拉取最新真源（含 rev）后，用新 baseRev 重放上次写入。 */
-async function conflictRefreshAndRetry() {
-  const c = conflict.value
-  conflict.value = null
-  if (!c) return
-  if (c.kind === 'deploy') await loadDeploymentState()
-  await c.retry?.()
+const sortKeys = ref([]) // [{ id, dir:'asc'|'desc' }]，索引越小优先级越高
+function sortRank(id) {
+  const i = sortKeys.value.findIndex(k => k.id === id)
+  return i === -1 ? null : i
 }
-
-/** 强制覆盖：忽略 rev 校验重放上次写入（后端 force=true）。 */
-async function conflictForce() {
-  const c = conflict.value
-  conflict.value = null
-  await c?.retry?.({ force: true })
+function sortDirOf(id) {
+  const k = sortKeys.value.find(k => k.id === id)
+  return k ? k.dir : null
 }
-
-// 3.2.2 跨终端联动：他端保存部署 → 重拉真源（本机操作已由提交路径即时更新，跳过回声）
-let unsubscribeCollab = null
-onMounted(() => {
-  unsubscribeCollab = fusionBus.subscribe(CHANNELS.COLLAB_OPERATION, evt => {
-    if (!evt || evt.action !== 'deployment.save') return
-    if (evt.clientId === getClientId()) return
-    if (evt.scenario && evt.scenario !== props.scenario) return
-    if (deployBusy.value) return // 本机正在保存，避免竞态覆盖
-    loadDeploymentState()
+function sortDirCls(id) {
+  const d = sortDirOf(id)
+  return d === null ? 'sa-none' : d === 'asc' ? 'sa-asc' : 'sa-desc'
+}
+function objName(id) {
+  return objectives.value.find(o => o.id === id)?.name || id
+}
+function onSortClick(objId, e) {
+  const has = sortKeys.value.some(k => k.id === objId)
+  if (e.shiftKey) {
+    // Shift+点：追加为更低优先级复合键；已在复合键中则切换其排序方向
+    sortKeys.value = has
+      ? sortKeys.value.map(k =>
+          k.id === objId ? { id: objId, dir: k.dir === 'asc' ? 'desc' : 'asc' } : k
+        )
+      : [...sortKeys.value, { id: objId, dir: 'asc' }]
+  } else if (has) {
+    // 单因子：已在排序中 → 升/降 切换
+    sortKeys.value = sortKeys.value.map(k =>
+      k.id === objId ? { id: objId, dir: k.dir === 'asc' ? 'desc' : 'asc' } : k
+    )
+  } else {
+    // 单因子：未排序 → 以该因子为唯一主排序（先升后降）
+    sortKeys.value = [{ id: objId, dir: 'asc' }]
+  }
+}
+function clearSort() {
+  sortKeys.value = []
+}
+// 排序后的表行（保留原始 pfIndex 供选中联动）
+const sortedRows = computed(() => {
+  const rows = paretoFront.value.map((ind, pfIndex) => ({ pfIndex, ind }))
+  const keys = sortKeys.value
+  if (!keys.length) return rows
+  return rows.slice().sort((a, b) => {
+    for (const k of keys) {
+      const va = a.ind.objectives[k.id]
+      const vb = b.ind.objectives[k.id]
+      if (va == null && vb == null) continue
+      if (va == null) return k.dir === 'asc' ? 1 : -1
+      if (vb == null) return k.dir === 'asc' ? -1 : 1
+      if (va === vb) continue
+      const d = va < vb ? -1 : 1
+      return k.dir === 'asc' ? d : -d
+    }
+    return a.pfIndex - b.pfIndex
   })
 })
-onUnmounted(() => {
-  unsubscribeCollab?.()
+
+const nodePositions = computed(() => layout.value?.nodePositions || {})
+
+// 全巷道段定义：顶层真实段(level 0，对接后端实时状态) + 深部分层专属巷道段
+// (level 1..4，每条拥有独立编号 SEG-{层}-{序} 与独立安全配置，见 undergroundLayout)。
+const segmentLines = computed(() => {
+  const L = layout.value
+  if (!L) return []
+  const pos = L.nodePositions
+  const defs = [
+    ...L.segmentLinks.map(([id, aId, bId]) => ({ id, level: 0, aId, bId })),
+    ...L.deepSegments
+  ]
+  return defs
+    .map(s => {
+      const a = pos[s.aId]
+      const b = pos[s.bId]
+      if (!a || !b) return null
+      const label = segLabel(s.id)
+      return { ...s, a, b, label, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, label } }
+    })
+    .filter(Boolean)
 })
-// 进入部署模式时的实时落位快照（部署期间未部署设备按此静态展示，不随巡游漂移）
-const frozenLiveNodes = ref([])
-const muckPilePoints = computed(() => props.snapshot?.factors?.muckPile?.points || [])
 
-function toggleDeployMode() {
-  deployMode.value = !deployMode.value
-  if (deployMode.value) {
-    frozenLiveNodes.value = equipmentItems.value.map(e => ({
-      node: e.node,
-      level: e.level || 0
+// 深部分层段的独立元数据（含安全配置），供点击后展示该段独有信息
+const deepMetaById = computed(() => {
+  const m = {}
+  for (const s of layout.value?.deepSegments || []) m[s.id] = s
+  return m
+})
+
+// 段 ID → {aId, bId, level}，用于数据缺失时按同一份 baseRiskScore 兜底评分
+const segCoordById = computed(() => {
+  const m = {}
+  for (const s of segmentLines.value) m[s.id] = { aId: s.aId, bId: s.bId, level: s.level ?? 0 }
+  return m
+})
+
+// 三维分层（y 深度 / 平面错位 / 活动度）与节点高程，均由场景配置 layout.* 驱动，
+// TunnelMap3D 据此在 X/Y/Z 三个方向铺满真实道路，无需修改组件代码。
+const levels = computed(() => layout.value?.levels || [])
+const nodeHeights = computed(() => layout.value?.nodeElevation || {})
+
+// 巷道段约束数据：硬约束（物理通过性）+ 动态（炮烟/拥堵/岩爆/封锁）按段 ID 合并
+const hardBySeg = computed(() => {
+  const map = {}
+  for (const s of props.snapshot?.factors?.hardConstraints?.segments || []) map[s.id] = s
+  return map
+})
+const dynBySeg = computed(() => {
+  const map = {}
+  for (const s of props.snapshot?.factors?.dynamicEnvironment?.segments || []) map[s.id] = s
+  return map
+})
+function segMeta(id) {
+  // 竖井/斜井（上下层连接段，VERT-节点-层）：确定性推导完整安全信息，与普通巷道段一致
+  const vert = String(id || '').match(/^VERT-(\w+)-(\d+)$/)
+  if (vert) return deriveRiserMeta(id) || { id, name: `竖井/斜井 ${vert[1]}`, type: '竖井/斜井' }
+  // 深部分层段：直接返回该段专属的独立安全配置（编号/尺寸/炮烟/拥堵/岩爆/封锁等）
+  const deep = deepMetaById.value[id]
+  if (deep) return { ...deep }
+  // 顶层真实段：合并后端硬约束 + 动态环境的实时状态
+  const merged = {
+    id,
+    ...(hardBySeg.value[id] || {}),
+    ...(dynBySeg.value[id] || {}),
+    name: hardBySeg.value[id]?.name || dynBySeg.value[id]?.name || cnId(id)
+  }
+  // 数据缺失（无任何安全参数）时注入与 3D 渲染同一份 baseRiskScore 兜底分，
+  // 保证详情评分与巷道颜色严格同源
+  const hasParams =
+    merged.passableLoaded === false ||
+    merged.rockburst != null ||
+    merged.congestion != null ||
+    merged.smoke != null ||
+    merged.maxGradePct != null ||
+    merged.clearWidthM != null
+  if (!hasParams) {
+    const sc = segCoordById.value[id]
+    if (sc) {
+      merged._baseScore = baseRiskScore(sc.aId, sc.bId, sc.level, { nLevels: levels.value.length })
+    }
+  }
+  return merged
+}
+
+// 综合约束状态：封锁 > 硬禁行 > 岩爆高发 > 拥堵 > 正常
+const STATE_NORMAL = { stroke: '#64748b', label: '通畅' }
+const STATE_CONGEST = { stroke: '#F59E0B', label: '拥堵缓行' }
+const STATE_RBURST = { stroke: '#E6A23C', label: '岩爆高发' }
+const STATE_BAN = { stroke: '#FB923C', label: '重载禁行' }
+const STATE_BLOCK = { stroke: '#F56C6C', label: '封锁' }
+function segState(m) {
+  if (m.blocked) return { ...STATE_BLOCK, clazz: 'st-blocked' }
+  if (m.passableLoaded === false) return { ...STATE_BAN, clazz: 'st-ban' }
+  if ((m.rockburst || 0) > 0.7) return { ...STATE_RBURST, clazz: 'st-rburst' }
+  if ((m.congestion || 0) > 0.6) return { ...STATE_CONGEST, clazz: 'st-congest' }
+  return { ...STATE_NORMAL, clazz: 'st-ok' }
+}
+function fmtM(v) {
+  return v == null ? '-' : `${Number(v).toFixed(1)}m`
+}
+function fmtV(v) {
+  return v == null ? '-' : Number(v).toFixed(1)
+}
+function pct(v) {
+  return v == null ? '-' : Math.round(v * 100) + '%'
+}
+function barColor(v) {
+  const x = v || 0
+  return x > 0.6 ? 'c-hot' : x > 0.3 ? 'c-mid' : 'c-low'
+}
+
+// 选中方案的各设备路径（段→节点→坐标数组），供三维地图绘制路线。
+// 后端候选已带多水平路由(nodes + levels，含主井/斜井竖向穿梭)，这里逐点带上
+// level，供 3D 图按真实开采水平落位、并绘制竖井升降段——让多目标算法走的新巷道真实可见。
+const routePoints = computed(() => {
+  if (!selected.value) return []
+  const assignment = selected.value.assignment
+  const L = layout.value
+  const real3d = L?.real3d
+  return candidates.value.map((cands, i) => {
+    const idx = assignment[i]
+    if (idx >= cands.length) return []
+    const cand = cands[idx]
+    // —— v2 真实巷道模式：沿逻辑段真实 3D 折线拼接路线（mine 系，含坡度起伏）——
+    if (real3d && Array.isArray(cand.nodes) && cand.nodes.length) {
+      const p3 = n => real3d.nodePos3[n] || L.nodePositions[n]?.pos3 || null
+      const pts = []
+      const p0 = p3(cand.nodes[0])
+      if (p0) {
+        pts.push({ node: cand.nodes[0], level: cand.levels?.[0] ?? 0, x: 0, y: 0, pos3: p0 })
+      }
+      for (let k = 1; k < cand.nodes.length; k++) {
+        const a = cand.nodes[k - 1]
+        const b = cand.nodes[k]
+        const poly = real3d.segByPair[`${a}|${b}`]
+        const pb = p3(b)
+        if (poly && poly.length >= 2) {
+          for (let j = 1; j < poly.length; j++) {
+            pts.push({
+              node: j === poly.length - 1 ? b : null,
+              level: cand.levels?.[k] ?? 0,
+              x: 0,
+              y: 0,
+              pos3: poly[j]
+            })
+          }
+        } else if (pb) {
+          pts.push({ node: b, level: cand.levels?.[k] ?? 0, x: 0, y: 0, pos3: pb })
+        }
+      }
+      if (pts.length >= 2) return pts
+      // 折线缺失时退回 2D 逻辑
+    }
+    // 优先用后端给出的多水平路由（节点序列与水平一一对应）
+    if (
+      Array.isArray(cand.nodes) &&
+      Array.isArray(cand.levels) &&
+      cand.nodes.length === cand.levels.length
+    ) {
+      const pts = []
+      for (let k = 0; k < cand.nodes.length; k++) {
+        const p = layout.value?.nodePositions[cand.nodes[k]]
+        if (!p) continue
+        pts.push({ node: cand.nodes[k], level: cand.levels[k] ?? 0, x: p.x, y: p.y })
+      }
+      return pts
+    }
+    // 兜底：纯平面候选（老数据）
+    const startNode = equipmentItems.value[i]?.node || 'S0'
+    return pathToPoints(cand.path, startNode, layout.value).map(p => ({
+      node: p.node,
+      level: 0,
+      x: p.x,
+      y: p.y
     }))
-    deployStatus.value = ''
-    loadDeploymentState()
-  }
-}
+  })
+})
 
-async function loadDeploymentState() {
-  try {
-    const res = await fetchDeployment(props.scenario)
-    if (res.code === 0) {
-      deployments.value = res.data.deployments || {}
-      processOrder.value = res.data.processOrder || []
-      deploymentRev.value = res.data.rev ?? null
-      conflict.value = null
-    } else {
-      deployStatus.value = `部署真源读取失败：${res.message || '未知错误'}`
-    }
-  } catch (e) {
-    deployStatus.value = '部署真源读取失败：' + (e.message || e)
-  }
-}
-
-// 设备落位：部署真源优先，未部署设备用进入部署模式时的实时位置
-const equipNodes = computed(() =>
-  equipIds.value.map((id, i) => deployments.value[id] || frozenLiveNodes.value[i] || null)
+// 设备渲染模型（v2 真实 3D 模式：铲运机 glb，与 equipIds 同序）
+const equipGlbs = computed(() =>
+  equipIds.value.map(id => layout.value?.equipGlbs?.[id] || '')
 )
+const layoutReal3d = computed(() => !!layout.value?.real3d)
 
-async function onDeployDrop({ equipId, node, level }, { force = false } = {}) {
-  deployBusy.value = true
-  deployStatus.value = `正在保存 ${cnId(equipId)} → ${node} …`
-  try {
-    const res = await saveDeployment({
-      scenario: props.scenario,
-      deployments: { [equipId]: { node, level } },
-      baseRev: deploymentRev.value ?? undefined,
-      force
-    })
-    if (res.code === 0) {
-      deployments.value = res.data.deployments
-      deploymentRev.value = res.data.rev ?? deploymentRev.value
-      conflict.value = null
-      const nApply = res.data.applied?.length || 0
-      const nSkip = res.data.skipped?.length || 0
-      deployStatus.value = nSkip
-        ? `已保存：${cnId(equipId)} 部署到 ${node}（L${(level ?? 0) + 1} 水平）；${nApply} 台即刻生效，作业中设备下次重置生效`
-        : `已保存：${cnId(equipId)} 部署到 ${node}（L${(level ?? 0) + 1} 水平），即刻生效`
-    } else if (res.code === 2) {
-      // 3.2.3 并发冲突：另一终端已更新真源 → 提示刷新重试 / 强制覆盖
-      conflict.value = {
-        kind: 'deploy',
-        message: res.message,
-        by: res.data?.by || '',
-        retry: opts => onDeployDrop({ equipId, node, level }, opts)
-      }
-      deployStatus.value = '检测到多终端并发修改，请选择处理方式'
-    } else {
-      deployStatus.value = `保存失败：${res.message || '未知错误'}`
+// 设备显示名（三维设备 tooltip / 图例）
+const equipNames = computed(() => equipIds.value.map((id, i) => cnId(id) || `设备${i + 1}`))
+// 各巷道段约束元数据（三维地图按段状态着色）
+const metaById = computed(() => {
+  const out = {}
+  for (const seg of segmentLines.value) out[seg.id] = segMeta(seg.id)
+  return out
+})
+
+// 帕累托前沿（2D 投影）：
+// 数据本身是 6 目标（能耗/时间/风险/冲突/负载/品位）联合解，散点图是任意两两组合的
+// 二维投影——通过 pairIdx 切换坐标轴对，并为每组坐标补上真实刻度。
+const PLOT = { x0: 30, x1: 186, y0: 14, y1: 124 }
+
+// 全部两两目标组合（C(6,2)=15 组），供"其它因素关系坐标轴"选择
+const pairOptions = computed(() => {
+  const opts = []
+  const objs = objectives.value
+  for (let i = 0; i < objs.length; i++) {
+    for (let j = i + 1; j < objs.length; j++) {
+      opts.push({ xId: objs[i].id, yId: objs[j].id, label: `${objs[i].name} × ${objs[j].name}` })
     }
-  } catch (e) {
-    deployStatus.value = '保存失败：' + (e.message || e)
-  } finally {
-    deployBusy.value = false
   }
+  return opts
+})
+const pairIdx = ref(0)
+const activePair = computed(() => pairOptions.value[pairIdx.value] || pairOptions.value[0] || null)
+
+const paretoScatter = computed(() => {
+  const front = paretoFront.value
+  const pair = activePair.value
+  if (!front.length || !pair) {
+    return { points: [], xTicks: [], yTicks: [], xObj: null, yObj: null }
+  }
+  const X = front.map(ind => ind.objectives[pair.xId])
+  const Y = front.map(ind => ind.objectives[pair.yId])
+  const loX = Math.min(...X)
+  const hiX = Math.max(...X)
+  const loY = Math.min(...Y)
+  const hiY = Math.max(...Y)
+  const padX = (hiX - loX) * 0.05 || 1
+  const padY = (hiY - loY) * 0.05 || 1
+  const x0 = loX - padX
+  const x1 = hiX + padX
+  const y0 = loY - padY
+  const y1 = hiY + padY
+  const X0 = PLOT.x0
+  const X1 = PLOT.x1
+  const Y0 = PLOT.y0
+  const Y1 = PLOT.y1
+  const px = v => X0 + ((v - x0) / (x1 - x0)) * (X1 - X0)
+  const py = v => Y1 - ((v - y0) / (y1 - y0)) * (Y1 - Y0)
+  const xTicks = Array.from({ length: 5 }, (_, k) => x0 + (k * (x1 - x0)) / 4).map(v => ({
+    v: Math.round(v * 100) / 100,
+    px: px(v)
+  }))
+  const yTicks = Array.from({ length: 5 }, (_, k) => y0 + (k * (y1 - y0)) / 4).map(v => ({
+    v: Math.round(v * 100) / 100,
+    py: py(v)
+  }))
+  const points = front.map((ind, i) => ({
+    x: px(ind.objectives[pair.xId]),
+    y: py(ind.objectives[pair.yId]),
+    valueX: ind.objectives[pair.xId],
+    valueY: ind.objectives[pair.yId],
+    selected: i === selectedIndex.value,
+    pfIndex: i
+  }))
+  return {
+    points,
+    xTicks,
+    yTicks,
+    xObj: objectives.value.find(o => o.id === pair.xId) || null,
+    yObj: objectives.value.find(o => o.id === pair.yId) || null
+  }
+})
+
+function fmtTick(v) {
+  const a = Math.abs(v)
+  return a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toFixed(2)
 }
 
-async function onSaveProcessOrder(order, { force = false } = {}) {
-  deployBusy.value = true
-  deployStatus.value = '正在保存出矿工序…'
-  try {
-    const res = await saveDeployment({
-      scenario: props.scenario,
-      processOrder: order,
-      baseRev: deploymentRev.value ?? undefined,
-      force
-    })
-    if (res.code === 0) {
-      processOrder.value = res.data.processOrder
-      deploymentRev.value = res.data.rev ?? deploymentRev.value
-      conflict.value = null
-      deployStatus.value = '出矿工序已保存并生效（贪心派单按新工序优先偏置）'
-    } else if (res.code === 2) {
-      conflict.value = {
-        kind: 'deploy',
-        message: res.message,
-        by: res.data?.by || '',
-        retry: opts => onSaveProcessOrder(order, opts)
-      }
-      deployStatus.value = '检测到多终端并发修改，请选择处理方式'
-    } else {
-      deployStatus.value = `工序保存失败：${res.message || '未知错误'}`
-    }
-  } catch (e) {
-    deployStatus.value = '工序保存失败：' + (e.message || e)
-  } finally {
-    deployBusy.value = false
-  }
+// 解点 tooltip：显示该解在“当前坐标轴对”下 x/y 两个目标的实际取值
+function fmtTickPoint(pt, sc) {
+  const xv = pt?.valueX ?? null
+  const yv = pt?.valueY ?? null
+  const xn = sc?.xObj?.name || ''
+  const yn = sc?.yObj?.name || ''
+  const xu = sc?.xObj?.unit || ''
+  const yu = sc?.yObj?.unit || ''
+  return `${xn}:${xv == null ? '-' : fmtTick(xv)}${xu} · ${yn}:${yv == null ? '-' : fmtTick(yv)}${yu}`
 }
-
-// ===== 帕累托前沿（2D 投影）：任意两两目标投影，通过 pairIdx 切换坐标轴对 =====
-const { PLOT, pairOptions, pairIdx, paretoScatter, fmtTick, fmtTickPoint } =
-  useMultiObjectiveLhdScatter({ objectives, paretoFront, selectedIndex })
 
 function selectByIndex(idx) {
   selectedIndex.value = idx
-}
-
-// ===== 权重调节：ML 推荐权重 + 手动微调 → 加权推荐方案 =====
-// 契约（目标 id / 来源枚举 / API 路径）见 shared-consistency-baseline.json#weightTuningCmps。
-// 快路径在既有前沿上加权推荐（滑杆防抖联动）；深路径把权重作为偏好参考方向重跑 NSGA-III，
-// 结果经 solvedOverride 覆盖展示，可一键恢复快照前沿。
-const {
-  raw: weightRaw,
-  normW,
-  source: weightSource,
-  modelVersion: weightModelVersion,
-  degraded: weightDegraded,
-  loading: weightLoading,
-  solving: weightSolving,
-  error: weightError,
-  locked: weightLocked,
-  loadRecommend: loadWeightRecommend,
-  onSliderInput: onWeightSliderInput,
-  deepSolve,
-  refreshOnFrontChange,
-  lockRecommend
-} = useWeightTuning({
-  scenario: computed(() => props.scenario),
-  objectives,
-  onRecommend: idx => {
-    selectedIndex.value = idx
-  },
-  onSolved: data => {
-    solvedOverride.value = data
-  }
-})
-function resetOverride() {
-  solvedOverride.value = null
-  if (weightSource.value === 'manual') refreshOnFrontChange()
-}
-const weightModelText = computed(() =>
-  weightModelVersion.value ? `权重模型 ${weightModelVersion.value}` : ''
-)
-
-/** 滑杆输入：写入原始值并触发防抖求解（模板单语句调用，避免内联多语句表达式） */
-function onWeightSlide(id, evt) {
-  weightRaw.value[id] = Number(evt.target.value)
-  onWeightSliderInput()
 }
 
 // 当前建议方案中某设备所选候选的"装载点 · 采场"标注（含完整路线）
@@ -1118,16 +1072,42 @@ function routeStep(i) {
   return `${c.target}${zone} · ${c.path.join('→')}`
 }
 
+// 英文缩写 → 中文显示：LHD-* → 铲运机*；SEG-01 → 路段01；SEG-2-01 → 路段2-01；VERT-节点-层 → 竖井·节点
+function cnId(id) {
+  const s = String(id || '')
+  if (/^LHD-?/i.test(s)) return s.replace(/^LHD-?/i, '铲运机')
+  const vert = s.match(/^VERT-(\w+)-(\d+)$/)
+  if (vert) return `竖井·${vert[1]}`
+  const m = s.match(/^SEG-(\d{1,2})-(\d{2})$/i)
+  if (m) return `路段${m[1]}-${m[2]}`
+  return s.replace(/^SEG-?/i, '路段')
+}
+// 巷道段唯一编号显示：顶层=路段01…，深部分层=路段{层}-{序}
+function segLabel(id) {
+  const m = String(id || '').match(/^SEG-(\d{1,2})-(\d{2})$/i)
+  if (m) return `路段${m[1]}-${m[2]}`
+  return cnId(id)
+}
+// 综合安全评级（统一口径见 services/riskUtils.js）：
+// 评分/颜色/标签共享同一阈值（封锁>禁行>岩爆>拥堵>炮烟 + 物理约束），与巷道渲染颜色严格对应
+function riskOf(m) {
+  const score = riskScore(m)
+  const lv = riskLevel(score)
+  return { score, label: lv.label, clazz: lv.clazz }
+}
+function cnPath(txt) {
+  return String(txt || '').replace(/SEG-?/gi, '路段')
+}
+
 function fmt(v) {
   return v == null ? '-' : Number(v).toFixed(2)
 }
 
-// 后端前沿刷新/收缩时兜底修正选中索引，避免越界；权重已激活且未锁定时联动重算推荐
+// 后端前沿刷新/收缩时兜底修正选中索引，避免越界
 watch(
   paretoFront,
   f => {
     if (selectedIndex.value > f.length - 1) selectedIndex.value = 0
-    refreshOnFrontChange()
   },
   { immediate: true }
 )
@@ -1137,34 +1117,1180 @@ const canExecute = computed(
     !!selected.value && selected.value.assignment.some((ci, i) => ci < candidates.value[i]?.length)
 )
 
-async function executeSelected({ force = false } = {}) {
+async function executeSelected() {
   if (!selected.value) return
   const decoded = decodeAssignment(selected.value.assignment, candidates.value, equipIds.value)
   feedback.value = `已提交 ${decoded.length} 台设备派单…`
-  // 3.2.3 乐观并发：带 baseRev（快照 factors.dispatch 下发 / 上次提交回传的派单 rev）
-  const opts = { baseRev: assignmentRev.value ?? undefined, force }
   try {
-    const json = props.applyAssignment
-      ? await props.applyAssignment(decoded, opts)
-      : await applyAssignmentApi(decoded, opts)
-    const data = json?.data || json
-    if (json?.code === 2) {
-      // 另一终端已派单 → 冲突条（刷新重试 / 强制覆盖）
-      conflict.value = {
-        kind: 'dispatch',
-        message: json.message,
-        by: '',
-        retry: o => executeSelected(o)
-      }
-      feedback.value = '检测到多终端并发派单，请选择处理方式'
-      return
+    if (props.applyAssignment) {
+      const res = await props.applyAssignment(decoded)
+      const data = res?.data || res
+      const applied = data?.applied || []
+      feedback.value = `派单完成：${applied.length} 台设备采用 NSGA-III 选路`
+    } else {
+      const res = await fetch('/api/scheduling/apply_assignment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(decoded)
+      })
+      const json = await res.json()
+      feedback.value = `派单完成：${json.data?.applied?.length || 0} 台设备采用 NSGA-III 选路`
     }
-    feedback.value = `派单完成：${data?.applied?.length || 0} 台设备采用 NSGA-III 选路`
-    if (data?.rev != null) assignmentRev.value = data.rev
   } catch (e) {
     feedback.value = `派单失败：${e.message}`
   }
 }
 </script>
 
-<style scoped src="./multiObjectiveLhdView.css"></style>
+<style scoped>
+/* =========================================================
+   视觉系统：分析型 · 克制 · 冷静（决策文档风格）
+   统一表面层级 / 细线 / 语义色，标题与证据区留出清晰节奏
+   ========================================================= */
+.moo-lhd {
+  color: #e5e7eb;
+}
+.moo-expanded {
+  background:
+    radial-gradient(1200px 400px at 15% -5%, rgba(34, 211, 238, 0.05), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+}
+
+/* ---------- 头部 ---------- */
+.moo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.moo-kicker {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+.moo-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.2;
+  margin: 0;
+}
+.moo-title-lg {
+  font-size: 22px;
+}
+.moo-tools {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.moo-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.moo-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.moo-status.is-ready {
+  color: #6ee7b7;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+.moo-status.is-ready .moo-status-dot {
+  background: #34d399;
+}
+.moo-status.is-busy {
+  color: #fde047;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+}
+.moo-status.is-busy .moo-status-dot {
+  background: #facc15;
+  animation: pulse 1s infinite;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+.moo-note {
+  font-size: 11px;
+  color: #94a3b8;
+}
+.moo-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  gap: 10px;
+  font-size: 11px;
+  color: #94a3b8;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+.moo-stats .stat b {
+  color: #e5e7eb;
+  font-weight: 600;
+  font-size: 12px;
+  margin-right: 2px;
+}
+.stat-divider {
+  width: 1px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* ---------- 按钮 ---------- */
+.moo-btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.moo-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.moo-btn-accent {
+  color: #67e8f9;
+  background: rgba(34, 211, 238, 0.12);
+  border-color: rgba(34, 211, 238, 0.3);
+}
+.moo-btn-accent:hover {
+  background: rgba(34, 211, 238, 0.18);
+  color: #a5f3fc;
+  border-color: rgba(34, 211, 238, 0.5);
+}
+.moo-btn-execute {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: #fff;
+  background: linear-gradient(135deg, #f59e0b, #ea8b0a);
+  border: none;
+  box-shadow: 0 4px 14px rgba(234, 139, 10, 0.28);
+}
+.moo-btn-execute:hover {
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  color: #fff;
+  border: none;
+  box-shadow: 0 6px 18px rgba(234, 139, 10, 0.36);
+}
+.moo-btn-execute.is-disabled {
+  background: rgba(255, 255, 255, 0.06);
+  color: #64748b;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.btn-icon {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+/* ---------- 证据区 / 面板 ---------- */
+/* 布局口径：
+   缩回态(侧栏/非全屏)=单栏纵向，避免窄窗两栏拥挤失衡；
+   全屏态(.moo-expanded)=左侧巷道图 + 右侧帕累托解套件两栏等高(stretch)，
+   消除一高一低的“锯齿”；套件将【前沿+当前方案+明细表】纵向整合并紧邻巷道图。 */
+.moo-evidence {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+  align-items: stretch;
+}
+.map-stage {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+}
+.map-stage > .panel + .panel {
+  margin-top: 16px;
+}
+/* 展开态：上行 = 当前建议方案(整行)；下行 = 地图(左,占屏宽 0.75) + 右侧栏(占剩余宽度)。
+     右侧栏内：坐标轴在上、方案明细表在下，高度按 1:4 分配，表格底部与地图对齐；
+     地图高宽比 = 3:4（宽:高 = 4:3）。 */
+@media (min-width: 1024px) {
+  .moo-expanded .moo-evidence {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      'rec'
+      'maprow';
+  }
+  .moo-expanded .rec-panel {
+    grid-area: rec;
+  }
+  /* 地图行：地图用 aspect-ratio 锚定自身 3:4 高度并决定整行高度（align-items:flex-start 避免
+     stretch 覆盖 aspect-ratio，导致高度被右侧栏内容撑走）。右侧栏用绝对定位贴合地图高度，
+     不参与决定行高，从而排除"内容把行撑高→地图被拉长"的干扰。 */
+  .moo-expanded .map-row {
+    grid-area: maprow;
+    position: relative; /* 作为右侧栏绝对定位的锚点 */
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start; /* 不强拉伸地图，让 aspect-ratio 生效 */
+    gap: 16px;
+    min-width: 0;
+    min-height: 0;
+  }
+  /* 地图占 0.74 屏宽；aspect-ratio 4:3（宽:高 = 4:3 ⇒ 高 = 宽的 3/4），
+     高度由它自己锁定，地图既不被拉长也不被压扁；右侧栏保留足够宽度 */
+  .moo-expanded .map-row .map-stage {
+    flex: 0 0 74%;
+    width: 74%;
+    aspect-ratio: 4 / 3;
+    align-self: flex-start;
+    min-width: 0;
+  }
+  /* 右侧栏：绝对定位铺满地图右侧剩余宽度，top:0/bottom:0 与地图行严格等高，
+     表格底部天然与地图底部对齐；内容超高时裁切/内部滚动 */
+  .moo-expanded .map-row .map-side {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(74% + 16px); /* 地图右侧 + 间距 */
+    right: 0;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .moo-expanded .map-stage .map-panel {
+    height: 100%;
+  }
+  /* 右侧栏高度按 1:4 分配：上=坐标轴(1，较小) / 下=方案明细表(4)，底部自然与地图底对齐 */
+  .moo-expanded .map-side .pf-panel {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+  .moo-expanded .map-side .pf-panel .pf-body {
+    overflow: auto;
+  }
+  .moo-expanded .map-side .moo-table-panel {
+    flex: 4;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .moo-expanded .map-side .moo-table-panel .table-scroll {
+    max-height: none;
+  }
+  /* 展开态用 flex gap 间距，抵消缩回态的上下层叠 margin，避免双倍间距 */
+  .moo-expanded .map-side > .panel + .panel {
+    margin-top: 0;
+  }
+}
+.map-panel {
+  min-height: 0;
+  align-self: stretch;
+}
+.map-panel .panel-body {
+  gap: 10px;
+  min-height: 0;
+}
+/* 巷道 3D 图在面板内弹性铺满：随网格等高对齐，长出的高度由详情/图例吸收 */
+.map-panel .panel-body > .tmap3d {
+  flex: 1 1 0;
+  min-height: 340px;
+}
+.moo-expanded .map-panel {
+  min-height: 0;
+}
+/* 缩回/窄屏时右侧栏上层叠排布 */
+.map-side > .panel + .panel {
+  margin-top: 16px;
+}
+/* 明细表内部：列方向布局，滚动区自适应 */
+.moo-table-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.moo-table-panel .table-scroll {
+  flex: 1;
+  min-height: 120px;
+  max-height: min(46vh, 380px);
+}
+.panel {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.panel-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+.panel-hint {
+  font-size: 10px;
+  color: #64748b;
+}
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- 当前建议方案 ---------- */
+.rec-panel .panel-body {
+  gap: 10px;
+}
+.rec-obj-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+@media (min-width: 1024px) {
+  .moo-expanded .rec-obj-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.rec-obj {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.rec-obj-name {
+  font-size: 10px;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+.rec-obj-val {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.rec-obj-val.dir-min {
+  color: #38bdf8;
+}
+.rec-obj-val.dir-max {
+  color: #34d399;
+}
+.rec-obj-dir {
+  font-size: 9px;
+  color: #64748b;
+}
+.rec-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.rec-route-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.rec-route-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.rec-equip {
+  flex: none;
+  font-weight: 600;
+  color: #67c23a;
+  background: rgba(103, 194, 58, 0.12);
+  border-radius: 5px;
+  padding: 1px 7px;
+}
+.rec-target {
+  color: #cbd5e1;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+/* ---------- 图例 ---------- */
+.legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.06);
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: #94a3b8;
+}
+.lv-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.lv-dump {
+  background: #f56c6c;
+}
+.lv-muck {
+  background: #e6a23c;
+}
+.lv-node {
+  background: #409eff;
+}
+.lv-pareto {
+  background: #22a06b;
+}
+.lv-selected {
+  background: #e6a23c;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
+}
+.lv-line {
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  flex: none;
+}
+.lv-dash {
+  width: 16px;
+  height: 0;
+  border-top: 2px dashed #22d3ee;
+  opacity: 0.7;
+  flex: none;
+}
+
+/* 图例：巷道约束状态 */
+.legend-state {
+  gap: 7px;
+}
+.legend-state .lv-dot {
+  margin-left: 4px;
+}
+.lv-state-ok {
+  background: #64748b;
+}
+.lv-state-ban {
+  background: #fb923c;
+}
+.lv-state-block {
+  background: #f56c6c;
+}
+
+/* ---------- 路段约束详情条 ---------- */
+.seg {
+  cursor: pointer;
+}
+.seg-line {
+  transition: stroke-opacity 0.15s ease;
+}
+.seg.is-active .seg-line {
+  stroke-opacity: 1;
+}
+.seg-detail {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  animation: segPop 0.16s ease;
+}
+@keyframes segPop {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.seg-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.seg-detail-id {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+.seg-detail-name {
+  font-size: 10px;
+  color: #64748b;
+}
+.seg-detail-status {
+  flex: 1;
+  text-align: right;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.seg-detail-status.st-blocked {
+  color: #fed7d7;
+  background: rgba(245, 108, 108, 0.18);
+}
+.seg-detail-status.st-ban {
+  color: #fed7aa;
+  background: rgba(251, 146, 60, 0.16);
+}
+.seg-detail-status.st-rburst {
+  color: #fde68a;
+  background: rgba(230, 162, 60, 0.16);
+}
+.seg-detail-status.st-congest {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.14);
+}
+.seg-detail-status.st-ok {
+  color: #a7f3d0;
+  background: rgba(34, 197, 94, 0.12);
+}
+.seg-detail-close {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.seg-detail-close:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.seg-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.sd-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.sd-item span {
+  font-size: 9px;
+  color: #64748b;
+}
+.sd-item b {
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #e2e8f0;
+}
+.sd-item b.c-hot {
+  color: #f87171;
+}
+.sd-item b.c-mid {
+  color: #fbbf24;
+}
+.sd-item b.c-low {
+  color: #34d399;
+}
+
+/* ---------- Pareto 表格（学术化排版） ---------- */
+.table-scroll {
+  overflow: auto;
+}
+.moo-table {
+  /* 让明细表按内容自然伸展：窄屏时分栏用横滑看全，宽屏时整行完整可见，
+     避免随屏幕宽度不同导致行内容被压缩/截断 */
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.moo-table thead th {
+  position: sticky;
+  top: 0;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  color: #a5b3c4;
+  background: rgba(15, 18, 24, 0.95);
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  white-space: nowrap;
+  z-index: 1;
+  backdrop-filter: blur(6px);
+}
+.th-tip {
+  cursor: help;
+  border-bottom: 1px dotted currentColor;
+}
+/* 表头：目标名 + 单位 + 优化方向箭头 */
+.th-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 4px;
+  font-size: 8.5px;
+  color: #64748b;
+  font-weight: 500;
+}
+.arr {
+  display: inline-block;
+  width: 0;
+  height: 0;
+}
+.arr-min {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid #38bdf8;
+}
+.arr-max {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 5px solid #34d399;
+}
+
+/* ---------- 表头排序（单因子 / Shift 复合） ---------- */
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.th-sort-inner {
+  display: inline-flex;
+  align-items: center;
+}
+.th-sort-arr {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: #64748b;
+  opacity: 0.55;
+}
+.th-sort:hover .th-sort-arr {
+  opacity: 1;
+  color: #7dd3fc;
+}
+.th-sort.is-active .th-sort-arr {
+  opacity: 1;
+  color: #22d3ee;
+}
+/* 排序方向指示：升/降三角 */
+.sa-icon {
+  width: 0;
+  height: 0;
+}
+.sa-none {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid #64748b;
+  opacity: 0.35;
+}
+.sa-asc {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 5px solid #22d3ee;
+}
+.sa-desc {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid #22d3ee;
+}
+.th-rank {
+  display: inline-grid;
+  place-items: center;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 2px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 800;
+  color: #0a0f18;
+  background: #22d3ee;
+  font-variant-numeric: tabular-nums;
+}
+/* 表头右侧的排序状态摘要（排序面板提示） */
+.moo-table-panel .panel-head {
+  align-items: center;
+}
+.panel-hint.has-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  color: #7dd3fc;
+}
+.sort-crumb {
+  font-size: 9px;
+  color: #94a3b8;
+  letter-spacing: 0.04em;
+}
+.sort-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #a5f3fc;
+  background: rgba(34, 211, 238, 0.14);
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  white-space: nowrap;
+}
+.sort-clear {
+  border: none;
+  background: none;
+  padding: 1px 4px;
+  font-size: 10px;
+  color: #f87171;
+  cursor: pointer;
+}
+.sort-clear:hover {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.12);
+  border-radius: 4px;
+}
+.moo-table .tc-idx {
+  width: 60px;
+  color: #64748b;
+  padding-left: 10px;
+}
+.idx-chip {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #b6c2d2;
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+.rec-tag {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #0a0f18;
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  vertical-align: middle;
+}
+.tc-obj {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.moo-table th.tc-obj {
+  color: #7dd3fc;
+}
+.obj-val {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #d7e2ee;
+}
+.moo-table .tc-route {
+  text-align: left;
+  color: #b6c2d2;
+  min-width: 130px;
+}
+.route-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 2px 6px 2px 0;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+.route-chip::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--rc, #94a3b8);
+  flex: none;
+}
+.moo-row {
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.12s ease;
+}
+.moo-row td {
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.moo-row:nth-child(even) {
+  background: rgba(255, 255, 255, 0.014);
+}
+.moo-row.is-clickable:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.moo-row.is-selected {
+  background: rgba(230, 162, 60, 0.12);
+  box-shadow: inset 2px 0 0 #f59e0b;
+}
+.moo-row.is-selected .idx-chip {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+}
+.moo-row.is-selected .tc-obj {
+  color: #fcd9a0;
+  font-weight: 600;
+}
+.moo-row.is-selected .obj-val {
+  color: #fcd9a0;
+}
+.moo-row.is-selected .tc-route {
+  color: #f6e0c0;
+}
+.empty-row {
+  text-align: center;
+  color: #64748b;
+  padding: 18px 0;
+}
+
+/* ---------- 紧凑表：非全屏（侧栏）时适配窄窗口 ---------- */
+.moo-table.is-compact {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  font-size: 11px;
+}
+.moo-table.is-compact th,
+.moo-table.is-compact td {
+  padding: 5px 8px;
+}
+.moo-table.is-compact thead th {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 5px 8px;
+  white-space: normal;
+  line-height: 1.3;
+  word-break: keep-all;
+}
+.moo-table.is-compact .tc-idx {
+  width: 56px;
+  padding-left: 8px;
+}
+.moo-table.is-compact .tc-route {
+  display: none;
+}
+.moo-table.is-compact .tc-obj {
+  min-width: 0;
+}
+
+/* ---------- 当前方案徽标 ---------- */
+.rec-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #0a0f18;
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+}
+
+/* ---------- 路段风险评级 + 封锁提示 ---------- */
+.seg-detail-risk {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.seg-detail-risk.r-high {
+  color: #fed7d7;
+  background: rgba(245, 108, 108, 0.18);
+  border: 1px solid rgba(245, 108, 108, 0.3);
+}
+.seg-detail-risk.r-mid {
+  color: #fde68a;
+  background: rgba(230, 162, 60, 0.16);
+  border: 1px solid rgba(230, 162, 60, 0.3);
+}
+.seg-detail-risk.r-safe {
+  color: #bbf7d0;
+  background: rgba(74, 222, 128, 0.1);
+  border: 1px solid rgba(74, 222, 128, 0.22);
+}
+.seg-detail-risk.r-low {
+  color: #a7f3d0;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.26);
+}
+.seg-detail-alert {
+  margin-bottom: 8px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  font-size: 10.5px;
+  color: #fed7d7;
+  background: rgba(245, 108, 108, 0.1);
+  border: 1px dashed rgba(245, 108, 108, 0.35);
+}
+.seg-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+/* ---------- 行动带 ---------- */
+.moo-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 2px 2px;
+}
+.action-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.action-feedback {
+  font-size: 12px;
+  color: #34d399;
+}
+.action-note {
+  font-size: 11px;
+  line-height: 1.6;
+  color: #64748b;
+  max-width: 560px;
+  text-align: right;
+}
+.ref-note {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: #475569;
+}
+
+/* ---------- 采场摘要卡片 + 按采场筛选 ---------- */
+.zone-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  align-items: stretch;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.zone-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 12px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.zone-card:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.zone-card.is-active {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: #f59e0b;
+  box-shadow:
+    0 0 0 1px rgba(245, 158, 11, 0.35),
+    0 4px 18px rgba(245, 158, 11, 0.12);
+}
+.zone-card.is-covered::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 6px #34d399;
+}
+.zc-glyph {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  color: #0a0f18;
+  background: #64748b;
+}
+.zone-all .zc-name {
+  color: #e2e8f0;
+}
+.zc-name {
+  font-size: 13px;
+  font-weight: 700;
+}
+.zc-muck {
+  font-size: 10px;
+  color: #94a3b8;
+}
+.zc-meta {
+  font-size: 10px;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+.zc-meta b {
+  color: #e2e8f0;
+}
+.zc-cov {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.zc-cov.ok {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.12);
+}
+.zc-cov.miss {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+}
+.zone-filter-hint {
+  grid-column: 1 / -1; /* 横跨整行，避免被等宽网格压缩为单个单元格 */
+  align-self: center;
+  font-size: 10px;
+  color: #475569;
+  padding-bottom: 0;
+}
+
+/* 帕累托前沿：方案少时的引导提示 */
+.pf-note {
+  margin: 0 14px 6px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.18);
+}
+
+/* 当前建议方案：路线前的采场归属圆点 */
+.rec-zone-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* 方案明细：设备选路芯片采场色 + 等待态 + 覆盖摘要行 */
+.route-chip.is-wait {
+  opacity: 0.55;
+}
+.route-chip.is-wait::before {
+  background: #475569;
+}
+.rc-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 0;
+}
+.row-cov {
+  display: block;
+  width: 100%;
+  margin: 2px 0 0;
+  font-size: 9.5px;
+  line-height: 1.4;
+  color: #64748b;
+}
+.row-cov.is-miss {
+  color: #fbbf24;
+}
+.row-cov.is-ok {
+  color: #34d399;
+}
+.legend-zone {
+  font-weight: 600;
+}
+</style>

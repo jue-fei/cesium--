@@ -6,95 +6,24 @@
  */
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { LineSegments2 } from 'three/addons/lines/LineSegments2.js'
-import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js'
-import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
-import {
-  creaseNormals,
-  removeTrianglesOnPlane,
-  sealPlaneOpenBoundaries,
-  weldPositions
-} from './geometrySmoothing.js'
+import { creaseNormals, removeTrianglesOnPlane, weldPositions } from './geometrySmoothing.js'
+// 剖面剖切 CSG 算法模块：剖切相关公共 API 的实现委托到 SectionCutter
+import { SectionCutter } from './sectionCutter.js'
 // 断面几何判定：与 tunnelDesign 布孔过滤共用同一实现（单源）
 import { isInsideSection } from '../computation/sectionShape.js'
 // mulberry32（漏斗形状可复现 RNG）：单源在 utils/rng.js
 import { mulberry32 } from '../utils/rng.js'
-// 程序化 Canvas 纹理工厂（火/烟/火星/岩面）：拆分至 textureFactories.js。
-// 本类 import 供材质创建使用，并原样 re-export 保持既有外部导入路径（threeBlastingRenderer）不变。
+// 色阶与归一化映射：与图例（面板）单源共享
 import {
-  createFireTexture,
-  createSmokeTexture,
-  createSparkTexture,
-  createRockTexture
-} from './textureFactories.js'
-export { createFireTexture, createSmokeTexture, createSparkTexture, createRockTexture }
-// 回退布孔设计数据生成（菱形掏槽+辅助+周边）：外移至 computation/fallbackHoleLayout.js，
-// 本类仅保留一行适配调用（designParams/kcoParams/tunnelHeight 由调用侧组装为纯函数入参）。
-import { buildFallbackHoles } from '../computation/fallbackHoleLayout.js'
-import {
+  sampleScaleColor,
   PPV_COLOR_STOPS_LINEAR,
   STRESS_COLOR_STOPS_LINEAR,
-  DAMAGE_ZONES,
-  buildDamageLutData,
-  NORM_FLOOR,
-  NORM_LOG_SPAN,
-  KNEE_WARP_A,
-  KNEE_WARP_B,
-  glslNum,
-  INDUSTRIAL_BANDS_DEFAULT,
-  industrialBandCount,
-  industrialContourColor,
-  buildIndustrialLutGradient,
-  LUT_TEXELS
+  PPV_LUT_MAX_CMPS,
+  STRESS_LUT_MAX_MPA
 } from './vibrationColorScales.js'
-// 剖面剖切算法（CSG 剪切/截面环提取/区域三角化/剖面填充）：拆分至 sectionCutter.js，
-// 本类仅保留公共入口一行委托；剖切状态仍挂本类，由 SectionCutter 经 sb 直读直写。
-import { SectionCutter } from './sectionCutter.js'
-// 岩面场着色器 GLSL 主体（?raw 原文导入；组装与逐字符等价性见下方 BENCH_FIELD_* 注释）
+// 岩体表面振动场着色 shader（外置 .glsl 源码，?raw 原文导入）
 import benchFieldVertSrc from './benchField.vert.glsl?raw'
 import benchFieldFragSrc from './benchField.frag.glsl?raw'
-
-// 着色器字面量：归一化标尺与膝形压缩拐点全部由 vibrationColorScales.js 单源注入，
-// 避免 GLSL 里再出现一份手写常量（图例/等值线/热力图四处漂移的历史根因）。
-//
-// 用 #define 前导串 + 字符串拼接注入（不用模板插值）：模板插值会与着色器本体
-// 混在一起，宏前导更易核对，也不受构建链对 ${} 的处理差异影响。
-const SH_NORM_MACROS =
-  '#define NORM_FLOOR ' +
-  glslNum(NORM_FLOOR) +
-  '\n#define NORM_LOG_SPAN ' +
-  glslNum(NORM_LOG_SPAN) +
-  '\n#define KNEE_A ' +
-  glslNum(KNEE_WARP_A) +
-  '\n#define KNEE_B ' +
-  glslNum(KNEE_WARP_B) +
-  '\n'
-
-// ─── 等值线级别取色辅助（与热力图 LUT 同口径）──────────
-// 线性工作色空间白色：setRGB(..., SRGBColorSpace) 已转到线性域，lerp 目标同为线性白
-const _WHITE = new THREE.Color(1, 1, 1)
-
-// 复用 Matrix3 临时量（getContourSurface 法线换算，避免每次调用分配）
-const _mat3 = new THREE.Matrix3()
-
-/**
- * 在色阶 [v, [r,g,b]]（线性域，v 升序）上按标量值线性插值取色。
- * 与 GPU 侧 LUT 纹理（v 归一化到 [0,1] 纹理坐标）等价：CPU 传 v、GPU 传 v/max。
- */
-function _sampleStops(stops, v) {
-  const n = stops.length
-  if (n === 0) return [0, 0, 0]
-  if (v <= stops[0][0]) return stops[0][1]
-  for (let i = 1; i < n; i++) {
-    if (v <= stops[i][0]) {
-      const [v0, c0] = stops[i - 1]
-      const [v1, c1] = stops[i]
-      const t = v1 - v0 > 1e-9 ? (v - v0) / (v1 - v0) : 0
-      return [c0[0] + (c1[0] - c0[0]) * t, c0[1] + (c1[1] - c0[1]) * t, c0[2] + (c1[2] - c0[2]) * t]
-    }
-  }
-  return stops[n - 1][1]
-}
 
 // ─── 表面抛光总开关 ────────────────────────────────────
 // 几何焊接 + 折痕法线平滑：消除热力图在"纸片拼接/接缝"处的断档（详见 geometrySmoothing.js）。
@@ -157,79 +86,125 @@ const EMPTY_HOLE_COLOR = 0xffffff
 // 不再使用 raymarching 体积盒子（避免掌子面前方"红色方块"），
 // 改为在 benchMesh 的 ShaderMaterial 中逐片元按世界坐标采样 3D 场纹理着色的方式。
 // 坐标换算：世界坐标 P → grid 局部 (gx,gy,gz) = ((P-center)·right, ·up, ·forward)
-//          → 纹理坐标 uvw = (g - boundsMin) / (boundsMax - boundsMin)
-/** 岩石底纹 UV 缩放（= 100m 一格；见顶点着色器内注释，1.0 即"1 米一格"会摩尔纹） */
-const ROCK_UV_SCALE_NUM = 0.01
-
-// 岩体表面振动场着色器：GLSL 主体外移至 benchField.vert.glsl / benchField.frag.glsl
-//（?raw 原文导入）。组装保持与外移前逐字符等价：
-// - 顶点：.glsl 内保留唯一插值占位 ${ROCK_UV_SCALE_NUM}，此处以现有常量替换
-//  （保留胶水拼接；若前置 #define 会引入额外行、破坏"拆分前后逐字符等价"）。
-// - 片元：SH_NORM_MACROS（JS 单源宏前导，含 NORM_FLOOR/NORM_LOG_SPAN/KNEE_A/KNEE_B）
-//  拼在最前 + 纯 GLSL 主体，拼接顺序与外移前一致（宏在 precision 之前亦合法）。
-// 注：损伤阈值 20/50/100/200 cm/s 在片元主体内为字面常量（注释指明与后端
-//  DAMAGE_THRESHOLDS_CMPS 同口径），GLSL 内不存在 ${DAMAGE_THRESHOLDS_CMPS[]} 插值，
-//  故无需 DAMAGE_T0..3 宏注入。
-const BENCH_FIELD_VERTEX_SHADER = benchFieldVertSrc.replace(
-  '${ROCK_UV_SCALE_NUM}',
-  String(ROCK_UV_SCALE_NUM)
-)
-const BENCH_FIELD_FRAGMENT_SHADER = SH_NORM_MACROS + benchFieldFragSrc
-
-/** 场图层淡入时长(ms)：开关热力图时的平滑过渡，替代此前的硬切 */
-export const FIELD_FADE_MS = 320
+// DAMAGE 档位由后端/本地分类场写入 3D 纹理，shader 只负责离散取色，不再重复实现阈值算法。
+// shader 源码外置为 .glsl（编辑器高亮/独立评审）。
+const BENCH_FIELD_VERTEX_SHADER = benchFieldVertSrc
+const BENCH_FIELD_FRAGMENT_SHADER = benchFieldFragSrc
 
 /** 默认场着色参数（无数据时的占位） */
 const BENCH_FIELD_DEFAULTS = {
   displayMode: 0,
   fieldWeight: 0.0,
-  ppvRefMps: 0.15,
-  stressRefMPa: 30.0,
-  chargeKg: 100,
-  sadoskyK: 30,
-  sadoskyAlpha: 1.5,
-  sadoskyBeta: 0.02,
-  ppvVisualBeta: 0.8, // PPV 可视化时变衰减(1/s)：波峰回落实时速度（见 computePpvField3d）
-  visualCp: 35,
-  // 波包子波载波频率(Hz)：空间波长 λ=visualCp/f。
-  // 默认关闭（0=纯包络）：正面近距离/掠射角下，即使 2Hz 也会把多源相位
-  // 叠加投影成规则斜纹。需要观察行波环时，用户仍可在面板手动开启。
-  carrierHz: 0,
-  // 波前起跳沿(s)：见 uArrivalRise 注释。
-  // 数值依据（46 源实测，相邻 0.04m 的 iVal 跳变）：0 → 最大 13 级色阶；
-  // 0.05 → 5.1 级；0.15 → 3.8 级。74 源时还会更密，故默认取较大的 0.25。
-  // 代价：起跳沿 × 35 m/s = 视觉上的波前带宽，过大会把行波环糊掉。
-  arrivalRise: 0.25,
-  // 峰值方法：1=时域错峰叠加（默认，杨年华 2012 时域叠加口径，与后端
-  // peak_ppv_envelope_multi peak_method='history' 同口径）；0=全源同时叠加保守上界
-  peakHistory: 1,
-  // ρ·c_p/(1−μ_d)，默认 ρ=2650, c_p=4500, μ_d=0.8ν=0.2 → 2650×4500/0.8=1.49e7
-  // （σ_vm=ρ·c_p·v/(1−μ_d)，径向压+切向拉，动态泊松比见 computeStressFieldFromPpv；
-  //   与 blastingManager 应力量程/后端 stress_field_from_ppv dynamic_poisson 同口径）
-  stressFactor: 1.49e7
+  ppvRefMps: PPV_LUT_MAX_CMPS / 100,
+  stressRefMPa: STRESS_LUT_MAX_MPA,
+  thresholdMps: 0,
+  stressVisiblePa: 0
 }
 
-/** HSV → RGB（0..1），矢量箭头场按模长取色用 */
-function _hsvToRgb(h, s, v) {
-  const i = Math.floor(h * 6)
-  const f = h * 6 - i
-  const p = v * (1 - s)
-  const q = v * (1 - f * s)
-  const t = v * (1 - (1 - f) * s)
-  switch (i % 6) {
-    case 0:
-      return [v, t, p]
-    case 1:
-      return [q, v, p]
-    case 2:
-      return [p, v, t]
-    case 3:
-      return [p, q, v]
-    case 4:
-      return [t, p, v]
-    default:
-      return [v, p, q]
+// ─── 粒子纹理生成（程序化，无需外部资源） ──────────────
+export function createFireTexture() {
+  const size = 128
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+  gradient.addColorStop(0, 'rgba(255,255,255,1)')
+  gradient.addColorStop(0.2, 'rgba(255,220,120,0.9)')
+  gradient.addColorStop(0.5, 'rgba(255,120,20,0.6)')
+  gradient.addColorStop(0.8, 'rgba(180,40,10,0.2)')
+  gradient.addColorStop(1, 'rgba(0,0,0,0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, size, size)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.needsUpdate = true
+  return tex
+}
+
+export function createSmokeTexture() {
+  const size = 128
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  // 噪声烟雾纹理
+  const imageData = ctx.createImageData(size, size)
+  const data = imageData.data
+  for (let i = 0; i < size; i++) {
+    for (let j = 0; j < size; j++) {
+      const dx = i - size / 2
+      const dy = j - size / 2
+      const dist = Math.sqrt(dx * dx + dy * dy) / (size / 2)
+      const noise = Math.random() * 0.3 + 0.7
+      const alpha = Math.max(0, (1 - dist) * noise)
+      const idx = (i * size + j) * 4
+      data[idx] = 80 + Math.random() * 40
+      data[idx + 1] = 80 + Math.random() * 40
+      data[idx + 2] = 80 + Math.random() * 40
+      data[idx + 3] = alpha * 255
+    }
   }
+  ctx.putImageData(imageData, 0, 0)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.needsUpdate = true
+  return tex
+}
+
+export function createSparkTexture() {
+  const size = 64
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+  gradient.addColorStop(0, 'rgba(255,255,200,1)')
+  gradient.addColorStop(0.3, 'rgba(255,200,50,0.8)')
+  gradient.addColorStop(1, 'rgba(255,100,0,0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, size, size)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.needsUpdate = true
+  return tex
+}
+
+// ─── 程序化岩石纹理（用于掌子面/台阶） ─────────────────
+export function createRockTexture() {
+  const size = 512
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  // 基础颜色：亮棕灰色
+  ctx.fillStyle = '#9a8a78'
+  ctx.fillRect(0, 0, size, size)
+  // 添加岩石纹理：随机亮色块
+  for (let i = 0; i < 350; i++) {
+    const x = Math.random() * size
+    const y = Math.random() * size
+    const r = Math.random() * 20 + 5
+    const gray = 120 + Math.random() * 80
+    ctx.fillStyle = `rgba(${gray},${gray * 0.85},${gray * 0.7},${Math.random() * 0.5})`
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  // 添加裂纹
+  ctx.strokeStyle = 'rgba(80,60,40,0.25)'
+  ctx.lineWidth = 1
+  for (let i = 0; i < 15; i++) {
+    ctx.beginPath()
+    ctx.moveTo(Math.random() * size, Math.random() * size)
+    for (let j = 0; j < 5; j++) {
+      ctx.lineTo(Math.random() * size, Math.random() * size)
+    }
+    ctx.stroke()
+  }
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.wrapS = THREE.RepeatWrapping
+  tex.wrapT = THREE.RepeatWrapping
+  tex.repeat.set(2, 2)
+  tex.needsUpdate = true
+  return tex
 }
 
 /**
@@ -266,6 +241,8 @@ export class SceneBuilder {
     this.tunnelArchRadius = config.tunnelArchRadius
     this.tunnelHeight = config.tunnelHeight
     this.benchLength = config.benchLength
+    // 岩体总深（m）：>0 时 _buildRockBodyMesh 由它反解生效 benchLength（生产路径 20m）
+    this.rockTotalDepth = Number(config.rockTotalDepth) > 0 ? Number(config.rockTotalDepth) : null
     this.tunnelSection = config.tunnelSection
 
     // 光照配置（支持外部覆盖，默认值经调校保证隧道内部可见度）
@@ -280,40 +257,11 @@ export class SceneBuilder {
     this._sectionEnabled = false
     this._sectionAxis = 0
     this._sectionPos = null // 已解析的平面局部坐标（沿轴），换基后原样重切
-    // 自动量程标记：applyFieldPhysics 注入代表性峰值后置 true，
-    // setBenchFieldData 不再用固定上限覆盖（避免解析场全场饱和度）
-    this._autoRefApplied = false
-    // 场图层淡入状态（updateFieldFade 每帧推进；见 setFieldWeightTarget）
-    this._rockSemiTransparent = false
-    this._fieldWeightNow = 0
-    this._fieldWeightTarget = 0
-    this._fieldFadeT0 = null
-    this._fieldFadeFrom = 0
     // 剖切结果缓存：键=基础几何对象（pre/post），值={axis,pos,geo}。
     // 播放时间轴在 pre/post 间互换几何时直接复用，避免每次对整块岩体重算 CSG 导致卡顿。
     this._sectionCache = new Map()
-
-    // 剖面剖切算法组（SectionCutter，sectionCutter.js）：剖切状态（_sectionEnabled/
-    // _sectionPos/_sectionCache/_sliceCutGeo 等）仍挂本类，算法经 sb 引用直读直写
+    // 剖面剖切 CSG 算法模块（sectionCutter.js）：剖切公共 API 薄委托到此处
     this._sectionCutter = new SectionCutter(this)
-
-    // ── MS 等值线（Line2 渲染组）───────────────────────────
-    // 几何由 blastingManager 调 contourExtractor 在峰值场上提取后经
-    // setContourPolylines 下发；本类只负责构建/样式/波前门控与显隐。
-    this._contourGroup = null // THREE.Group（挂 scene，含 LineSegments2）
-    this._contourMesh = null // LineSegments2（全部级别合一实例）
-    this._contourMaterial = null // LineMaterial（像素线宽 + onBeforeCompile 注入 arrival 门控）
-    this._contourInput = null // 最近一次下发的 { polylines, displayMode, normMode, refs }（样式变更时重建）
-    this._contourArrUniform = { value: 1e9 } // 波前门控时间(s)：t < arrival 的段透明
-    this._contourFadeUniform = { value: 0.1 } // 门控淡入宽度(s)
-    this._contourFieldOn = false // 热力图图层开启（uFieldWeight>0）才显示等值线
-    // 等力线默认关闭：几何等值线是叠加层，不属于热力场本身；在正面近视角
-    // 会把三角网格/等值线段放大成规则斜纹。用户仍可通过面板手动开启。
-    this._isoLineOn = false // 等值线开关（面板 toggle-iso-line）
-    this._isoLineWidth = 2.0 // 像素线宽
-    this._isoLineColor = null // null=按级别取 LUT 色（提亮）；指定 CSS 色则全线统一
-    this._benchGeoVersion = 0 // 岩体几何版本（build/爆后切换/剖切时 +1，驱动 manager 重提取）
-    this._contourSurfaceCache = null // getContourSurface 版本缓存 {version, mesh, data}
 
     // 设计数据（由主渲染器注入）
     this.blastHoleDesign = null
@@ -335,6 +283,10 @@ export class SceneBuilder {
     this.tunnelLight = null
     this.tunnelLight2 = null
     this.fireLight = null
+
+    // ── 岩面采样网格（动态满量程统计用，见 getSurfaceSampleGrid）──
+    this._benchGeoVersion = 0 // 岩体几何版本（build / 爆后切换时 +1，驱动缓存失效）
+    this._surfaceSampleCache = null // getSurfaceSampleGrid 版本缓存 { version, mesh, frameKey, data }
 
     this._setupLights()
   }
@@ -563,6 +515,8 @@ export class SceneBuilder {
 
   // ─── 清理旧场景网格 ──────────────────────────────────
   _cleanupBenchGeometry() {
+    // 岩面采样网格缓存：随岩体重建一并失效（重建后重新采样）
+    this._surfaceSampleCache = null
     // 复位剖切状态与临时件（重建时旧切片/封口/拾取标记一并清理，避免状态残留）
     this._sectionEnabled = false
     this._sectionAxis = 0
@@ -605,32 +559,6 @@ export class SceneBuilder {
     // 剖面封口片：随岩体一同释放，避免残留空心腔体
     disposeSingle(this._sectionCapMesh)
     this._sectionCapMesh = null
-    // 等值线渲染组：随岩体一并清空（新事件由 blastingManager 重新下发折线）
-    if (this._contourMesh) {
-      this._contourGroup?.remove(this._contourMesh)
-      this._contourMesh.geometry.dispose()
-      this._contourMesh = null
-    }
-    if (this._contourMaterial) {
-      this._contourMaterial.dispose()
-      this._contourMaterial = null
-    }
-    if (this._contourGroup) {
-      this.scene.remove(this._contourGroup)
-      this._contourGroup = null
-    }
-    this._contourInput = null
-    this._contourFieldOn = false
-    this._contourSurfaceCache = null // 顶点导出缓存随岩体一并失效
-    if (this._vectorFieldGroup) {
-      this.scene.remove(this._vectorFieldGroup)
-      this._vectorFieldGroup.traverse(o => {
-        if (o.geometry?.dispose) o.geometry.dispose()
-        if (o.material?.dispose) o.material.dispose()
-      })
-      this._vectorFieldGroup = null
-      this._vectorFieldMesh = null
-    }
     // 岩体前后两套几何（整段实心/退切实心）独立释放，避免泄漏
     if (this._rockGeoPre) {
       this._rockGeoPre.dispose()
@@ -643,9 +571,13 @@ export class SceneBuilder {
     this.benchMesh = null
     disposeSingle(this.faceMesh)
     this.faceMesh = null
-    // 场着色材质释放：bench 与 face 共用的 LUT 统一在此清理一次
+    // 场着色材质释放：bench 与 face 共用同一套占位纹理/ LUT，统一在此清理一次
     this._benchFieldMaterial = null
     this._faceFieldMaterial = null
+    if (this._fieldDummyTexture) {
+      this._fieldDummyTexture.dispose()
+      this._fieldDummyTexture = null
+    }
     if (this._fieldPpvLut) {
       this._fieldPpvLut.dispose()
       this._fieldPpvLut = null
@@ -653,10 +585,6 @@ export class SceneBuilder {
     if (this._fieldStressLut) {
       this._fieldStressLut.dispose()
       this._fieldStressLut = null
-    }
-    if (this._fieldDamageLut) {
-      this._fieldDamageLut.dispose()
-      this._fieldDamageLut = null
     }
     disposeSingle(this.tunnelShellMesh)
     this.tunnelShellMesh = null
@@ -712,8 +640,8 @@ export class SceneBuilder {
     const roundDepth = Math.max(
       0.6,
       Number(this.designParams?.advanceLength) ||
-        (Number(this.designParams?.holeDepth) || 2.5) *
-          (Number(this.designParams?.utilization) || 0.85)
+      (Number(this.designParams?.holeDepth) || 2.5) *
+      (Number(this.designParams?.utilization) || 0.85)
     )
 
     // 洞身截断几何（爆破振动场用）：空腔 = 自爆心沿洞轴向 roundDepth 长的马蹄柱，
@@ -780,7 +708,8 @@ export class SceneBuilder {
     this._buildFaceDamagedMesh(ctx)
     this._buildExcavatedTube(ctx)
     this._buildBlastHoles(yaw, faceOffset)
-    // 岩体几何就绪：版本 +1 驱动 blastingManager 重新提取等值线峰值场
+    // 岩体几何就绪：版本 +1 驱动采样网格缓存失效（清掉旧缓存）
+    this._surfaceSampleCache = null
     this._benchGeoVersion++
   }
 
@@ -873,7 +802,16 @@ export class SceneBuilder {
 
   _buildRockBodyMesh(ctx) {
     const roundDepth = ctx.roundDepth
-    const benchLength = this.benchLength
+    // 【岩体总深】优先用配置的 rockTotalDepth（生产路径传 20m：原 80m 远场无有效观感，
+    // 且顶点数成倍增加拖慢岩面瞬时场采样）；未配置时按 进尺+benchLength 的原口径
+    // （几何测试用 benchLength=40 断言深度，须保持可控）。
+    // 生效 benchLength 由目标总深反解，保证爆后实心段 [roundDepth, D] 与总深一致。
+    let benchLength = this.benchLength
+    const totalDepth = Number(this.rockTotalDepth)
+    if (Number.isFinite(totalDepth) && totalDepth > roundDepth + 1) {
+      benchLength = Math.max(1, totalDepth - roundDepth)
+    }
+    this.benchLength = benchLength
     const D = roundDepth + benchLength
     this._rockRoundDepth = roundDepth
 
@@ -1055,10 +993,13 @@ export class SceneBuilder {
     }
 
     // 与 faceMesh 共用同一套场 LUT/纹理，保证岩体表面应力/PPV/损伤色带连续。
-    // 未爆破的岩体为不透明实体：应力/PPV/损伤场直接着色在其表面（不穿透显内腔）。
+    // 未爆破的岩体为**完全不透明**实体：应力/PPV/损伤场直接着色在其表面。
+    // 【不透明】transparent:false → 走不透明渲染通道（深度写入 + 深度测试），
+    // 侧面/顶面/背面都不会透出内部几何。原 transparent:true 配合 DoubleSide
+    // 会因片元混合与排序问题让非正面的岩面看起来"半透明"。
     this._benchFieldMaterial = this._createFieldMaterial(ctx.benchMat, {
       opacity: 1,
-      transparent: true,
+      transparent: false,
       depthWrite: true
     })
     this.benchMesh = new THREE.Mesh(this._rockGeoPre, this._benchFieldMaterial)
@@ -1076,44 +1017,153 @@ export class SceneBuilder {
     this.scene.add(this.benchMesh)
     // 岩体轮廓线（边缘高亮）：暗背景/热力图满铺时仍能看清岩体轮廓
     // 岩体为大块实体，外框线用较低透明度（细淡），避免"红色方体框"式突兀
-    this._attachRockOutline(this.benchMesh, 0.55)
-    // 波场可达半径 = 爆心 → 岩体几何最远顶点（波一直衰减到模型边界，不中途截断）
-    this._syncInfluenceRadius()
+    this._attachRockOutline(this.benchMesh, 0.9)
   }
 
   /**
-   * 按"爆心 → 岩体几何包围盒最远顶点"实测波场可达半径并下发给场材质。
-   * 语义：波在岩体内按 r^-α·e^(-βt) 连续衰减，到岩体几何边界时已不足可见下限
-   * → 表面观感就是"传播到模型边界即消失"；一阶解析模型无反射/衍射，不产生回波。
-   * 取包围盒顶点而非三角面顶点：保证覆盖整块岩体且略有余量，内切角处不被切掉。
+   * 导出岩面采样网格（grid 局部系）：blastingManager 据此计算全岩体场边界与岩面采样。
+   *
+   * 换算：世界坐标 → grid 局部，用 (right,up,forward) 正交基投影（与片元着色器同口径）。
+   * 调用方可传入权威坐标系：首个场帧到达前，shader uniforms 仍是占位默认值，不能用于
+   * 计算 WebSocket 场边界，否则例如默认 faceDirection=-Z 时 forward 会反号，场 bounds
+   * 与后续 shader 采样坐标相反，造成岩面大面积/全部落在 insideFieldBounds 之外。
+   * 法线同样按 basis 转世界（grid 基含 (0,0,-1)，直接当世界法线会反号）。
+   *
+   * 【自适应细分（关键）】CSG 合并/焊接后的岩体几何顶点极稀疏——实测整块岩体只有
+   * 约 400 个顶点且几乎全落在箱体角点，直接在这些顶点上采场值无法代表连续岩面的
+   * 场值分布。故按最长边二分细分每个三角形（位置/法线线性插值，二分保持形状），
+   * 把采样间隔加密到 ≈MAX_EDGE，使满量程统计能贴合真实场分布。
+   * 版本号驱动缓存：几何/爆后状态变化时重新采样。
+   * @returns {{positions:Float32Array, normals:Float32Array|null, index:Uint32Array|null,
+   *            version:number}|null}
    */
-  _syncInfluenceRadius() {
+  getSurfaceSampleGrid(frame = null) {
     const mesh = this.benchMesh
-    if (!mesh) return
-    mesh.updateMatrixWorld(true)
-    const box = new THREE.Box3().setFromObject(mesh)
-    if (box.isEmpty()) return
-    const c = this._benchFieldMaterial?.uniforms?.uCenter?.value
-    const ox = c ? c.x : 0
-    const oy = c ? c.y : 0
-    const oz = c ? c.z : 0
-    let rMax = 0
-    for (const sx of [box.min.x, box.max.x]) {
-      for (const sy of [box.min.y, box.max.y]) {
-        for (const sz of [box.min.z, box.max.z]) {
-          const dx = sx - ox
-          const dy = sy - oy
-          const dz = sz - oz
-          const r = Math.sqrt(dx * dx + dy * dy + dz * dz)
-          if (r > rMax) rMax = r
-        }
+    const u = this._benchFieldMaterial?.uniforms
+    if (!mesh?.geometry || !u?.uCenter) return null
+    // bounds 可能在 PPV 首帧之前计算，此时 shader uniforms 还是占位默认值。
+    // 有权威坐标系时必须优先用它，保证 bounds 与随后注入 shader 的真实基向量一致。
+    const c = frame?.center ?? u.uCenter.value
+    const right = frame?.right ?? u.uRight.value
+    const up = frame?.up ?? u.uUp.value
+    const forward = frame?.forward ?? u.uForward.value
+    const frameKey = [c, right, up, forward]
+      .map(v => [v.x, v.y, v.z].map(n => Number(n).toPrecision(12)).join(','))
+      .join('|')
+    const cache = this._surfaceSampleCache
+    if (
+      cache &&
+      cache.version === this._benchGeoVersion &&
+      cache.mesh === mesh &&
+      cache.frameKey === frameKey
+    )
+      return cache.data
+    mesh.updateWorldMatrix(true, false)
+    const src = mesh.geometry.attributes.position
+    const nrmAttr = mesh.geometry.attributes.normal
+    const idxAttr = mesh.geometry.index
+    const v = new THREE.Vector3()
+    // 源顶点 → grid 局部（位置）+ 世界法线
+    const nvCount = src.count
+    const gp = new Float32Array(nvCount * 3)
+    const gn = nrmAttr ? new Float32Array(nvCount * 3) : null
+    for (let i = 0; i < nvCount; i++) {
+      v.set(src.getX(i), src.getY(i), src.getZ(i)).applyMatrix4(mesh.matrixWorld)
+      const rx = v.x - c.x
+      const ry = v.y - c.y
+      const rz = v.z - c.z
+      gp[i * 3] = rx * right.x + ry * right.y + rz * right.z
+      gp[i * 3 + 1] = rx * up.x + ry * up.y + rz * up.z
+      gp[i * 3 + 2] = rx * forward.x + ry * forward.y + rz * forward.z
+      if (gn && nrmAttr) {
+        const nx = nrmAttr.getX(i)
+        const ny = nrmAttr.getY(i)
+        const nz = nrmAttr.getZ(i)
+        gn[i * 3] = nx * right.x + ny * up.x + nz * forward.x
+        gn[i * 3 + 1] = nx * right.y + ny * up.y + nz * forward.y
+        gn[i * 3 + 2] = nx * right.z + ny * up.z + nz * forward.z
       }
     }
-    if (!(rMax > 0)) return
-    this._influenceRadius = rMax
-    for (const m of this._fieldMaterials()) {
-      if (m.uniforms.uInfluenceRadius) m.uniforms.uInfluenceRadius.value = rMax
+    // ─── 最长边二分细分 ───
+    const MAX_EDGE = 3.0 // 采样间隔上限(m)：越密统计越贴合场分布，但逐帧代价越高
+    const MAX_POINTS = 20000 // 采样点上限（逐帧瞬时场计算 O(N·S)，需封顶）
+    const maxEdgeSq = MAX_EDGE * MAX_EDGE
+    const pos = []
+    const nor = gn ? [] : null
+    const ind = []
+    const triCount = idxAttr ? Math.floor(idxAttr.array.length / 3) : Math.floor(nvCount / 3)
+    const iA = idxAttr ? idxAttr.array : null
+    const getV = i => [
+      gp[i * 3],
+      gp[i * 3 + 1],
+      gp[i * 3 + 2],
+      gn ? gn[i * 3] : 0,
+      gn ? gn[i * 3 + 1] : 0,
+      gn ? gn[i * 3 + 2] : 0
+    ]
+    const d2 = (a, b) => {
+      const dx = a[0] - b[0]
+      const dy = a[1] - b[1]
+      const dz = a[2] - b[2]
+      return dx * dx + dy * dy + dz * dz
     }
+    const mid = (a, b) => {
+      const m = [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5, (a[2] + b[2]) * 0.5, 0, 0, 0]
+      if (gn) {
+        let nx = a[3] + b[3]
+        let ny = a[4] + b[4]
+        let nz = a[5] + b[5]
+        const len = Math.hypot(nx, ny, nz) || 1
+        nx /= len
+        ny /= len
+        nz /= len
+        m[3] = nx
+        m[4] = ny
+        m[5] = nz
+      }
+      return m
+    }
+    const emit = (a, b, c2) => {
+      const base = pos.length / 3
+      pos.push(a[0], a[1], a[2], b[0], b[1], b[2], c2[0], c2[1], c2[2])
+      if (nor) nor.push(a[3], a[4], a[5], b[3], b[4], b[5], c2[3], c2[4], c2[5])
+      ind.push(base, base + 1, base + 2)
+    }
+    const subdivide = (a, b, c2, depth) => {
+      const ab = d2(a, b)
+      const bc = d2(b, c2)
+      const ca = d2(c2, a)
+      const maxd = Math.max(ab, bc, ca)
+      if (maxd <= maxEdgeSq || depth >= 6 || pos.length / 3 + 3 > MAX_POINTS) {
+        emit(a, b, c2)
+        return
+      }
+      if (maxd === ab) {
+        const m = mid(a, b)
+        subdivide(a, m, c2, depth + 1)
+        subdivide(m, b, c2, depth + 1)
+      } else if (maxd === bc) {
+        const m = mid(b, c2)
+        subdivide(b, m, a, depth + 1)
+        subdivide(m, c2, a, depth + 1)
+      } else {
+        const m = mid(c2, a)
+        subdivide(c2, m, b, depth + 1)
+        subdivide(m, a, b, depth + 1)
+      }
+    }
+    for (let t = 0; t < triCount && pos.length / 3 < MAX_POINTS; t++) {
+      const i0 = iA ? iA[t * 3] : t * 3
+      const i1 = iA ? iA[t * 3 + 1] : t * 3 + 1
+      const i2 = iA ? iA[t * 3 + 2] : t * 3 + 2
+      subdivide(getV(i0), getV(i1), getV(i2), 0)
+    }
+    const positions = new Float32Array(pos)
+    const normals = nor ? new Float32Array(nor) : null
+    const index = new Uint32Array(ind)
+    const data = { positions, normals, index, version: this._benchGeoVersion }
+    this._surfaceSampleCache = { version: this._benchGeoVersion, mesh, frameKey, data }
+    return data
   }
 
   /**
@@ -1134,17 +1184,24 @@ export class SceneBuilder {
       // 同步切面轮廓标记（pre/post 截面轮廓不同，需按当前基础几何刷新）
       if (this._sectionMarkerGroup) this._sectionCutter._updateSectionMarker(this._sectionAxis)
       this._attachRockOutline(mesh, 0.9, 91)
-      this._benchGeoVersion++ // pre/post 几何互换 → 等值线需重提取
+      this._benchGeoVersion++ // pre/post 几何互换 → 采样网格缓存需失效
       return
     }
     if (mesh.geometry !== next) {
       mesh.geometry = next
       // 几何切换后同步轮廓线（pre/post 外廓不同，避免显示陈旧的外形轮廓）
       this._attachRockOutline(mesh)
-      this._benchGeoVersion++ // pre/post 几何互换 → 等值线需重提取
+      this._benchGeoVersion++ // pre/post 几何互换 → 采样网格缓存需失效
     }
   }
 
+  /**
+   * 在网格外轮廓上贴一圈高亮轮廓线（EdgesGeometry + LineSegments），
+   * 使岩体在暗背景巷道或振动场热力图满铺时仍能看出清晰轮廓。
+   * 轮廓线作为网格子节点，随父网格隐藏/显隐；几何替换时调用本方法重建。
+   * @param {THREE.Mesh} mesh - 目标网格（岩体 / 掌子面）
+   * @param {number} [opacity=0.9] - 轮廓线透明度（岩体大块实体用低值细淡，掌子面断面用高值清晰）
+   */
   /**
    * 过滤掉长度小于「源几何包围盒对角线 3%」的轮廓线段。
    *
@@ -1175,13 +1232,6 @@ export class SceneBuilder {
     return out
   }
 
-  /**
-   * 在网格外轮廓上贴一圈高亮轮廓线（EdgesGeometry + LineSegments），
-   * 使岩体在暗背景巷道或振动场热力图满铺时仍能看出清晰轮廓。
-   * 轮廓线作为网格子节点，随父网格隐藏/显隐；几何替换时调用本方法重建。
-   * @param {THREE.Mesh} mesh - 目标网格（岩体 / 掌子面）
-   * @param {number} [opacity=0.9] - 轮廓线透明度（岩体大块实体用低值细淡，掌子面断面用高值清晰）
-   */
   _attachRockOutline(mesh, opacity = 0.9, angleDeg = 20) {
     if (!mesh || !mesh.geometry) return
     // 清除已挂载的旧轮廓（LineSegments：仅几何 + 材质，内联释放）
@@ -1198,8 +1248,8 @@ export class SceneBuilder {
     // 【短边过滤】爆后岩体几何（环壁 + 实心段 + 空腔底 合并焊接而成）在 20° 阈值下
     // 产出 750 段折边，其中 736 段短于 2m、141 段就落在岩体正面平面上——它们不是轮廓，
     // 而是合并/焊接处三角化留下的内部折痕，画出来就是岩面上的一片密集短横线/斜纹
-    // （实测爆破前只有 200 段 / 8 条长边，爆后骤增到 750 段，正是用户在正面看到的）。
-    // 岩体真实轮廓棱边全在十米级，故按几何包围盒尺度取阈值，只保留真正的轮廓边。
+    // （实测爆破前只有 200 段 / 8 条长边，爆后骤增到 750 段）。岩体真实轮廓棱边全在
+    // 十米级，故按几何包围盒尺度取阈值，只保留真正的轮廓边。
     edges = this._filterShortEdges(edges, mesh.geometry)
     // 剖切激活时：切面本身是平直平面，其 ear-clipping 三角剖分会产生共面(≈0°/180°)
     // 的伪折痕边，EdgesGeometry 会把它们渲染成切面上的一堆三角线。把"两个端点都落在
@@ -1208,7 +1258,7 @@ export class SceneBuilder {
       edges = this._filterEdgesOnPlane(edges, this._lastCutAxis, Number(this._lastCutPos))
     }
     const mat = new THREE.LineBasicMaterial({
-      color: 0xbfe0ff, // 冷白描边，暗背景下醒目且与热力暖色区分
+      color: 0xffffff, // 亮白描边：暗背景/热力任意底色上都能看清轮廓（原冷白 0xbfe0ff 偏暗）
       transparent: true,
       opacity,
       depthTest: true,
@@ -1343,74 +1393,74 @@ export class SceneBuilder {
    * @param {boolean} [opts.depthWrite=true] - 是否写入深度（半透明面设为 false 以免遮挡后方岩体）
    * @returns {THREE.ShaderMaterial}
    */
+  /**
+   * 由色带停靠点生成 1D 渐变 LUT（256×1，线性插值）。
+   * 与图例（vibrationColorScales）同源 → 两者颜色严格一致。
+   * @param {Array} stops - [[v,[r,g,b]], …]（v 与 max 同单位）
+   * @param {number} max - 满刻度
+   */
+  _buildScaleLutTexture(stops, max) {
+    const N = 256
+    const data = new Uint8Array(N * 4)
+    for (let i = 0; i < N; i++) {
+      const v = (i / (N - 1)) * max
+      const rgb = sampleScaleColor(stops, v)
+      data[i * 4] = Math.round(Math.min(1, Math.max(0, rgb[0])) * 255)
+      data[i * 4 + 1] = Math.round(Math.min(1, Math.max(0, rgb[1])) * 255)
+      data[i * 4 + 2] = Math.round(Math.min(1, Math.max(0, rgb[2])) * 255)
+      data[i * 4 + 3] = 255
+    }
+    const tex = new THREE.DataTexture(data, N, 1)
+    tex.minFilter = THREE.LinearFilter
+    tex.magFilter = THREE.LinearFilter
+    tex.wrapS = THREE.ClampToEdgeWrapping
+    tex.wrapT = THREE.ClampToEdgeWrapping
+    tex.needsUpdate = true
+    return tex
+  }
+
   _createFieldMaterial(baseMat, opts = {}) {
     const opacity = opts.opacity ?? 1
     const transparent = opts.transparent ?? opacity < 1
     const depthWrite = opts.depthWrite ?? true
-    // 工业离散色带 LUT（N 档 Jet，档内纯色）：PPV 与应力共用同一色带与档数，
-    // 档数可经 setFieldNormBands 重建（与 UI 等值线密度同源）
-    // 【宽度固定 256 texel】色带铺满 256 个 texel 的光滑渐变表（见
-    // vibrationColorScales.buildIndustrialLutGradient 注释：只有 N 个 texel 时，
-    // 连续 norm 采样会把同一 texel 拉伸成屏幕上的竖向条纹）。档数记在 userData，
-    // 纹理宽度不再等于档数，守卫不能再用 width 比对。
-    if (!this._fieldPpvLut || this._fieldPpvLut.userData?.bands !== this._fieldNormBands) {
-      this._fieldNormBands = industrialBandCount(this._fieldNormBands)
-      this._fieldPpvLut?.dispose()
-      this._fieldPpvLut = new THREE.DataTexture(
-        buildIndustrialLutGradient(this._fieldNormBands),
-        LUT_TEXELS,
-        1,
-        THREE.RGBAFormat
-      )
-      this._fieldPpvLut.userData.bands = this._fieldNormBands
-      // 线性过滤：连续 norm 采样时在相邻 texel 之间插值 → 平滑色阶（Nearest 会出硬边）
-      this._fieldPpvLut.minFilter = THREE.LinearFilter
-      this._fieldPpvLut.magFilter = THREE.LinearFilter
-      this._fieldPpvLut.wrapS = THREE.ClampToEdgeWrapping
-      this._fieldPpvLut.needsUpdate = true
+    // 占位 3D 纹理（无场数据时避免 sampler3D 未绑定）
+    if (!this._fieldDummyTexture) {
+      const dummy = new THREE.Data3DTexture(new Float32Array(1), 1, 1, 1)
+      dummy.format = THREE.RedFormat
+      dummy.type = THREE.FloatType
+      dummy.needsUpdate = true
+      this._fieldDummyTexture = dummy
     }
-    if (!this._fieldStressLut || this._fieldStressLut.userData?.bands !== this._fieldNormBands) {
-      this._fieldStressLut?.dispose()
-      this._fieldStressLut = new THREE.DataTexture(
-        buildIndustrialLutGradient(this._fieldNormBands),
-        LUT_TEXELS,
-        1,
-        THREE.RGBAFormat
-      )
-      this._fieldStressLut.userData.bands = this._fieldNormBands
-      this._fieldStressLut.minFilter = THREE.LinearFilter
-      this._fieldStressLut.magFilter = THREE.LinearFilter
-      this._fieldStressLut.wrapS = THREE.ClampToEdgeWrapping
-      this._fieldStressLut.needsUpdate = true
+    // 1D LUT：**直接用色带停靠点生成渐变表**（而非纯黑占位）。
+    // 【关键】旧实现用 1×1 纯黑占位纹理：场图层一开、而场数据帧尚未到达时
+    // （预计算/首帧之前），片元采样 LUT 得到纯黑 → 整块岩体变全黑，而不是色带低值色。
+    // 这里始终提供正确的渐变 LUT（低端=蓝、高端=红），与图例同源。
+    if (!this._fieldPpvLut) {
+      this._fieldPpvLut = this._buildScaleLutTexture(PPV_COLOR_STOPS_LINEAR, PPV_LUT_MAX_CMPS)
     }
-    // 损伤五色 LUT（静态，由 vibrationColorScales.DAMAGE_ZONES 单源生成）
-    if (!this._fieldDamageLut) {
-      this._fieldDamageLut = new THREE.DataTexture(buildDamageLutData(), 5, 1, THREE.RGBAFormat)
-      // 线性取色：损伤五色 LUT 按 (zone+0.5)/5 采样，Linear 过滤在相邻分区色间插值
-      // Linear 过滤在相邻分区色间插值 → 损伤边界平滑过渡（无硬色带/方块）
-      this._fieldDamageLut.minFilter = THREE.LinearFilter
-      this._fieldDamageLut.magFilter = THREE.LinearFilter
-      this._fieldDamageLut.wrapS = THREE.ClampToEdgeWrapping
-      this._fieldDamageLut.needsUpdate = true
+    if (!this._fieldStressLut) {
+      this._fieldStressLut = this._buildScaleLutTexture(
+        STRESS_COLOR_STOPS_LINEAR,
+        STRESS_LUT_MAX_MPA
+      )
     }
     return new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       uniforms: {
         uRockMap: { value: baseMat?.map || createRockTexture() },
+        uPpvTexture: { value: this._fieldDummyTexture },
+        uStressTexture: { value: this._fieldDummyTexture },
+        uDamageTexture: { value: this._fieldDummyTexture },
         uPpvLut: { value: this._fieldPpvLut },
         uStressLut: { value: this._fieldStressLut },
-        uDamageLut: { value: this._fieldDamageLut },
         uBoundsMin: { value: new THREE.Vector3(0, 0, 0) },
         uBoundsMax: { value: new THREE.Vector3(1, 1, 1) },
+        uGridSize: { value: new THREE.Vector3(32, 32, 64) },
+        uGridSampleMode: { value: 0 }, // 0=voxel centers, 1=endpoint nodes
+        uPpvReady: { value: 0 },
+        uStressReady: { value: 0 },
+        uDamageReady: { value: 0 },
         uCenter: { value: new THREE.Vector3() },
-        uBlastOrigin: { value: new THREE.Vector3(0, 0, 0) },
-        // 多装药源（各炮孔装药段）：与片段着色器 MAX_SOURCES=96 对齐。
-        // uSourceCount=0 时片段着色器退化为单一 uBlastOrigin 源（同心圆退化分支）。
-        uSourceCount: { value: 0 },
-        uSourcePosQ: { value: Array.from({ length: 96 }, () => new THREE.Vector4(0, 0, 0, 0)) },
-        uSourceDelay: { value: new Array(96).fill(0) },
-        // 峰值方法：1=时域错峰叠加（默认）；0=全源同时叠加保守上界
-        uPeakHistory: { value: BENCH_FIELD_DEFAULTS.peakHistory },
         uRight: { value: new THREE.Vector3(1, 0, 0) },
         uUp: { value: new THREE.Vector3(0, 1, 0) },
         uForward: { value: new THREE.Vector3(0, 0, 1) },
@@ -1419,61 +1469,8 @@ export class SceneBuilder {
         uWhiteModel: { value: 0 }, // 默认关闭白模：保留岩石纹理底，场色叠在岩色上
         uPpvRefMps: { value: BENCH_FIELD_DEFAULTS.ppvRefMps },
         uStressRefMPa: { value: BENCH_FIELD_DEFAULTS.stressRefMPa },
-        // 显示侧动态满量程（P99.9 展开因子）：lin*=S 使当前场实际分布铺满色域，
-        // 避免固定满刻度锚在近场峰值时全场塌缩成低端深蓝。S>1 为展开（ref 相对
-        // P99.9 过大）；1=基准满刻度。由 blastingManager 从峰值场 P99.9 反解并
-        // 经 applyFieldPhysics.normAutoScale 下发；若缺失必须为 1，否则 lin*=0 全黑。
-        uNormAutoScale: { value: 1 },
-        // 场盒外解析外推（萨道夫斯基）用参数，默认与后端/本地模拟器缺省一致
-        uChargeKg: { value: BENCH_FIELD_DEFAULTS.chargeKg },
-        uSadoskyK: { value: BENCH_FIELD_DEFAULTS.sadoskyK },
-        uSadoskyAlpha: { value: BENCH_FIELD_DEFAULTS.sadoskyAlpha },
-        uSadoskyBeta: { value: BENCH_FIELD_DEFAULTS.sadoskyBeta },
-        uPpvVisualBeta: { value: BENCH_FIELD_DEFAULTS.ppvVisualBeta },
-        uArrivalRise: { value: BENCH_FIELD_DEFAULTS.arrivalRise },
-        // 波动相位载波（视觉 Hz，默认关闭）：瞬时质点速度 v(t)=A·e^-βt·sin(2πf·t)
-        // 是真实衰减振荡波形，多源相位差（各炮孔延期差+路径差）转化为相长/相消干涉纹。
-        // 0=关闭并退化为单调包络（场值=非相干包络），避免正面近距离出现规则纹路。
-        // 用户可通过面板手动开启行波脉冲环。
-        uCarrierHz: { value: BENCH_FIELD_DEFAULTS.carrierHz },
-        // 色彩映射标尺：1=对数（默认，适应幂律衰减），0=线性
-        uNormMode: { value: 1 },
-        uVisualCp: { value: BENCH_FIELD_DEFAULTS.visualCp },
-        uSimTime: { value: 0 },
-        // 掌子面自由面反射（镜象源法）：默认开（自由面近全反射，系数 0.85），
-        // 反射面 z=掌子面（faceOffset，grid 局部系），由 applyFieldPhysics 下发
-        uFaceZ: { value: 3 },
-        uReflectOn: { value: 1 },
-        uReflectCoeff: { value: 0.85 },
-        uFieldTranslucent: { value: 0 }, // 半透明渲染（0=实色 0.85，1=半透明 0.55）
-        uTunnelFloorY: { value: 0 }, // 隧道底板 y（grid 局部系）
-        uTunnelArchH: { value: 6 }, // 直墙高 Hw（拱冠圆心位于 floorY+Hw）
-        uFaceBoostCoeff: { value: 0 }, // 轮廓自由面放大（0=关）
-        uFaceBoostLambda: { value: 1.2 }, // 自由面放大空间衰减长度(m)
-        // 洞身截断 & 轴向延展默认占位(被 setBenchFieldData / buildBenchGeometry 覆盖)
-        uHoleRadius: { value: 9 },
-        uHoleLen: { value: 2.5 },
-        uLateralAttn: { value: 0.95 },
-        // P0-2 解析场包络 & P0-1 损伤软边缘（可调滑块下发，与后端 influenceRadius /
-        // damageMaxRadius 同口径）：超 influenceRadius 强度线性归零 → 场紧贴掌子面；
-        // 距爆源超 (damageMaxRadius−falloff) 损伤等级平滑衰减到 0（非硬切一刀切）。
-        // 包络默认 15m：断面尺度下 30m 会让应力场铺满整个断面、失去近场聚焦
-        // （UI 滑块可调，与 blastingManager._vibInfluenceRadius 同默认）
-        uInfluenceRadius: { value: this._influenceRadius || 60 }, // 实测可达半径（缺省 60）
-        uInfluenceFade: { value: 4 },
-        uDamageMaxRadius: { value: 7 },
-        uDamageFalloff: { value: 2 },
-        uStressFactor: { value: BENCH_FIELD_DEFAULTS.stressFactor },
-        // 应力近场几何修正（见 localVibrationSimulator 的 NEAR_FIELD_* 注释）：
-        // 缺省 0=关，由 applyFieldPhysics 按装药量反算的 r_nf 下发
-        uStressNfR: { value: 0 },
-        uStressNfA: { value: 0 },
-        // 工业风格：14 档离散 Jet 色阶 + 硬边/不透明/白模底（默认开启）
-        uNormBands: { value: INDUSTRIAL_BANDS_DEFAULT },
-        // 零场抬亮强度（归一化色阶分数）：0=关。0.05 → 零场落到色阶 5% 处（浅蓝），
-        // 远离 Jet 0 档（≈纯黑），消除死黑麻点。
-        uZeroLift: { value: 0.05 },
-        uIndustrialStyle: { value: 1 },
+        uThresholdMps: { value: BENCH_FIELD_DEFAULTS.thresholdMps },
+        uStressVisiblePa: { value: BENCH_FIELD_DEFAULTS.stressVisiblePa },
         uRockColor: { value: new THREE.Color(baseMat?.color || 0xb8946e) },
         // 方向光（世界空间，归一化）：上右前，模拟隧道内主照明方向
         uSunDir: { value: new THREE.Vector3(0.55, 0.75, 0.45).normalize() },
@@ -1482,7 +1479,39 @@ export class SceneBuilder {
         uSectionNWorld: { value: new THREE.Vector3(1, 0, 0) },
         uSectionCWorld: { value: 0 },
         uSectionAxis: { value: 0 },
-        uSectionPos: { value: 0 }
+        uSectionPos: { value: 0 },
+        // ── 解析外推波场 uniforms（PPV/应力模式的岩面解析显示分支）──
+        // 【注】shader（benchField.frag.glsl）声明了完整解析分支：uSimTime/uSadoskyK/
+        // uChargeKg/uSourceCount… 由 setFieldSimTime/applyFieldPhysics 注入。
+        // 历史缺陷：材质 uniforms 曾整组缺失 → three.js 默认 0 值 → uSadoskyK=0
+        // 使解析波振幅恒 0，PPV/应力两模式全黑（uSimTime 亦无更新路径）。
+        uSimTime: { value: 0 },
+        uSadoskyK: { value: 0 },
+        uSadoskyAlpha: { value: 1.5 },
+        uSadoskyBeta: { value: 0.012 },
+        uPpvVisualBeta: { value: 0 },
+        uVisualCp: { value: 5 },
+        uDisplayDecay: { value: 7 },
+        uArrivalRise: { value: 0.12 },
+        uCarrierHz: { value: 0 },
+        uChargeKg: { value: 0 },
+        uStressFactor: { value: 0 },
+        uBlastOrigin: { value: new THREE.Vector3() },
+        uSourceCount: { value: 0 },
+        uSourcePosQ: {
+          value: Array.from({ length: 96 }, () => new THREE.Vector4())
+        },
+        uSourceDelay: { value: new Float32Array(96) },
+        uReflectOn: { value: 0 },
+        uReflectCoeff: { value: 0.85 },
+        uFaceZ: { value: 3 },
+        uHoleRadius: { value: 0 },
+        uHoleLen: { value: 0 },
+        uLateralAttn: { value: 0.75 },
+        // 动态满量程系数初值 1（中性）：实际值由 manager._updateFieldAutoScale 每帧
+        // 反解下发（经 applyFieldPhysics 的 normAutoScale 注入）。不可为 0——
+        // 0 会使 iVal=clamp(×0)=0，PPV/应力热力图整片深蓝无梯度。
+        uNormAutoScale: { value: 1 }
       },
       vertexShader: BENCH_FIELD_VERTEX_SHADER,
       fragmentShader: BENCH_FIELD_FRAGMENT_SHADER,
@@ -1505,574 +1534,6 @@ export class SceneBuilder {
   }
 
   /**
-   * 控制振动场等值线显示与样式。
-   * 等值线已改为几何渲染（contourExtractor 峰值场提取 + Line2 渲染组）：
-   *   - on：显隐开关（面板 toggle-iso-line）；
-   *   - width：像素线宽（0.5~8）；
-   *   - color：null/缺省=按级别取热力图 LUT 色（向白提亮，级别可辨）；
-   *            传入 CSS 色则所有级别统一色。
-   * 密度（级别数）由 blastingManager 的 computeContourLevels 决定，不在此设置。
-   */
-  setIsoLine({ on = true, width, color } = {}) {
-    this._isoLineOn = !!on
-    if (width != null) this._isoLineWidth = Math.max(0.5, Math.min(8, Number(width) || 2))
-    if (color !== undefined) this._isoLineColor = color || null
-    if (this._contourMaterial) this._contourMaterial.linewidth = this._isoLineWidth
-    this._updateContourVisibility()
-    // 样式变更（颜色）需重算实例色数组 → 基于最近输入整体重建（几何不变，代价小）
-    if ((color !== undefined || width != null) && this._contourInput) this._buildContourMesh()
-  }
-
-  /** 等值线组显隐 = 面板开关 ∧ 热力图图层开启 */
-  _updateContourVisibility() {
-    if (this._contourGroup) this._contourGroup.visible = this._isoLineOn && this._contourFieldOn
-  }
-
-  /**
-   * 设置干涉载波频率（视觉 Hz）：瞬时质点速度 × cos(2πf·gap) 形成多孔延时
-   * 干涉波纹（相位差=延期差+路径差）。0=关闭退化为单调包络叠加。
-   */
-  setCarrierHz(hz) {
-    const v = Math.max(0, Math.min(48, Number(hz) || 0))
-    for (const m of this._fieldMaterials()) m.uniforms.uCarrierHz.value = v
-  }
-
-  /** 设置色彩映射标尺：0=线性，1=对数（默认，适应 PPV/应力幂律衰减） */
-  setNormMode(mode) {
-    const v = Number(mode) > 0 ? 1 : 0
-    for (const m of this._fieldMaterials()) m.uniforms.uNormMode.value = v
-  }
-
-  /** 设置半透明渲染（1=场色上限 0.55 露出岩底，0=实色 0.85） */
-  setFieldTranslucent(on) {
-    const v = on ? 1 : 0
-    for (const m of this._fieldMaterials()) m.uniforms.uFieldTranslucent.value = v
-  }
-
-  /**
-   * 设置隧道轮廓自由面（SDF 放大）参数。
-   * @param {Object} p - { coeff, lambda, floorY, archH }（缺省项保持现状）
-   */
-  setTunnelFace(p = {}) {
-    for (const m of this._fieldMaterials()) {
-      const u = m.uniforms
-      if (Number.isFinite(Number(p.coeff))) u.uFaceBoostCoeff.value = Number(p.coeff)
-      if (Number.isFinite(Number(p.lambda)) && p.lambda > 0)
-        u.uFaceBoostLambda.value = Number(p.lambda)
-      if (Number.isFinite(Number(p.floorY))) u.uTunnelFloorY.value = Number(p.floorY)
-      if (Number.isFinite(Number(p.archH)) && p.archH > 0) u.uTunnelArchH.value = Number(p.archH)
-    }
-  }
-
-  // ─── 矢量箭头场（P1-6：展示波传播方向）──────────────────
-  // LineSegments 线箭头：每个箭头 = 轴杆(2 顶点) + 头部左右两条短线(4 顶点)。
-  // 数据来自 blastingManager（与热图同一多源模型逐帧计算），只做几何装配。
-  /**
-   * 下发矢量箭头场数据并装配渲染组。
-   * @param {Object|null} data - { origin: Float32Array(N*3 grid 局部), dir: Float32Array(N*3),
-   *                              scale: Float32Array(N) 单位长度因子（模长/参考，0~1）}
-   *                             null = 清空隐藏
-   */
-  setVectorField(data) {
-    if (!data) {
-      if (this._vectorFieldGroup) this._vectorFieldGroup.visible = false
-      return
-    }
-    if (!this._vectorFieldGroup) {
-      this._vectorFieldGroup = new THREE.Group()
-      this._vectorFieldGroup.name = 'vibrationVectorField'
-      this.scene.add(this._vectorFieldGroup)
-    }
-    this._vectorFieldGroup.visible = true
-    this._buildVectorFieldMesh(data)
-  }
-
-  _buildVectorFieldMesh(data) {
-    const { origin, dir, scale } = data
-    if (!origin || !dir || !scale) return
-    const n = origin.length / 3
-    if (n === 0) return
-    const u = this._benchFieldMaterial?.uniforms
-    if (!u) return
-    const c = u.uCenter.value
-    const r = u.uRight.value
-    const up = u.uUp.value
-    const f = u.uForward.value
-    // 预分配可复用几何（容量 512 箭头，避免每帧 new BufferGeometry / GPU 重传）
-    this._ensureVectorFieldGeometry(Math.max(n, 512))
-    const verts = this._vectorFieldPosAttr.array
-    const cols = this._vectorFieldColAttr.array
-    const maxN = this._vectorFieldCapacity
-    for (let i = 0; i < n && i < maxN; i++) {
-      const lx = origin[i * 3],
-        ly = origin[i * 3 + 1],
-        lz = origin[i * 3 + 2]
-      const dx = dir[i * 3],
-        dy = dir[i * 3 + 1],
-        dz = dir[i * 3 + 2]
-      const dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6
-      const s = Math.max(0.06, Math.min(1, Number(scale[i]) || 0))
-      const len = 0.35 + s * 1.4 // 0.4~1.75m
-      const ux = dx / dl,
-        uy = dy / dl,
-        uz = dz / dl
-      // 原点与终点（grid 局部 → 世界：正交基投影）
-      const px = c.x + lx * r.x + ly * up.x + lz * f.x
-      const py = c.y + lx * r.y + ly * up.y + lz * f.y
-      const pz = c.z + lx * r.z + ly * up.z + lz * f.z
-      const qx = px + len * (ux * r.x + uy * up.x + uz * f.x)
-      const qy = py + len * (ux * r.y + uy * up.y + uz * f.y)
-      const qz = pz + len * (ux * r.z + uy * up.z + uz * f.z)
-      // 颜色：按模长映射 HSV 青→品红（0 低 → 1 高）
-      const hue = 0.55 - s * 0.45
-      const col = _hsvToRgb(hue, 0.85, 0.95)
-      const base = i * 18
-      verts[base] = px
-      verts[base + 1] = py
-      verts[base + 2] = pz
-      verts[base + 3] = qx
-      verts[base + 4] = qy
-      verts[base + 5] = qz
-      // 头部：垂直于箭杆的侧向（局部叉积，正交基下与世界等价）
-      let crossX = uy * 1 - uz * 0,
-        crossY = uz * 0 - ux * 1,
-        crossZ = ux * 0 - uy * 0
-      const cl = Math.sqrt(crossX * crossX + crossY * crossY + crossZ * crossZ)
-      if (cl < 1e-3) {
-        crossX = 1
-        crossY = 0
-        crossZ = 0
-      } else {
-        crossX /= cl
-        crossY /= cl
-        crossZ /= cl
-      }
-      const hw = 0.22
-      const hb = 0.55
-      const mx = qx - len * hb * ux - hw * crossX
-      const my = qy - len * hb * uy - hw * crossY
-      const mz = qz - len * hb * uz - hw * crossZ
-      const nx2 = qx - len * hb * ux + hw * crossX
-      const ny2 = qy - len * hb * uy + hw * crossY
-      const nz2 = qz - len * hb * uz + hw * crossZ
-      verts[base + 6] = qx
-      verts[base + 7] = qy
-      verts[base + 8] = qz
-      verts[base + 9] = mx
-      verts[base + 10] = my
-      verts[base + 11] = mz
-      verts[base + 12] = qx
-      verts[base + 13] = qy
-      verts[base + 14] = qz
-      verts[base + 15] = nx2
-      verts[base + 16] = ny2
-      verts[base + 17] = nz2
-      for (let k = 0; k < 6; k++) {
-        cols[base + k * 3] = col[0]
-        cols[base + k * 3 + 1] = col[1]
-        cols[base + k * 3 + 2] = col[2]
-      }
-    }
-    this._vectorFieldGeometry.setDrawRange(0, n * 6)
-    this._vectorFieldPosAttr.needsUpdate = true
-    this._vectorFieldColAttr.needsUpdate = true
-    this._vectorFieldMesh.frustumCulled = false
-    this._vectorFieldGroup.visible = true
-  }
-
-  /** 确保矢量箭头 LineSegments 几何存在且有足够容量（复用属性缓冲） */
-  _ensureVectorFieldGeometry(capacity) {
-    if (this._vectorFieldMesh && this._vectorFieldCapacity >= capacity) return
-    if (this._vectorFieldMesh) {
-      this._vectorFieldGroup.remove(this._vectorFieldMesh)
-      this._vectorFieldMesh.geometry.dispose()
-      this._vectorFieldMesh.material.dispose()
-      this._vectorFieldMesh = null
-    }
-    this._vectorFieldCapacity = capacity
-    const verts = new Float32Array(capacity * 18) // 每箭头 6 顶点 ×3
-    const cols = new Float32Array(capacity * 18)
-    const geo = new THREE.BufferGeometry()
-    this._vectorFieldPosAttr = new THREE.BufferAttribute(verts, 3).setUsage(THREE.DynamicDrawUsage)
-    this._vectorFieldColAttr = new THREE.BufferAttribute(cols, 3).setUsage(THREE.DynamicDrawUsage)
-    geo.setAttribute('position', this._vectorFieldPosAttr)
-    geo.setAttribute('color', this._vectorFieldColAttr)
-    const mat = new THREE.LineBasicMaterial({
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.9,
-      depthTest: true,
-      depthWrite: false
-    })
-    this._vectorFieldGeometry = geo
-    this._vectorFieldMesh = new THREE.LineSegments(geo, mat)
-    this._vectorFieldGroup.add(this._vectorFieldMesh)
-  }
-
-  /** 清空/隐藏矢量箭头场渲染组 */
-  clearVectorField() {
-    if (this._vectorFieldGroup) this._vectorFieldGroup.visible = false
-  }
-
-  // ─── MS 等值线渲染组（Line2）────────────────────────────
-
-  /**
-   * 下发等值线折线组（contourExtractor 输出，grid 局部系）并构建 Line2 渲染组。
-   * @param {Object} data
-   * @param {Array} data.polylines - [{ positions: Float32Array(grid 局部 m),
-   *        normals: Float32Array|null, arrival: Float32Array|null, closed, level }]
-   * @param {number} [data.displayMode=0] - 0=PPV 1=STRESS 2=DAMAGE（决定级别取色）
-   * @param {number} [data.normMode=1] - 0=线性 1=对数（与热力图标尺一致）
-   * @param {number} [data.ppvRefMps] - PPV 满刻度(m/s)
-   * @param {number} [data.stressRefMPa] - 应力满刻度(MPa)
-   * @param {number} [data.stressFactor] - ρ·c_p/(1−ν)（Pa per m/s）
-   */
-  setContourPolylines(data) {
-    this._contourInput = data || null
-    this._buildContourMesh()
-  }
-
-  /** 由 _contourInput 重建 LineSegments2（下发/样式变更时调用） */
-  _buildContourMesh() {
-    // 清理旧实例（几何与材质都属一次性，重建代价在 ms 级）
-    if (this._contourMesh) {
-      this._contourGroup?.remove(this._contourMesh)
-      this._contourMesh.geometry.dispose()
-      this._contourMesh = null
-    }
-    if (this._contourMaterial) {
-      this._contourMaterial.dispose()
-      this._contourMaterial = null
-    }
-    const data = this._contourInput
-    const polylines = data?.polylines
-    const u = this._benchFieldMaterial?.uniforms
-    if (!Array.isArray(polylines) || polylines.length === 0 || !u) {
-      this._updateContourVisibility()
-      return
-    }
-    const center = u.uCenter.value
-    const right = u.uRight.value
-    const up = u.uUp.value
-    const forward = u.uForward.value
-
-    // —— 级别取色：与热力图 LUT 同源（vibrationColorScales 单源真相）——
-    // level 为峰值 PPV(m/s)；按显示模式换算到色阶坐标后取色，再向白提亮
-    // （mix 0.62）保证在深蓝→亮红各色带上均清晰可辨、级别间仍有区分度。
-    const displayMode = Number(data.displayMode) || 0
-    const normMode = Number(data.normMode) > 0 ? 1 : 0
-    const ppvRefMps = Number(data.ppvRefMps) > 0 ? Number(data.ppvRefMps) : 0.15
-    const stressRefMPa = Number(data.stressRefMPa) > 0 ? Number(data.stressRefMPa) : 30
-    const stressFactor = Number(data.stressFactor) > 0 ? Number(data.stressFactor) : 1.59e7
-    const levelColor = new THREE.Color()
-    const levelCache = new Map()
-    const getLevelColor = level => {
-      const key = level.toFixed(6)
-      let c = levelCache.get(key)
-      if (c) return c
-      if (this._isoLineColor) {
-        c = new THREE.Color(this._isoLineColor)
-      } else if (displayMode === 2) {
-        // 损伤模式：级别即分区阈值 → 取对应分区色并提亮
-        const cmps = level * 100
-        // 级别即分区边界（computeContourLevels 损伤档 = 20/50/100/200 cm/s），
-        // 映射到对应分区色；须与后端/localVibrationSimulator/shader 阈值一致。
-        const zone = cmps < 20 ? 1 : cmps < 50 ? 2 : cmps < 100 ? 3 : 4
-        const z = DAMAGE_ZONES[zone]
-        c = new THREE.Color().setRGB(z.linear[0], z.linear[1], z.linear[2], THREE.SRGBColorSpace)
-        c.lerp(_WHITE, 0.55)
-      } else {
-        let lin
-        if (displayMode === 1) {
-          lin = (level * stressFactor) / 1.0e6 / stressRefMPa
-        } else {
-          lin = level / ppvRefMps
-        }
-        const norm0 = normMode
-          ? Math.min(
-              1,
-              Math.max(0, Math.log2(Math.max(lin, NORM_FLOOR) / NORM_FLOOR) / NORM_LOG_SPAN)
-            )
-          : Math.min(1, Math.max(0, lin))
-        // 【工业风格】等值线 = 色阶边界 → 黑/白实线（按所在色档亮度二选一），
-        // 不再做"向白提亮 0.72"的柔和混色；线即几何硬边。
-        // 级别值由 computeContourLevels 按同一归一化公式给出（floor=NORM_FLOOR·满刻度），
-        // 因此 level → norm → 档号 k=round(norm·N) 与热力图色档严格对齐。
-        if (this._fieldIndustrialStyle !== 0) {
-          const bands = industrialBandCount(this._fieldNormBands)
-          const bandIdx = Math.min(bands - 1, Math.max(0, Math.round(norm0 * bands)))
-          c = new THREE.Color(industrialContourColor(bandIdx, bands))
-        } else {
-          // 与 shader 高光膝形压缩同口径（保证线与色带边界对齐）：
-          // norm = mix(norm, 1 - (1-norm)^1.35, smoothstep(KNEE_WARP_A, KNEE_WARP_B, norm))
-          const knee = THREE.MathUtils.smoothstep(norm0, KNEE_WARP_A, KNEE_WARP_B)
-          const norm = norm0 + (1.0 - Math.pow(1.0 - norm0, 1.35) - norm0) * knee
-          const stops = displayMode === 1 ? STRESS_COLOR_STOPS_LINEAR : PPV_COLOR_STOPS_LINEAR
-          const max =
-            displayMode === 1
-              ? STRESS_COLOR_STOPS_LINEAR[stops.length - 1][0]
-              : PPV_COLOR_STOPS_LINEAR[stops.length - 1][0]
-          const rgb = _sampleStops(stops, norm * max)
-          // 高对比度取色：向白提亮 0.72（比热力图底色更亮，浅蓝→白→亮红各带上清晰可辨）
-          c = new THREE.Color().setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace)
-          c.lerp(_WHITE, 0.72)
-        }
-      }
-      levelCache.set(key, c)
-      return c
-    }
-
-    // —— 展开折线 → 实例段（pos/col/arrival 各 2 端点）——
-    // grid 局部 → 世界：P = center + g·basis；节点沿法线外推 offset 防 z-fighting。
-    // 【可见性修复】0.05m 偏移在长行程深度缓冲下会被岩面吃掉导致线不可见：
-    // 加大到 0.15m + depthTest 关闭，等值线作为叠加层始终画在热力图之上。
-    const NORMAL_OFFSET = 0.15
-    let nSeg = 0
-    for (const pl of polylines) {
-      const m = pl.positions.length / 3
-      if (m >= 2) nSeg += m - 1 + (pl.closed ? 1 : 0)
-    }
-    if (nSeg === 0) {
-      this._updateContourVisibility()
-      return
-    }
-    const segPos = new Float32Array(nSeg * 6)
-    const segCol = new Float32Array(nSeg * 6)
-    const segArrStart = new Float32Array(nSeg)
-    const segArrEnd = new Float32Array(nSeg)
-    let si = 0
-    const putPoint = (pl, i, out, o3) => {
-      const gx = pl.positions[i * 3]
-      const gy = pl.positions[i * 3 + 1]
-      const gz = pl.positions[i * 3 + 2]
-      let dx = 0
-      let dy = 0
-      let dz = 0
-      if (pl.normals) {
-        dx = pl.normals[i * 3] * NORMAL_OFFSET
-        dy = pl.normals[i * 3 + 1] * NORMAL_OFFSET
-        dz = pl.normals[i * 3 + 2] * NORMAL_OFFSET
-      }
-      const x = gx + dx
-      const y = gy + dy
-      const z = gz + dz
-      out[o3 + 0] = center.x + x * right.x + y * up.x + z * forward.x
-      out[o3 + 1] = center.y + x * right.y + y * up.y + z * forward.y
-      out[o3 + 2] = center.z + x * right.z + y * up.z + z * forward.z
-    }
-    for (const pl of polylines) {
-      const m = pl.positions.length / 3
-      if (m < 2) continue
-      const col = getLevelColor(pl.level)
-      const hasArr = !!pl.arrival
-      const last = m - 1
-      for (let i = 0; i < last; i++) {
-        putPoint(pl, i, segPos, si * 6)
-        putPoint(pl, i + 1, segPos, si * 6 + 3)
-        segCol[si * 6 + 0] = col.r
-        segCol[si * 6 + 1] = col.g
-        segCol[si * 6 + 2] = col.b
-        segCol[si * 6 + 3] = col.r
-        segCol[si * 6 + 4] = col.g
-        segCol[si * 6 + 5] = col.b
-        segArrStart[si] = hasArr ? pl.arrival[i] : 0
-        segArrEnd[si] = hasArr ? pl.arrival[i + 1] : 0
-        si++
-      }
-      if (pl.closed) {
-        putPoint(pl, last, segPos, si * 6)
-        putPoint(pl, 0, segPos, si * 6 + 3)
-        segCol[si * 6 + 0] = col.r
-        segCol[si * 6 + 1] = col.g
-        segCol[si * 6 + 2] = col.b
-        segCol[si * 6 + 3] = col.r
-        segCol[si * 6 + 4] = col.g
-        segCol[si * 6 + 5] = col.b
-        segArrStart[si] = hasArr ? pl.arrival[last] : 0
-        segArrEnd[si] = hasArr ? pl.arrival[0] : 0
-        si++
-      }
-    }
-
-    // —— 几何 + 材质 ——
-    const geo = new LineSegmentsGeometry()
-    geo.setPositions(segPos)
-    geo.setColors(segCol)
-    // 波前到达时刻（每实例两端点各一 float，InstancedBufferAttribute）：
-    // 注入 LineMaterial 着色器做门控淡入（与 instanceColorStart/End 同一实例化模式）
-    geo.setAttribute('instanceArrStart', new THREE.InstancedBufferAttribute(segArrStart, 1))
-    geo.setAttribute('instanceArrEnd', new THREE.InstancedBufferAttribute(segArrEnd, 1))
-    const mat = new LineMaterial({
-      color: 0xffffff,
-      linewidth: this._isoLineWidth,
-      vertexColors: true,
-      transparent: true,
-      opacity: 1,
-      // 可见性修复：关闭深度测试 → 等值线不会被岩面/地形深度遮挡，始终叠加在热图上
-      depthTest: false,
-      depthWrite: false
-    })
-    // LineMaterial 需要屏幕分辨率（像素线宽换算）；初始取一次，resize 时同步。
-    const el = this.rendererSizeProvider?.() || null
-    if (el && el.w > 0) mat.resolution.set(el.w, el.h)
-    // 注入 arrival 门控：alpha *= smoothstep(arr-fade, arr+fade, uArrTime)
-    const arrU = this._contourArrUniform
-    const fadeU = this._contourFadeUniform
-    mat.onBeforeCompile = shader => {
-      shader.uniforms.uArrTime = arrU
-      shader.uniforms.uArrFade = fadeU
-      shader.vertexShader = shader.vertexShader
-        .replace(
-          '#include <fog_pars_vertex>',
-          `#include <fog_pars_vertex>
-attribute float instanceArrStart;
-attribute float instanceArrEnd;
-varying float vArrival;`
-        )
-        .replace(
-          'float aspect = resolution.x / resolution.y;',
-          `vArrival = ( position.y < 0.5 ) ? instanceArrStart : instanceArrEnd;
-				float aspect = resolution.x / resolution.y;`
-        )
-      shader.fragmentShader = shader.fragmentShader
-        .replace(
-          '#include <clipping_planes_pars_fragment>',
-          `#include <clipping_planes_pars_fragment>
-varying float vArrival;
-uniform float uArrTime;
-uniform float uArrFade;`
-        )
-        .replace(
-          'float alpha = opacity;',
-          'float alpha = opacity * smoothstep( vArrival - uArrFade, vArrival + uArrFade, uArrTime );'
-        )
-    }
-    this._contourMaterial = mat
-
-    const mesh = new LineSegments2(geo, mat)
-    mesh.frustumCulled = false // 岩体大范围分布，实例段包围球逐段剔除得不偿失
-    mesh.renderOrder = 60 // 高于岩体热力图（默认 0），低于外轮廓描边（999）
-    if (!this._contourGroup) {
-      this._contourGroup = new THREE.Group()
-      this._contourGroup.name = 'contourLines'
-      this.scene.add(this._contourGroup)
-    }
-    this._contourGroup.add(mesh)
-    this._contourMesh = mesh
-    this._updateContourVisibility()
-  }
-
-  /** 推进等值线波前门控时间（t 为模拟秒；t≥arrival 的段淡入） */
-  setContourTime(t) {
-    this._contourArrUniform.value = Number(t) || 0
-  }
-
-  /** 同步 LineMaterial 屏幕分辨率（渲染器 resize 时调用，像素线宽依赖） */
-  setContourResolution(w, h) {
-    if (this._contourMaterial && Number(w) > 0 && Number(h) > 0) {
-      this._contourMaterial.resolution.set(Number(w), Number(h))
-    }
-  }
-
-  /**
-   * 导出岩面（benchMesh）顶点集到 grid 局部系，供等值线峰值场计算。
-   * 坐标换算与热力图片元着色器完全一致：g = ((P−uCenter)·right, ·up, ·forward)，
-   * 保证 Worker 侧 computeSurfacePeakField 与 GPU 解析场同源同帧。
-   * @returns {{positions: Float32Array, normals: Float32Array|null, index: Uint32Array|null,
-   *           version: number, shaping: {holeRadius:number, holeLen:number,
-   *           lateralAttn:number, origin:number[]}} | null}
-   */
-  getContourSurface() {
-    const mesh = this.benchMesh
-    const u = this._benchFieldMaterial?.uniforms
-    if (!mesh || !mesh.geometry || !u) return null
-    // 版本缓存：几何未变（_benchGeoVersion 未自增）直接复用上次导出——
-    // 调用方（blastingManager）每播放 tick 都会查询指纹，逐次全量导出
-    // N×3 顶点（岩体数万顶点）会造成每帧数百 KB 分配的 GC 压力。
-    const cache = this._contourSurfaceCache
-    if (cache && cache.version === this._benchGeoVersion && cache.mesh === mesh) {
-      return cache.data
-    }
-    const geo = mesh.geometry
-    const posAttr = geo.attributes.position
-    if (!posAttr) return null
-    const center = u.uCenter.value
-    const right = u.uRight.value
-    const up = u.uUp.value
-    const forward = u.uForward.value
-    mesh.updateWorldMatrix(true, false)
-    const m = mesh.matrixWorld
-    const nrmAttr = geo.attributes.normal
-    const n = posAttr.count
-    const positions = new Float32Array(n * 3)
-    const normals = nrmAttr ? new Float32Array(n * 3) : null
-    const p = new THREE.Vector3()
-    const nm = _mat3.getNormalMatrix(m)
-    const nv = new THREE.Vector3()
-    for (let i = 0; i < n; i++) {
-      p.fromBufferAttribute(posAttr, i).applyMatrix4(m)
-      const rx = p.x - center.x
-      const ry = p.y - center.y
-      const rz = p.z - center.z
-      positions[i * 3 + 0] = rx * right.x + ry * right.y + rz * right.z
-      positions[i * 3 + 1] = rx * up.x + ry * up.y + rz * up.z
-      positions[i * 3 + 2] = rx * forward.x + ry * forward.y + rz * forward.z
-      if (normals) {
-        nv.fromBufferAttribute(nrmAttr, i).applyMatrix3(nm).normalize()
-        normals[i * 3 + 0] = nv.x * right.x + nv.y * right.y + nv.z * right.z
-        normals[i * 3 + 1] = nv.x * up.x + nv.y * up.y + nv.z * up.z
-        normals[i * 3 + 2] = nv.x * forward.x + nv.y * forward.y + nv.z * forward.z
-      }
-    }
-    const index = geo.index
-      ? geo.index.array instanceof Uint32Array
-        ? geo.index.array
-        : new Uint32Array(geo.index.array)
-      : null
-    const data = {
-      positions,
-      normals,
-      index,
-      version: this._benchGeoVersion,
-      shaping: {
-        holeRadius: u.uHoleRadius.value,
-        holeLen: u.uHoleLen.value,
-        lateralAttn: u.uLateralAttn.value,
-        origin: u.uBlastOrigin.value.toArray()
-      }
-    }
-    this._contourSurfaceCache = { version: this._benchGeoVersion, mesh, data }
-    return data
-  }
-
-  /**
-   * 读取当前热力图渲染参数（等值线级别计算与级别取色需与画面完全同口径）。
-   * @returns {{displayMode:number, ppvRefMps:number, stressRefMPa:number,
-   *           stressFactor:number, normMode:number} | null}
-   */
-  getFieldRenderParams() {
-    const u = this._benchFieldMaterial?.uniforms
-    if (!u) return null
-    return {
-      displayMode: u.uDisplayMode.value,
-      normMode: u.uNormMode.value,
-      ppvRefMps: u.uPpvRefMps.value,
-      stressRefMPa: u.uStressRefMPa.value,
-      stressFactor: u.uStressFactor.value
-    }
-  }
-
-  /** 当前岩体几何版本（ blastingManager 据此判断等值线是否需要重提取） */
-  get benchGeoVersion() {
-    return this._benchGeoVersion
-  }
-
-  /** 波场可达半径（= 爆心 → 岩体几何最远顶点，由 _syncInfluenceRadius 实测） */
-  get influenceRadius() {
-    return this._influenceRadius || 0
-  }
-
-  /**
    * 注入振动场数据纹理与坐标基向量（由 threeBlastingRenderer 在 initVibrationField 时调用）
    * @param {Object} data - BlastVibrationFieldRenderer.getFieldData() 的返回值（伪子集）
    */
@@ -2082,29 +1543,67 @@ uniform float uArrFade;`
     for (const m of mats) {
       const u = m.uniforms
       if (data) {
-        // 【工业离散色带】PPV/应力 LUT 统一用本类按 uNormBands 生成的 N 档离散 Jet LUT
-        // （档内纯色），保证屏幕色阶 == 图例色块 == 等值线边界三处一致。
+        if (data.stressTexture) u.uStressTexture.value = data.stressTexture
+        if (data.damageTexture) u.uDamageTexture.value = data.damageTexture
+        if (data.ppvTexture) u.uPpvTexture.value = data.ppvTexture
+        if (data.lutTexture) u.uPpvLut.value = data.lutTexture
+        if (data.stressLutTexture) u.uStressLut.value = data.stressLutTexture
         if (data.boundsMin) u.uBoundsMin.value.set(...data.boundsMin)
         if (data.boundsMax) u.uBoundsMax.value.set(...data.boundsMax)
+        if (data.gridShape) u.uGridSize.value.set(...data.gridShape.slice(0, 3), 1)
+        u.uGridSampleMode.value = data.gridSampleMode === 'nodes' ? 1 : 0
+        u.uPpvReady.value = data.hasPpv ? 1 : 0
+        u.uStressReady.value = data.hasStress ? 1 : 0
+        u.uDamageReady.value = data.hasDamage ? 1 : 0
         if (data.center) u.uCenter.value.copy(data.center)
-        if (data.blastOrigin) {
-          const o = Array.isArray(data.blastOrigin)
-            ? data.blastOrigin
-            : [data.blastOrigin.x, data.blastOrigin.y, data.blastOrigin.z]
-          u.uBlastOrigin.value.set(Number(o[0]) || 0, Number(o[1]) || 0, Number(o[2]) || 0)
-        }
         if (data.right) u.uRight.value.copy(data.right)
         if (data.up) u.uUp.value.copy(data.up)
         if (data.forward) u.uForward.value.copy(data.forward)
-        // 洞身截断 & 轴向延展：以当前构建的隧道洞身几何刷新(爆心→片元遮挡判定所需)
-        if (this._holeGeom) {
-          u.uHoleRadius.value = this._holeGeom.radius
-          u.uHoleLen.value = this._holeGeom.len
-          u.uLateralAttn.value = this._holeGeom.lateralAttn
-        }
-        if (data.ppvRefMps != null && !this._autoRefApplied) u.uPpvRefMps.value = data.ppvRefMps
-        if (data.stressRefMPa != null && !this._autoRefApplied)
-          u.uStressRefMPa.value = data.stressRefMPa
+        if (data.ppvRefMps != null) u.uPpvRefMps.value = data.ppvRefMps
+        if (data.stressRefMPa != null) u.uStressRefMPa.value = data.stressRefMPa
+        if (data.thresholdMps != null) u.uThresholdMps.value = data.thresholdMps
+        if (data.stressVisiblePa != null) u.uStressVisiblePa.value = data.stressVisiblePa
+      } else {
+        // 无数据：恢复占位纹理与默认坐标
+        u.uStressTexture.value = this._fieldDummyTexture
+        u.uDamageTexture.value = this._fieldDummyTexture
+        u.uPpvTexture.value = this._fieldDummyTexture
+        u.uPpvReady.value = 0
+        u.uStressReady.value = 0
+        u.uDamageReady.value = 0
+      }
+    }
+    // 【仅开发环境诊断】暴露首材质的关键 uniform 真值，供控制台核查
+    // 热力图不可见时的门控状态（uPpvReady/uFieldWeight/uBounds/坐标基）。
+    if (import.meta.env?.DEV && mats.length) {
+      const u = mats[0].uniforms
+      window.__benchFieldDebug = {
+        uPpvReady: u.uPpvReady.value,
+        uStressReady: u.uStressReady.value,
+        uDamageReady: u.uDamageReady.value,
+        uFieldWeight: u.uFieldWeight.value,
+        uDisplayMode: u.uDisplayMode.value,
+        uWhiteModel: u.uWhiteModel.value,
+        uBoundsMin: u.uBoundsMin.value.toArray(),
+        uBoundsMax: u.uBoundsMax.value.toArray(),
+        uGridSize: u.uGridSize.value.toArray(),
+        uGridSampleMode: u.uGridSampleMode.value,
+        uCenter: u.uCenter.value.toArray(),
+        uForward: u.uForward.value.toArray(),
+        uPpvRefMps: u.uPpvRefMps.value,
+        uThresholdMps: u.uThresholdMps.value,
+        // 解析外推分支的驱动 uniforms（PPV/应力岩面着色完全由这些值决定，
+        // 任一为 0 都会令振幅恒 0 → 整片深蓝无波动）
+        uSadoskyK: u.uSadoskyK.value,
+        uSadoskyAlpha: u.uSadoskyAlpha.value,
+        uChargeKg: u.uChargeKg.value,
+        uSourceCount: u.uSourceCount.value,
+        uSimTime: u.uSimTime.value,
+        uVisualCp: u.uVisualCp.value,
+        uDisplayDecay: u.uDisplayDecay.value,
+        uNormAutoScale: u.uNormAutoScale.value,
+        benchMeshVisible: this.benchMesh?.visible,
+        benchMeshInScene: !!this.benchMesh?.parent
       }
     }
   }
@@ -2115,56 +1614,124 @@ uniform float uArrFade;`
     for (const m of this._fieldMaterials()) m.uniforms.uDisplayMode.value = v
   }
 
-  /** 设置岩体/掌子面振动场着色权重（0~1），0=关闭只显示岩色 */
-  setBenchFieldWeight(weight) {
-    const v = Math.max(0, Math.min(1, Number(weight) || 0))
-    for (const m of this._fieldMaterials()) m.uniforms.uFieldWeight.value = v
-    // 等值线显隐与热力图图层联动：场图层关闭（权重≈0）时等值线一并隐藏
-    this._contourFieldOn = v > 0.01
-    this._updateContourVisibility()
-  }
-
   /**
-   * 设置场图层目标权重并启动平滑淡入/淡出（由 updateFieldFade 按墙钟推进）。
-   * 替代原来的"0.62 硬切"：开关热力图时画面连续变化，不出现"点了没反应、
-   * 随后整片突然变色"的观感。
-   * @param {number} weight - 目标权重（0=关；0.62=开）
+   * 每帧推进解析外推波场的模拟时间（PPV/应力模式的岩面解析显示）。
+   * threeBlastingRenderer.update() 每帧以播放时钟调用；uSimTime 驱动 shader 内
+   * gap = uSimTime − arrival 的波包展开（缺失时 uSimTime 恒 0 → PPV/应力全黑）。
    */
-  setFieldWeightTarget(weight) {
-    this._fieldWeightTarget = Math.max(0, Math.min(1, Number(weight) || 0))
-    if (this._fieldFadeT0 == null) {
-      this._fieldFadeT0 = performance.now()
-      this._fieldFadeFrom = this._fieldWeightNow ?? 0
+  setFieldSimTime(t) {
+    const v = Number(t) || 0
+    for (const m of this._fieldMaterials()) {
+      if (m.uniforms?.uSimTime) m.uniforms.uSimTime.value = v
     }
   }
 
   /**
-   * 用墙钟时间推进场权重淡入/淡出（由渲染循环每帧调用，与 dt 解耦）。
-   * 时间驱动：渲染暂停时过渡按真实时间自然走完，恢复后不会停在半途。
+   * 注入解析外推波场物理参数（manager._pushFieldPhysics → renderer.setFieldPhysics → 此处落 uniform）：
+   * 萨道夫斯基 K/α/β、装药量、可视化波速、显示衰减、载波、反射、应力换算系数、爆心与多装药源。
+   * 多源写入 uSourcePosQ（xyz=grid 局部坐标，w=源强度系数 K·q^(α/3)·0.01，片元内免每源一次 pow）
+   * 与 uSourceDelay（按延时升序）；uSourceCount=0 时 shader 退化为 uBlastOrigin+uChargeKg 单源。
    */
-  updateFieldFade() {
-    if (this._fieldFadeT0 == null) return
-    const target = this._fieldWeightTarget ?? 0
-    const k = Math.min(1, (performance.now() - this._fieldFadeT0) / FIELD_FADE_MS)
-    const e = k * k * (3 - 2 * k)
-    const v = this._fieldFadeFrom + (target - this._fieldFadeFrom) * e
-    this._fieldWeightNow = v
+  applyFieldPhysics(params = {}) {
+    const nu = Number.isFinite(Number(params.nu)) ? Number(params.nu) : 0.25
+    const rho = Number(params.rho) || 2650
+    const cp = Number(params.cp) || 4500
+    // 【未提供不覆盖】部分调用方只传个别字段（如 initVibrationField 只传 origin），
+    // 未提供的键必须保留材质上的现值——旧实现用 `Number(x)||默认` 兜底，会把已下发
+    // 的 K/药量/波速整组重置为缺省值（uSadoskyK=0 → 解析波振幅恒 0 → 整片深蓝）。
+    // 判断依据是 `params[key] !== undefined`（显式传 0 仍生效）。
+    const has = key => params[key] !== undefined
+    const kVal = has('k') ? Number(params.k) || 0 : null
+    const alphaVal = has('alpha') ? Number(params.alpha) || 1.5 : null
+    const mats = this._fieldMaterials()
+    for (const m of mats) {
+      const u = m.uniforms
+      if (!u) continue
+      if (u.uSadoskyK && kVal !== null) u.uSadoskyK.value = kVal
+      if (u.uSadoskyAlpha && alphaVal !== null) u.uSadoskyAlpha.value = alphaVal
+      if (u.uSadoskyBeta && has('beta'))
+        u.uSadoskyBeta.value = Number(params.beta) || 0.012
+      if (u.uPpvVisualBeta && has('ppvVisualBeta'))
+        u.uPpvVisualBeta.value = Number(params.ppvVisualBeta) || 0
+      if (u.uChargeKg && has('chargeKg')) u.uChargeKg.value = Number(params.chargeKg) || 0
+      if (u.uVisualCp && has('visualCp')) u.uVisualCp.value = Number(params.visualCp) || 5
+      if (u.uDisplayDecay && has('displayDecay'))
+        u.uDisplayDecay.value = Number(params.displayDecay) || 7
+      if (u.uArrivalRise && has('arrivalRise'))
+        u.uArrivalRise.value = Number(params.arrivalRise) || 0.12
+      if (u.uCarrierHz && has('carrierHz')) u.uCarrierHz.value = Number(params.carrierHz) || 0
+      if (u.uReflectOn && has('reflectOn')) u.uReflectOn.value = params.reflectOn ? 1 : 0
+      if (u.uReflectCoeff && has('reflectCoeff'))
+        u.uReflectCoeff.value = Number(params.reflectCoeff) || 0.85
+      if (u.uFaceZ && has('faceZ')) u.uFaceZ.value = Number(params.faceZ) || 0
+      if (u.uLateralAttn && has('lateralAttn'))
+        u.uLateralAttn.value = Number(params.lateralAttn) || 0.75
+      if (u.uStressFactor && (has('rho') || has('nu') || has('cp')))
+        u.uStressFactor.value = (rho * cp) / (1 - nu)
+      if (
+        u.uNormAutoScale &&
+        has('normAutoScale') &&
+        Number.isFinite(Number(params.normAutoScale))
+      ) {
+        // 动态满量程系数（manager._updateFieldAutoScale 按当前瞬时场反解，钳在 [0.02,80]）。
+        // 缺失该注入时 uniform 恒为材质初始 0 → iVal=clamp(×0)=0 → PPV/应力热力图
+        // 整片深蓝、无任何波动梯度（2026-10-15 实测定位的回归根因）。
+        u.uNormAutoScale.value = Math.max(0.02, Math.min(80, Number(params.normAutoScale)))
+      }
+      if (u.uBlastOrigin && Array.isArray(params.origin)) {
+        u.uBlastOrigin.value.set(
+          Number(params.origin[0]) || 0,
+          Number(params.origin[1]) || 0,
+          Number(params.origin[2]) || 0
+        )
+      }
+    }
+    // 多装药源 → uSourcePosQ/uSourceDelay/uSourceCount（须在 K/α 注入后调用，w 依赖 K/α）。
+    // sources 未提供时不覆盖（保留已注入的源列表），与上方"未提供不覆盖"一致。
+    if (!Array.isArray(params.sources)) return
+    const list = params.sources
+      .filter(s => Number(s?.fieldChargeKg ?? s?.chargeKg) > 0)
+      .sort((a, b) => (Number(a.delayMs) || 0) - (Number(b.delayMs) || 0))
+    for (const m of mats) {
+      const u = m.uniforms
+      if (!u?.uSourcePosQ || !u.uSourceDelay || u.uSourceCount == null) continue
+      const arr = u.uSourcePosQ.value
+      const delays = u.uSourceDelay.value
+      // 源强度系数依赖 K/α：未随 sources 提供时取材质现值（_pushFieldPhysics 总是成对下发）
+      const kw = kVal !== null ? kVal : Number(u.uSadoskyK?.value) || 0
+      const aw = alphaVal !== null ? alphaVal : Number(u.uSadoskyAlpha?.value) || 1.5
+      const n = Math.min(list.length, arr.length)
+      for (let i = 0; i < arr.length; i++) {
+        if (i < n) {
+          const s = list[i]
+          const q = Number(s.fieldChargeKg ?? s.chargeKg) || 0
+          // 源强度系数 K·q^(α/3)·0.01（cm/s 口径，与解析场同式）
+          arr[i].set(
+            Number(s.x) || 0,
+            Number(s.y) || 0,
+            Number(s.z) || 0,
+            kw * Math.pow(q, aw / 3) * 0.01
+          )
+          delays[i] = (Number(s.delayMs) || 0) / 1000
+        } else {
+          arr[i].set(0, 0, 0, 0)
+          delays[i] = 0
+        }
+      }
+      u.uSourceCount.value = n
+    }
+  }
+
+  /** 设置岩体/掌子面振动场着色权重（0~1），0=关闭只显示岩色 */
+  setBenchFieldWeight(weight) {
+    const v = Math.max(0, Math.min(1, Number(weight) || 0))
     for (const m of this._fieldMaterials()) m.uniforms.uFieldWeight.value = v
-    this._contourFieldOn = v > 0.01
-    this._updateContourVisibility()
-    if (k >= 1) this._fieldFadeT0 = null
   }
 
   /** 设置岩体/掌子面底材是否"白模"：true=场图层开启时切白模底，false=保留岩石纹理底 */
   setFieldWhiteModel(enabled) {
     const v = enabled ? 1 : 0
     for (const m of this._fieldMaterials()) m.uniforms.uWhiteModel.value = v
-  }
-
-  /** 同步模拟时间到场材质（驱动场盒外的萨道夫斯基波前外推逐帧传播） */
-  setFieldSimTime(t) {
-    const v = Number(t) || 0
-    for (const m of this._fieldMaterials()) m.uniforms.uSimTime.value = v
   }
 
   /**
@@ -2207,16 +1774,30 @@ uniform float uArrFade;`
 
   /**
    * 设置岩体剖面裁剪（爆破模式下观察内部）。
-   * 算法组已拆分至 SectionCutter（sectionCutter.js）：此处保留公共入口一行委托，
-   * 签名/返回值与拆分前一致。
    * @param {number} [enabled] 0 关 / 1 开
    * @param {number} [axis] 0=X 1=Y 2=Z（基于场景 rel 坐标）
    * @param {number} [pos] 裁剪平面沿轴位置
+   *
+   * 切割策略：岩体（bench）用几何真剖切（CSG）保证截面实心封口；
+   * 其余全部模型（掌子面/漏斗/隧道壳/开挖管/围岩环等）用**同一世界空间平面**
+   * 统一施加材质级裁剪，与岩体剖切面对齐，实现"全部模型一同切割"而非只切岩体。
    */
   setSectionPlane({ enabled = 0, axis = 0, pos = 0 } = {}) {
     return this._sectionCutter.setSectionPlane({ enabled, axis, pos })
   }
 
+  /**
+   * 几何真剖切（CSG，axis-aligned 平面）：实现已整体迁至 SectionCutter._applySectionCut
+   * （sectionCutter.js）。剖切保护网测试（sectionCoverage / rockBodySectionCut 等）
+   * 直接以 sb._applySectionCut(...) 调用，故保留此一行兼容委托。
+   * @param {number} axis 0=X 1=Y 2=Z（局部坐标轴）
+   * @param {number} pos 归一化比例 [0,1]：0=包围盒一端，1=另一端，0.5=居中
+   */
+  _applySectionCut(axis, pos) {
+    return this._sectionCutter._applySectionCut(axis, pos)
+  }
+
+  // ─── 拾取式剖切（爆破模式）──────────────────────────
   /** 返回可被射线拾取的岩体网格列表 */
   getRockMeshes() {
     const list = []
@@ -2226,7 +1807,7 @@ uniform float uArrFade;`
 
   /**
    * 拾取式剖切：给定岩体上的一个局部点与切割轴，构造过该点、法线沿该轴的
-   * 剖切面，生成实体封口断面，并在切面上绘制轮廓标记。算法委托 SectionCutter。
+   * 剖切面，生成实体封口断面，并在切面上绘制轮廓轮廓标记（半透明面 + 边界线 + 中心点）。
    * @param {number} axis 0=X 1=Y 2=Z
    * @param {Object} point {x,y,z} 岩体局部坐标
    */
@@ -2243,252 +1824,13 @@ uniform float uArrFade;`
     return this._sectionCutter.setPickPointMarker(point)
   }
 
-  /**
-   * 绘制监测点（测点）持久标记：在岩体局部系叠加小粉球(+光晕)标注已放置测点位置。
-   * @param {Array<{x:number,y:number,z:number}|null>} points 全部监测点局部坐标
-   */
-  setMonitorPointMarkers(points = []) {
-    const mesh = this.benchMesh
-    if (!mesh) return
-    if (this._monitorMarkerGroup) {
-      const parent = this._monitorMarkerGroup.parent
-      if (parent) parent.remove(this._monitorMarkerGroup)
-      this._monitorMarkerGroup.traverse(o => {
-        if (o.geometry) o.geometry.dispose()
-        if (o.material) o.material.dispose()
-      })
-      this._monitorMarkerGroup = null
-    }
-    if (!Array.isArray(points) || !points.length) return
-    const mat = new THREE.MeshBasicMaterial({ color: 0xf7768e })
-    const haloMat = new THREE.MeshBasicMaterial({
-      color: 0xf7768e,
-      transparent: true,
-      opacity: 0.3,
-      depthWrite: false
-    })
-    const group = new THREE.Group()
-    for (const p of points) {
-      if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) continue
-      const g = new THREE.Group()
-      g.position.set(p.x, p.y, p.z)
-      g.add(
-        new THREE.Mesh(new THREE.SphereGeometry(0.35, 14, 10), mat),
-        new THREE.Mesh(new THREE.SphereGeometry(0.6, 14, 10), haloMat)
-      )
-      group.add(g)
-    }
-    group.renderOrder = 100
-    mesh.add(group)
-    this._monitorMarkerGroup = group
-  }
-
-  /**
-   * 兼容壳：几何真剖切（CSG）算法已整体迁出至 SectionCutter._applySectionCut，
-   * 本方法仅保留一行委托——__tests__/sectionCoverage.test.js、
-   * __tests__/rockBodySectionCut.test.js 与 __debug__ 诊断脚本直调
-   * sb._applySectionCut(axis, pos)，故签名保持不变。
-   * @param {number} axis 0=X 1=Y 2=Z（局部坐标轴）
-   * @param {number} pos 沿轴局部坐标（越界自动钳制到包围盒内）
-   */
-  _applySectionCut(axis, pos) {
-    return this._sectionCutter._applySectionCut(axis, pos)
-  }
-
-  /** 清除拾取式剖切：移除轮廓标记并还原完整岩体（委托 SectionCutter）。 */
+  /** 清除拾取式剖切：移除轮廓标记并还原完整岩体 */
   clearSectionPick() {
     return this._sectionCutter.clearSectionPick()
   }
 
-  /** 读取当前剖切平面状态 {enabled,axis,pos}（委托 SectionCutter）。 */
   getSectionPlane() {
     return this._sectionCutter.getSectionPlane()
-  }
-
-  /**
-   * 注入场盒外解析外推（萨道夫斯基）的物理参数，使外圈岩体着色与网格内
-   * 同一物理模型的 PPV/应力/损伤分布及传播曲线一致。
-   * @param {Object} p - { chargeKg, K, alpha, beta, visualCp, rho, cp, nu, ppvRefMps, stressRefMPa }
-   */
-  /**
-   * 设置工业离散色阶档数（12~16）：重建 N 档 Jet LUT 并同步 uNormBands。
-   * 档数与等值线密度（useBlasting.contourDensity）同源——等值线画在色阶边界上，
-   * 图例区间列表也按同一 N 反解，三处必须一致。
-   */
-  setFieldNormBands(n) {
-    const bands = industrialBandCount(n)
-    if (this._fieldNormBands === bands && this._fieldPpvLut && this._fieldStressLut) return
-    this._fieldNormBands = bands
-    this._fieldPpvLut?.dispose()
-    this._fieldStressLut?.dispose()
-    this._fieldPpvLut = new THREE.DataTexture(
-      buildIndustrialLutGradient(bands),
-      LUT_TEXELS,
-      1,
-      THREE.RGBAFormat
-    )
-    this._fieldPpvLut.userData.bands = bands
-    // 线性过滤：连续 norm 采样离散 LUT 时在相邻 Jet 色之间插值 → 平滑色阶
-    // （与初始创建路径同口径；漏设则拖"等值线密度"滑块后色带硬边/细线伪影复发）
-    this._fieldPpvLut.minFilter = THREE.LinearFilter
-    this._fieldPpvLut.magFilter = THREE.LinearFilter
-    this._fieldPpvLut.wrapS = THREE.ClampToEdgeWrapping
-    this._fieldPpvLut.needsUpdate = true
-    this._fieldStressLut = new THREE.DataTexture(
-      buildIndustrialLutGradient(bands),
-      LUT_TEXELS,
-      1,
-      THREE.RGBAFormat
-    )
-    this._fieldStressLut.userData.bands = bands
-    this._fieldStressLut.minFilter = THREE.LinearFilter
-    this._fieldStressLut.magFilter = THREE.LinearFilter
-    this._fieldStressLut.wrapS = THREE.ClampToEdgeWrapping
-    this._fieldStressLut.needsUpdate = true
-    for (const m of this._fieldMaterials()) {
-      m.uniforms.uNormBands.value = bands
-      m.uniforms.uPpvLut.value = this._fieldPpvLut
-      m.uniforms.uStressLut.value = this._fieldStressLut
-    }
-  }
-
-  /**
-   * 工业风格总开关（1=开启）。开启后：离散色阶 + 黑白等值线硬边 + 场完全不透明
-   * + 白模底材（隐藏岩石纹理）。0 = 回退到原平滑渐变观感。
-   */
-  setFieldIndustrialStyle(on) {
-    this._fieldIndustrialStyle = on ? 1 : 0
-    for (const m of this._fieldMaterials()) {
-      m.uniforms.uIndustrialStyle.value = this._fieldIndustrialStyle
-    }
-  }
-
-  applyFieldPhysics(p = {}) {
-    for (const m of this._fieldMaterials()) {
-      const u = m.uniforms
-      if (Number.isFinite(Number(p.chargeKg)) && p.chargeKg > 0)
-        u.uChargeKg.value = Number(p.chargeKg)
-      if (Number.isFinite(Number(p.k)) && p.k > 0) u.uSadoskyK.value = Number(p.k)
-      if (Number.isFinite(Number(p.alpha)) && p.alpha > 0) u.uSadoskyAlpha.value = Number(p.alpha)
-      if (Number.isFinite(Number(p.beta)) && p.beta > 0) u.uSadoskyBeta.value = Number(p.beta)
-      // 自动量程缩放：色标上限跟随岩体近场代表性峰值，避免解析场(~10 m/s)远超
-      // 固定上限(15 cm/s)导致全场饱和成单一品红。传入即为"满刻度值"，图例同步。
-      if (Number.isFinite(Number(p.ppvRefMps)) && Number(p.ppvRefMps) > 0) {
-        u.uPpvRefMps.value = Number(p.ppvRefMps)
-        this._autoRefApplied = true
-      }
-      if (Number.isFinite(Number(p.stressRefMPa)) && Number(p.stressRefMPa) > 0) {
-        u.uStressRefMPa.value = Number(p.stressRefMPa)
-        this._autoRefApplied = true
-      }
-      // 显示侧动态满量程展开因子（峰值场 P99.9 反解，随事件固定）；S∈[1,~80]
-      // 不随帧漂移，保证图例/等值线级别在整场播放期间与色标稳定对齐。
-      if (Number.isFinite(Number(p.normAutoScale)) && Number(p.normAutoScale) >= 1) {
-        u.uNormAutoScale.value = Number(p.normAutoScale)
-      }
-      if (Number.isFinite(Number(p.visualCp)) && p.visualCp > 0)
-        u.uVisualCp.value = Number(p.visualCp)
-      // 波包子波载波频率（Hz，0=关）：控制热力图干涉条纹疏密。
-      // 【曾有缺口】面板滑块经 manager→renderer.setFieldPhysics({carrierHz}) 下发，
-      // 但 applyFieldPhysics 若漏了这一段，参数会被静默丢弃——表现为"滑动滑块
-      // 热力图完全没反应"。此处为唯一落地点，勿删。
-      if (Number.isFinite(Number(p.carrierHz)) && Number(p.carrierHz) >= 0)
-        u.uCarrierHz.value = Number(p.carrierHz)
-      // 波场可达半径由岩体几何实测（_syncInfluenceRadius），不再接受外部覆盖——
-      // 旧"传播包络半径"滑块 3~30m 会在岩体中部形成一圈能量断崖（用户实测
-      // "热力扩散被限制在某范围外不传播"），已移除。
-      // P0-1 损伤硬上限（UI 滑块/setFieldPhysics 下发，与后端 damageMaxRadius 同口径）
-      if (Number.isFinite(Number(p.damageMaxRadius)) && Number(p.damageMaxRadius) > 0)
-        u.uDamageMaxRadius.value = Number(p.damageMaxRadius)
-      if (Number.isFinite(Number(p.damageFalloff)) && Number(p.damageFalloff) > 0)
-        u.uDamageFalloff.value = Number(p.damageFalloff)
-      // 掌子面自由面反射（镜象源法）：反射面 = 掌子面轴向位置（grid 局部系），
-      // 与 CPU computeMultiSource*（sim.params.reflections）同一物理口径。
-      if (Number.isFinite(Number(p.faceZ))) u.uFaceZ.value = Number(p.faceZ)
-      if (p.reflectOn !== undefined) u.uReflectOn.value = p.reflectOn ? 1 : 0
-      if (Number.isFinite(Number(p.reflectCoeff))) u.uReflectCoeff.value = Number(p.reflectCoeff)
-      // 半透明渲染（1=场色上限 0.55 露出岩底）
-      if (Number.isFinite(Number(p.translucent))) u.uFieldTranslucent.value = p.translucent ? 1 : 0
-      // 隧道马蹄形轮廓自由面（SDF 放大）：floorY/archH/coeff/lambda 一并下发（coeff=0 关）
-      if (Number.isFinite(Number(p.faceBoostCoeff)))
-        u.uFaceBoostCoeff.value = Number(p.faceBoostCoeff)
-      if (Number.isFinite(Number(p.faceBoostLambda)) && Number(p.faceBoostLambda) > 0)
-        u.uFaceBoostLambda.value = Number(p.faceBoostLambda)
-      if (Number.isFinite(Number(p.tunnelFloorY))) u.uTunnelFloorY.value = Number(p.tunnelFloorY)
-      if (Number.isFinite(Number(p.tunnelArchH)) && Number(p.tunnelArchH) > 0)
-        u.uTunnelArchH.value = Number(p.tunnelArchH)
-      // 爆源 grid 局部坐标（掏槽孔质心）：解析外推波环/波前以该点为心
-      if (p.origin) {
-        const o = Array.isArray(p.origin) ? p.origin : [p.origin.x, p.origin.y, p.origin.z]
-        u.uBlastOrigin.value.set(Number(o[0]) || 0, Number(o[1]) || 0, Number(o[2]) || 0)
-      }
-      if (Number(p.rho) > 0 && Number(p.cp) > 0 && Number.isFinite(Number(p.nu))) {
-        const nu = Math.max(0, Math.min(0.49, Number(p.nu)))
-        // 应力幅值系数 ρ·c_p/(1−ν)：σ_vm = ρ·c_p·v/(1−ν)·F(r)（径向压+切向拉，见
-        // stress_field_from_ppv / computeStressFieldFromPpv），旧值 ρ·c_p·|1−ν/(1−ν)|
-        // 为弹性一维应变近似，未体现切向拉应力主导的爆破破坏机制。
-        u.uStressFactor.value = Number(p.rho) * Number(p.cp) * (1 / (1 - nu))
-      }
-      // 应力近场几何修正 F(r)=1+A·(r_nf/r)²：让应力场与瞬时振速场空间结构不同
-      // （否则 σ 只是 v 的常数倍，两模式同一张图）。r_nf 由 blastingManager 按
-      // 装药量反算下发（见 localVibrationSimulator.NEAR_FIELD_*）。
-      if (Number.isFinite(Number(p.stressNearFieldR)) && Number(p.stressNearFieldR) > 0) {
-        u.uStressNfR.value = Number(p.stressNearFieldR)
-        u.uStressNfA.value = Number(p.stressNearFieldGain) > 0 ? Number(p.stressNearFieldGain) : 2.0
-      } else if (p.stressNearFieldR === 0) {
-        // 显式关闭
-        u.uStressNfR.value = 0
-        u.uStressNfA.value = 0
-      }
-      // 工业风格：离散色阶档数（与等值线密度同源）与总开关
-      if (Number.isFinite(Number(p.normBands)) && Number(p.normBands) > 0) {
-        this.setFieldNormBands(Number(p.normBands))
-        u.uNormBands.value = industrialBandCount(Number(p.normBands))
-      }
-      if (p.industrialStyle !== undefined) {
-        this._fieldIndustrialStyle = p.industrialStyle ? 1 : 0
-        u.uIndustrialStyle.value = this._fieldIndustrialStyle
-      }
-      // 多装药源：将各炮孔装药段写入 uniform 数组（与 GLSL MAX_SOURCES=96 对齐）。
-      // 片段着色器据此做各源矢量叠加，驱动非同心圆干涉波场；源数>0 即脱离单源同心圆退化分支。
-      // 取前 96 个：覆盖全部布孔（昆阳 43、南山 69 孔全量，不丢延时段）；超出的极端
-      // 设计按装药量降序保留主源，避免静默丢源导致场能量/波系缺失。
-      if (Array.isArray(p.sources)) {
-        const list =
-          p.sources.length > 96
-            ? [...p.sources]
-                .sort((a, b) => (Number(b?.chargeKg) || 0) - (Number(a?.chargeKg) || 0))
-                .slice(0, 96)
-            : p.sources
-        // 时域错峰叠加峰值（uPeakHistory=1）要求按延时升序遍历源（与后端
-        // peak_ppv_envelope_multi peak_method='history' 同口径：延时序增量累加
-        // B += A·e^(+D·arr)·û，逐源候选 e^(−D·arr)·|B|）。稳定排序：同延时段保持原序。
-        const ordered = [...list].sort(
-          (a, b) => (Number(a?.delayMs) || 0) - (Number(b?.delayMs) || 0)
-        )
-        u.uSourceCount.value = ordered.length
-        // 源强度系数预计算：w = K·q^(α/3)·0.01（K/α 取同步后的 uniform 值，与
-        // shader 单源分支/本地模拟器 sadoskyPpv 同口径），片元内免 96 次幂运算
-        const K = Number(u.uSadoskyK.value) || 0
-        const alp = Number(u.uSadoskyAlpha.value) || 0
-        for (let i = 0; i < 96; i++) {
-          const s = ordered[i]
-          if (s) {
-            const q = Number(s.chargeKg) || 0
-            u.uSourcePosQ.value[i].set(
-              Number(s.x) || 0,
-              Number(s.y) || 0,
-              Number(s.z) || 0,
-              K * Math.pow(q, alp / 3) * 0.01
-            )
-            u.uSourceDelay.value[i] = (Number(s.delayMs) || 0) / 1000 // ms → s（与 uSimTime 秒同单位）
-          } else {
-            u.uSourcePosQ.value[i].set(0, 0, 0, 0)
-            u.uSourceDelay.value[i] = 0
-          }
-        }
-      }
-    }
   }
 
   // ─── 开口隧道内壁几何（两端无 cap 面） ────────────────
@@ -2742,6 +2084,7 @@ uniform float uArrFade;`
   }
 
   // 孔口是否落在掌子面马蹄形断面轮廓内侧（基准：底板 y=0，直墙高 Hw，拱半 R）
+  // 判定单源：core/computation/sectionShape.js（与 tunnelDesign 布孔过滤同一实现）
   _insideFaceProfile(x, y) {
     return isInsideSection(
       {
@@ -2756,19 +2099,253 @@ uniform float uArrFade;`
     )
   }
 
-  // ─── 回退模式：硬编码典型布孔（菱形掏槽 + 辅助 + 周边）──
-  // 布孔设计数据生成已外移至 computation/fallbackHoleLayout.js（buildFallbackHoles 纯函数），
-  // 此处仅做参数组装适配：designParams/kcoParams/tunnelHeight 由本类读取后传入。
+  // ─── 回退模式：硬编码典型布孔（菱形掏槽 + 辅助 + 周边）
   _collectFallbackHoles(cy0, W, Hw, R) {
-    return buildFallbackHoles({
-      W,
-      Hw,
-      R,
-      totalH: this.tunnelHeight,
-      cy0,
-      designParams: this.designParams,
-      kcoParams: this.kcoParams
+    // ─ 参数化：B/S/q/cutPattern 从 designParams/kcoParams 读取 ─
+    const B = Math.max(0.3, Number(this.designParams?.burden) || Number(this.kcoParams?.B) || 1.5)
+    const S = Math.max(0.3, Number(this.designParams?.spacing) || Number(this.kcoParams?.S) || 2.0)
+    const q = Math.max(0.05, Number(this.kcoParams?.q) || 0.8)
+    const cutPattern = this.designParams?.cutPattern || 'wedge'
+    const holeDepth = Math.max(0.5, Number(this.designParams?.holeDepth) || 2.5)
+    const realDia = Number(this.designParams?.holeDiameter) || 0.04
+    const visRadius = Math.max(0.025, realDia * 1.2) // 与 _collectDesignHoles 一致：按真实孔径细钉
+    const emptyVisRadius = visRadius * 1.3
+    const totalH = this.tunnelHeight
+
+    // 单孔药量 = q × B × S × holeDepth × 孔型系数
+    const chargeKg = factor => q * B * S * holeDepth * factor
+
+    const holes = []
+    let series = 1
+    const nextSeries = () => {
+      series = (series % 20) + 1
+      return series
+    }
+
+    // ─ 1. 掏槽孔（按 cutPattern 分发） ─
+    const cutR = B * 0.6 // 抵抗线驱动，替代硬编码 1.0
+    // 中心空孔（所有掏槽形式共用）
+    holes.push({
+      x: 0,
+      y: cy0,
+      type: 'cut',
+      isEmpty: true,
+      depth: holeDepth,
+      visRadius: emptyVisRadius,
+      inclination: 0,
+      azimuth: 0,
+      chargeKg: 0,
+      chargeLength: 0,
+      explosiveType: 'emulsion',
+      detonatorSeries: 1,
+      delayMs: 0,
+      id: 'CUT-EMPTY'
     })
+
+    if (cutPattern === 'spiral') {
+      // 螺旋掏槽：4 孔螺旋递进，半径从 B×0.4 到 B×0.7
+      const spiralSteps = 4
+      for (let i = 0; i < spiralSteps; i++) {
+        const r = B * (0.4 + 0.1 * i)
+        const a = (i / spiralSteps) * Math.PI * 2
+        holes.push({
+          x: Math.cos(a) * r,
+          y: cy0 + Math.sin(a) * r,
+          type: 'cut',
+          isEmpty: false,
+          depth: holeDepth,
+          visRadius,
+          inclination: 0,
+          azimuth: 0,
+          chargeKg: chargeKg(1.2),
+          chargeLength: holeDepth * 0.8,
+          explosiveType: 'emulsion',
+          detonatorSeries: nextSeries(),
+          delayMs: 50 * (i + 1),
+          id: `CUT-S${i + 1}`
+        })
+      }
+    } else if (cutPattern === 'wedge') {
+      // 楔形掏槽（Da Balai 文献模式）：2~3 排斜孔 V 形开口，角度 70→60°
+      // 掏槽孔分"初始(primary) + 辅助(secondary)"两批，消除耦合延时 Δt（文献最优 4~8ms，
+      // 现场取 Δt=4ms），且**初始掏槽孔减量装药**（微差延迟爆破减振机理的核心）：
+      //   primary 减量 0.7× 先起爆 → 生成初始爆破自由面；
+      //   secondary 1.0× 延时 Δt 后起爆 → 朝自由面充分破碎、降低围岩约束。
+      // 各孔日期延时而分布在 0~Δt 内（2ms 步进），使掏出孔组应力波在孔底汇拢处
+      // 相长干涉、错相位处相消 → 应力场呈多源干涉斑块，而非单一同心圆。
+      const wedgeN = 3
+      // 延时方案：孔内微差按 [0, 2, 4] ms 递进（secondary 落在文献最优延时窗 4ms）
+      const wedgeCutDelayMs = [0, 2, 4]
+      // 装药系数：初始孔减量(0.7×未爆抛)，随批次接近完整(1.0×)
+      const wedgeChargeFactor = [0.7, 0.85, 1.0]
+      for (let i = 0; i < wedgeN; i++) {
+        const offset = B * (0.5 + 0.15 * i)
+        for (const side of [-1, 1]) {
+          holes.push({
+            x: side * offset,
+            y: cy0,
+            type: 'cut',
+            isEmpty: false,
+            depth: holeDepth,
+            visRadius,
+            // 倾角 = 偏离孔轴法向(垂直掌子面)的小角，使孔底在洞深处向隧洞中心汇拢：
+            //   之前用 70°~74° 接近平行掌子面，孔底竖向偏移过大导致装药"出掌子面"。
+            //   改为按 offset/depth 换算的向心角（首排更陡向核心）。
+            inclination: i === 0 ? 18 : [17, 21, 26][i],
+            // 方位：右孔朝 -x、左孔朝 +x 内倾，形成 V 形楔形掏槽；勿用 ±90（右孔朝上/左孔朝下散开）。
+            azimuth: side > 0 ? 180 : 0,
+            chargeKg: chargeKg(wedgeChargeFactor[i] * 1.2),
+            chargeLength: holeDepth * 0.8,
+            explosiveType: 'emulsion',
+            detonatorSeries: nextSeries(),
+            delayMs: wedgeCutDelayMs[i],
+            id: `CUT-W${i + 1}-${side > 0 ? 'R' : 'L'}`
+          })
+        }
+      }
+    } else {
+      // 菱形掏槽（默认）：4 孔 + 1 空孔
+      const cutPos = [
+        [cutR, cy0],
+        [-cutR, cy0],
+        [0, cy0 + cutR],
+        [0, cy0 - cutR]
+      ]
+      cutPos.forEach((p, i) => {
+        holes.push({
+          x: p[0],
+          y: p[1],
+          type: 'cut',
+          isEmpty: false,
+          depth: holeDepth,
+          visRadius,
+          inclination: 0,
+          azimuth: 0,
+          chargeKg: chargeKg(1.2),
+          chargeLength: holeDepth * 0.8,
+          explosiveType: 'emulsion',
+          detonatorSeries: nextSeries(),
+          delayMs: 100 * (i + 2),
+          id: `CUT-${i + 1}`
+        })
+      })
+    }
+
+    // ─ 2. 辅助孔（圈数/半径/孔数由 B/S/断面驱动） ─
+    const cutZone = 2 * cutR
+    const maxR = Math.min(W, totalH) * 0.45
+    const ringCount = Math.max(1, Math.ceil((maxR - cutZone) / (2 * B)))
+    for (let ring = 1; ring <= ringCount; ring++) {
+      const r = cutZone + 2 * B * ring
+      if (r > maxR) break
+      const n = Math.max(6, Math.floor((2 * Math.PI * r) / S))
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2
+        const x = Math.cos(a) * r
+        const y = cy0 + Math.sin(a) * r
+        if (this._isInsideTunnelSection(x, y, W, Hw, R)) {
+          holes.push({
+            x,
+            y,
+            type: 'auxiliary',
+            isEmpty: false,
+            depth: holeDepth,
+            visRadius,
+            inclination: 0,
+            azimuth: 0,
+            chargeKg: chargeKg(1.0),
+            chargeLength: holeDepth * 0.7,
+            explosiveType: 'emulsion',
+            detonatorSeries: nextSeries(),
+            delayMs: series * 100,
+            id: `AUX-${ring}-${i}`
+          })
+        }
+      }
+    }
+    // ─ 3. 周边孔（间距 = 0.8 × S，光面爆破经验） ─
+    const perimSpacing =
+      Number(this.designParams?.perimeterSpacing) > 0
+        ? Number(this.designParams.perimeterSpacing)
+        : 0.8 * S
+    let perimSeries = series
+    for (let y = 1.0; y <= Hw - 0.3; y += perimSpacing) {
+      for (const x of [-W / 2 + 0.35, W / 2 - 0.35]) {
+        holes.push({
+          x,
+          y,
+          type: 'perimeter',
+          isEmpty: false,
+          depth: holeDepth,
+          visRadius,
+          inclination: 3,
+          azimuth: x > 0 ? 90 : -90,
+          chargeKg: chargeKg(0.5),
+          chargeLength: holeDepth * 0.6,
+          explosiveType: 'emulsion',
+          detonatorSeries: perimSeries,
+          delayMs: perimSeries * 100,
+          id: `PER-W-${perimSeries}`
+        })
+        perimSeries = (perimSeries % 20) + 1
+      }
+    }
+    const archN = Math.max(8, Math.floor((Math.PI * R) / perimSpacing))
+    for (let i = 1; i < archN; i++) {
+      const a = Math.PI - (i / archN) * Math.PI
+      const x = Math.cos(a) * R
+      const y = Hw + Math.sin(a) * R
+      holes.push({
+        x,
+        y,
+        type: 'perimeter',
+        isEmpty: false,
+        depth: holeDepth,
+        visRadius,
+        inclination: 3,
+        azimuth: (Math.atan2(x, y - Hw) * 180) / Math.PI,
+        chargeKg: chargeKg(0.5),
+        chargeLength: holeDepth * 0.6,
+        explosiveType: 'emulsion',
+        detonatorSeries: perimSeries,
+        delayMs: perimSeries * 100,
+        id: `PER-A-${perimSeries}`
+      })
+      perimSeries = (perimSeries % 20) + 1
+    }
+    holes.push({
+      x: -W / 2 + 0.4,
+      y: 0.5,
+      type: 'perimeter',
+      isEmpty: false,
+      depth: holeDepth,
+      visRadius,
+      inclination: 5,
+      azimuth: -90,
+      chargeKg: chargeKg(0.5),
+      chargeLength: holeDepth * 0.7,
+      explosiveType: 'emulsion',
+      detonatorSeries: perimSeries,
+      delayMs: perimSeries * 100,
+      id: 'PER-BL'
+    })
+    holes.push({
+      x: W / 2 - 0.4,
+      y: 0.5,
+      type: 'perimeter',
+      isEmpty: false,
+      depth: holeDepth,
+      visRadius,
+      inclination: 5,
+      azimuth: 90,
+      chargeKg: chargeKg(0.5),
+      chargeLength: holeDepth * 0.7,
+      explosiveType: 'emulsion',
+      detonatorSeries: perimSeries,
+      delayMs: perimSeries * 100,
+      id: 'PER-BR'
+    })
+    return holes
   }
 
   // ─── 构建钻孔几何体（按类型分组共享材质/几何，性能优化）──
@@ -3055,8 +2632,10 @@ uniform float uArrFade;`
   }
 
   // ─── 断面内判断 ──────────────────────────────────────
-  // _isInsideTunnelSection 已随回退布孔设计外移至 computation/fallbackHoleLayout.js；
-  // 掌子面轮廓过滤仍用下方 _insideFaceProfile（isInsideSection，margin=0）。
+  // 回退布孔用断面内判断：与 isInsideSection 同语义，0.2m 内缩防孔贴洞周/底板
+  _isInsideTunnelSection(x, y, W, Hw, R) {
+    return isInsideSection({ width: W, wallHeight: Hw, archRadius: R }, x, y, 0.2)
+  }
 
   // ─── 爆破触发（切换掌子面可见性） ────────────────────
   triggerBlast() {
@@ -3140,8 +2719,7 @@ uniform float uArrFade;`
     this._rockSemiTransparent = on
     // 保持适中权重（0.62），既呈现应力/损伤/PPV 场色，又保留岩石纹理细节，
     // 避免场色完全覆盖岩面导致看不出模型细节。
-    // 【淡入】经墙钟缓动过渡（FIELD_FADE_MS），不再硬切——开关热力图时画面连续变化。
-    this.setFieldWeightTarget(on ? 0.62 : 0.0)
+    this.setBenchFieldWeight(on ? 0.62 : 0.0)
   }
 
   // ─── 隧道断面参数更新 ────────────────────────────────

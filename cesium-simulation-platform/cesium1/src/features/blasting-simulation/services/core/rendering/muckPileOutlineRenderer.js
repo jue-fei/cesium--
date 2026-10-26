@@ -97,7 +97,7 @@ const REBUILD_INTERVAL_MS = 250
 const ANGLE_MIN = 15
 const ANGLE_MAX = 62
 
-// 排障诊断开关：排查问题时临时打开（打印主爆堆掩码统计量）
+// 排障诊断开关：开启后每次重建打印主爆堆掩码统计量（排查断面裁剪问题时临时打开）
 const DEBUG_MUCKPILE = false
 
 const EMPTY_MEASURE = {

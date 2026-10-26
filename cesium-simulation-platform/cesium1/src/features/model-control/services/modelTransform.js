@@ -5,6 +5,88 @@ import * as Cesium from 'cesium'
  */
 
 /**
+ * 判断 tileset 是否自带地理定位（root.transform 平移为 ECEF 地心距量级）。
+ * 自带定位的模型位置/姿态已内嵌于数据，面板变换应按"相对锚点偏移"语义处理。
+ * @param {Cesium.Cesium3DTileset} tileset
+ * @returns {boolean}
+ */
+export function isGeoreferencedTileset(tileset) {
+  try {
+    const t = tileset.root && tileset.root.transform
+    if (!t) return false
+    const mag = Math.hypot(t[12], t[13], t[14])
+    return mag > 6.0e6
+  } catch (error) {
+    return false
+  }
+}
+
+/**
+ * 读取自带地理定位模型的锚点经纬高（root.transform 平移向量 = 模型本地原点的 ECEF）。
+ * @param {Cesium.Cesium3DTileset} tileset
+ * @returns {{longitude:number, latitude:number, height:number}|null}
+ */
+export function georeferencedAnchor(tileset) {
+  try {
+    const t = tileset.root && tileset.root.transform
+    if (!t) return null
+    const carto = Cesium.Cartographic.fromCartesian(
+      new Cesium.Cartesian3(t[12], t[13], t[14])
+    )
+    if (!carto) return null
+    return {
+      longitude: Cesium.Math.toDegrees(carto.longitude),
+      latitude: Cesium.Math.toDegrees(carto.latitude),
+      height: carto.height
+    }
+  } catch (error) {
+    return null
+  }
+}
+
+/**
+ * 读取聚合 tileset 内嵌的"地表锚点"本地坐标（asset.extras.surfaceAnchorLocal）。
+ * 该点是模型地表参考点（海拔基准），terrain 贴合校正与面板锚定都以它为准。
+ * @param {Cesium.Cesium3DTileset} tileset
+ * @returns {number[]|null} [x, y, z] mine 本地坐标
+ */
+export function surfaceAnchorLocal(tileset) {
+  try {
+    const ex = tileset.asset && tileset.asset.extras
+    const a = ex && ex.surfaceAnchorLocal
+    return Array.isArray(a) && a.length === 3 ? a : null
+  } catch (error) {
+    return null
+  }
+}
+
+/**
+ * 计算地表锚点的世界坐标（modelMatrix × root.transform × local）。
+ * @param {Cesium.Cesium3DTileset} tileset
+ * @returns {Cesium.Cartesian3|null}
+ */
+export function surfaceAnchorWorld(tileset) {
+  try {
+    const local = surfaceAnchorLocal(tileset)
+    if (!local) return null
+    const root = tileset.root && tileset.root.transform
+    if (!root) return null
+    const M = Cesium.Matrix4.multiply(
+      tileset.modelMatrix,
+      Cesium.Matrix4.fromArray(root),
+      new Cesium.Matrix4()
+    )
+    return Cesium.Matrix4.multiplyByPoint(
+      M,
+      new Cesium.Cartesian3(local[0], local[1], local[2]),
+      new Cesium.Cartesian3()
+    )
+  } catch (error) {
+    return null
+  }
+}
+
+/**
  * 旋转模型
  * @param {Cesium.Cesium3DTileset} tileset - 3D瓦片集
  * @param {number} rx - X轴旋转角度（度）
@@ -106,6 +188,63 @@ export function applyModelTransform(
   try {
     // 重置模型矩阵到原始状态
     tileset.modelMatrix = Cesium.Matrix4.clone(originalModelMatrix)
+
+    // ===== 自带地表锚点的模型（聚合 tileset）：面板值 = 相对地表锚点的偏移 =====
+    // 模型位置已内嵌于 root.transform，此处只做相对地表锚点的平移/旋转；
+    // 面板初始值由加载器设为地表锚点经纬高，用户微调 height 即"贴地升降"。
+    if (isGeoreferencedTileset(tileset) && surfaceAnchorLocal(tileset)) {
+      const world = surfaceAnchorWorld(tileset)
+      const carto = world && Cesium.Cartographic.fromCartesian(world)
+      if (carto) {
+        const anchor = {
+          longitude: Cesium.Math.toDegrees(carto.longitude),
+          latitude: Cesium.Math.toDegrees(carto.latitude),
+          height: carto.height
+        }
+        let dLon = ((position && position.longitude) ?? anchor.longitude) - anchor.longitude
+        let dLat = ((position && position.latitude) ?? anchor.latitude) - anchor.latitude
+        const dH = ((position && position.height) ?? anchor.height) - anchor.height
+        // 防御：跨配置残留的默认经纬度（如 demo 的广州坐标）不适用，归零避免"模型飞走"
+        if (Math.abs(dLon) > 0.5 || Math.abs(dLat) > 0.5) {
+          dLon = 0
+          dLat = 0
+        }
+        const mPerDegLat = 111320
+        const mPerDegLon = 111320 * Math.cos(carto.latitude)
+        const eastM = dLon * mPerDegLon
+        const northM = dLat * mPerDegLat
+
+        const enu = Cesium.Transforms.eastNorthUpToFixedFrame(world)
+        const c0 = Cesium.Matrix4.getColumn(enu, 0, new Cesium.Cartesian4())
+        const c1 = Cesium.Matrix4.getColumn(enu, 1, new Cesium.Cartesian4())
+        const c2 = Cesium.Matrix4.getColumn(enu, 2, new Cesium.Cartesian4())
+        const offset = new Cesium.Cartesian3(
+          c0.x * eastM + c1.x * northM + c2.x * dH,
+          c0.y * eastM + c1.y * northM + c2.y * dH,
+          c0.z * eastM + c1.z * northM + c2.z * dH
+        )
+        tileset.modelMatrix = Cesium.Matrix4.multiply(
+          Cesium.Matrix4.fromTranslation(offset),
+          tileset.modelMatrix,
+          new Cesium.Matrix4()
+        )
+        if (
+          transform &&
+          ((transform.rotationX || 0) !== 0 ||
+            (transform.rotationY || 0) !== 0 ||
+            (transform.rotationZ || 0) !== 0)
+        ) {
+          rotate(
+            tileset,
+            transform.rotationX || 0,
+            transform.rotationY || 0,
+            transform.rotationZ || 0,
+            world
+          )
+        }
+        return
+      }
+    }
 
     let currentCenter = originalCenter || tileset.boundingSphere.center
 

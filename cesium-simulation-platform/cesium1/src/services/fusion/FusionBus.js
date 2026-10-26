@@ -26,9 +26,6 @@ const CHANNELS = Object.freeze({
   // 链路③：爆破 → 运输路径
   BLASTING_ZONE_CHANGED: 'blasting:zone:changed',
 
-  // 链路④：跨终端协同 → 各面板刷新（3.2.2）
-  COLLAB_OPERATION: 'collab:operation',
-
   // 通用
   FUSION_ERROR: 'fusion:error'
 })

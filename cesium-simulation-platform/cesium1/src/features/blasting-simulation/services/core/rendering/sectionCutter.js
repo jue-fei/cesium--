@@ -1,17 +1,23 @@
 /**
- * 剖面剖切器（SectionCutter）——从 SceneBuilder 拆分出的剖面 CSG 剪切算法组：
- * 几何裁剪（轴对齐平面三角裁剪）/ 截面环提取 / 区域三角化 / 剖面填充与标记。
+ * 剖面剖切 CSG 算法模块（SectionCutter）
  *
- * 与 SceneBuilder 的协作约定：构造时持有 SceneBuilder 实例（this.sb），剖切状态与
- * 岩体网格（benchMesh/_sliceCutGeo/_sectionCache/_lastCutAxis 等）一律经 sb 引用
- * 直读直写（零深拷贝），保证 SceneBuilder 侧 clear()/dispose()/_cleanupBenchGeometry
- * 及 _setRockGeometry 换基重切等既有清理/重算路径原样有效。
+ * 从 SceneBuilder（sceneBuilder.js）拆分的"剖面剖切"职责，涵盖：
+ * - 几何裁剪：沿轴对齐平面对岩体网格做真 CSG 剖切（保留一侧 + 实心封口）
+ * - 环提取：截面边缘段的闭合环提取（半边面遍历为主，贪心走查兜底）
+ * - 区域三角化：外环 + 孔洞分组后按区域 ear-clipping 三角化
+ * - 剖面填充：切面封口面构建、切面轮廓/中心点标记、场景级材质平面裁剪
+ *
+ * 构造时传入 SceneBuilder 实例（sb），剖切状态字段与岩体网格、场景、
+ * 材质缓存等均通过 sb 引用直接读写，不做大对象深拷贝。
+ * SceneBuilder 上的公共入口（setSectionPlane / setSectionPick /
+ * clearSectionPick / setPickPointMarker / getSectionPlane）保留原签名，
+ * 内部一行委托到本类对应方法。
  */
 import * as THREE from 'three'
 import { sealPlaneOpenBoundaries, weldPositions } from './geometrySmoothing.js'
 
 export class SectionCutter {
-  /** @param {import('./sceneBuilder.js').SceneBuilder} sb 宿主 SceneBuilder（状态载体） */
+  /** @param {import('./sceneBuilder.js').SceneBuilder} sb 持有场景与剖切状态的 SceneBuilder 实例 */
   constructor(sb) {
     this.sb = sb
   }
@@ -27,12 +33,11 @@ export class SectionCutter {
    * 统一施加材质级裁剪，与岩体剖切面对齐，实现"全部模型一同切割"而非只切岩体。
    */
   setSectionPlane({ enabled = 0, axis = 0, pos = 0 } = {}) {
-    const sb = this.sb
     const a = [0, 1, 2].includes(Number(axis)) ? Number(axis) : 0
     if (!enabled) {
       // 还原出完整几何体（并释放剖切生成的临时封口几何与缓存）
-      sb._sectionEnabled = false
-      sb._sectionPos = null
+      this.sb._sectionEnabled = false
+      this.sb._sectionPos = null
       this._clearSectionCache()
       this._restoreSectionGeometry()
       // 清除全部模型的材质级裁剪（同世界平面解除）
@@ -41,23 +46,23 @@ export class SectionCutter {
     }
     // 若已处于剖切态，先还原完整几何，再对新的平面位置重新剖切，
     // 避免在已剖切几何上反复裁剪导致顶点流失、封口错乱
-    if (sb._sliceCutGeo) this._restoreSectionGeometry()
+    if (this.sb._sliceCutGeo) this._restoreSectionGeometry()
     this._clearSectionCache()
-    const base = sb.benchMesh?.geometry
+    const base = this.sb.benchMesh?.geometry
     this._applySectionCut(a, Number(pos) || 0)
     // 记录"场景级剖切请求"：_setRockGeometry 换基时据此对同一平面重新剖切
-    sb._sectionEnabled = true
-    sb._sectionAxis = a
-    sb._sectionPos = sb._lastCutPos != null ? sb._lastCutPos : Number(pos) || 0
-    if (base && sb.benchMesh && sb.benchMesh.geometry !== base) {
-      sb._sectionCache.set(base, {
-        axis: sb._sectionAxis,
-        pos: sb._sectionPos,
-        geo: sb.benchMesh.geometry
+    this.sb._sectionEnabled = true
+    this.sb._sectionAxis = a
+    this.sb._sectionPos = this.sb._lastCutPos != null ? this.sb._lastCutPos : Number(pos) || 0
+    if (base && this.sb.benchMesh && this.sb.benchMesh.geometry !== base) {
+      this.sb._sectionCache.set(base, {
+        axis: this.sb._sectionAxis,
+        pos: this.sb._sectionPos,
+        geo: this.sb.benchMesh.geometry
       })
     }
     // 全部模型一同切割：同一世界平面作用到场景所有对象材质
-    this._applySceneSection(true, a, sb._sectionPos)
+    this._applySceneSection(true, a, this.sb._sectionPos)
   }
 
   /**
@@ -69,9 +74,8 @@ export class SectionCutter {
    *   需 renderer.localClippingEnabled=true），Three 内部将其变换到对象局部空间。
    */
   _applySceneSection(enabled, axis, pos) {
-    const sb = this.sb
     const mats = new Set()
-    sb.scene?.traverse(o => {
+    this.sb.scene?.traverse(o => {
       if (!o || !o.material) return
       const drawable = o.isMesh || o.isLine || o.isLineSegments || o.isPoints || o.isSprite
       if (!drawable) return
@@ -83,7 +87,7 @@ export class SectionCutter {
     // 把"局部某轴上 = pos"的切面点局部坐标经 localToWorld 映射到世界，得到与岩体
     // 切面严格共面的平面(法线=该局部轴的世界方向)。这一步是掌子面/漏斗/隧道壳等
     // 全部对象与岩体一致切割、且保留侧不反的关键。
-    const mesh = sb.benchMesh
+    const mesh = this.sb.benchMesh
     let plane = null
     let nWorld = new THREE.Vector3(1, 0, 0)
     let cWorld = 0
@@ -111,7 +115,7 @@ export class SectionCutter {
     }
 
     for (const m of mats) {
-      if (m === sb._benchFieldMaterial) continue // 岩体走 CSG 几何剖切，避免双重削切封口
+      if (m === this.sb._benchFieldMaterial) continue // 岩体走 CSG 几何剖切，避免双重削切封口
       if (m?.uniforms && m.uniforms.uSectionEnabled !== undefined) {
         // 自定义场材质：用同一世界平面 discard（与 CSG 一致）
         m.uniforms.uSectionEnabled.value = enabled ? 1 : 0
@@ -134,27 +138,24 @@ export class SectionCutter {
 
   /** 还原被剖切前的完整岩体几何（并释放剖切生成的临时封口几何） */
   _restoreSectionGeometry() {
-    const sb = this.sb
-    const mesh = sb.benchMesh
-    if (sb._sliceCutGeo) {
-      if (sb._sliceCutGeo.dispose) sb._sliceCutGeo.dispose()
-      sb._sliceCutGeo = null
+    const mesh = this.sb.benchMesh
+    if (this.sb._sliceCutGeo) {
+      if (this.sb._sliceCutGeo.dispose) this.sb._sliceCutGeo.dispose()
+      this.sb._sliceCutGeo = null
     }
-    if (sb._slicePristineGeo && mesh && mesh.geometry !== sb._slicePristineGeo) {
-      mesh.geometry = sb._slicePristineGeo
-      sb._benchGeoVersion++ // 还原完整几何 → 等值线需重提取
+    if (this.sb._slicePristineGeo && mesh && mesh.geometry !== this.sb._slicePristineGeo) {
+      mesh.geometry = this.sb._slicePristineGeo
     }
-    sb._slicePristineGeo = null
+    this.sb._slicePristineGeo = null
   }
 
   /** 释放剖切结果缓存（并释放各缓存几何） */
   _clearSectionCache() {
-    const sb = this.sb
-    const current = sb.benchMesh?.geometry
-    for (const c of sb._sectionCache.values()) {
+    const current = this.sb.benchMesh?.geometry
+    for (const c of this.sb._sectionCache.values()) {
       if (c.geo && c.geo !== current && c.geo.dispose) c.geo.dispose()
     }
-    sb._sectionCache.clear()
+    this.sb._sectionCache.clear()
   }
 
   /**
@@ -164,30 +165,37 @@ export class SectionCutter {
    * @returns {THREE.BufferGeometry}
    */
   _cutBaseGeometry(base) {
-    const sb = this.sb
-    const mesh = sb.benchMesh
+    const mesh = this.sb.benchMesh
     if (!mesh) return base
-    const hit = sb._sectionCache.get(base)
-    if (hit && hit.axis === sb._sectionAxis && hit.pos === sb._sectionPos) {
+    const hit = this.sb._sectionCache.get(base)
+    if (hit && hit.axis === this.sb._sectionAxis && hit.pos === this.sb._sectionPos) {
       // 复用缓存：落到当前基础几何，仅换引用，不重算
-      if (sb._sliceCutGeo && sb._sliceCutGeo !== hit.geo && sb._sliceCutGeo.dispose) {
-        sb._sliceCutGeo.dispose()
+      if (
+        this.sb._sliceCutGeo &&
+        this.sb._sliceCutGeo !== hit.geo &&
+        this.sb._sliceCutGeo.dispose
+      ) {
+        this.sb._sliceCutGeo.dispose()
       }
-      sb._sliceCutGeo = hit.geo
-      sb._slicePristineGeo = base
+      this.sb._sliceCutGeo = hit.geo
+      this.sb._slicePristineGeo = base
       mesh.geometry = hit.geo
       return hit.geo
     }
     // 未命中：先还原并释放旧剖切，再在基础几何上重切
-    if (sb._sliceCutGeo) {
-      if (sb._sliceCutGeo.dispose) sb._sliceCutGeo.dispose()
-      sb._sliceCutGeo = null
+    if (this.sb._sliceCutGeo) {
+      if (this.sb._sliceCutGeo.dispose) this.sb._sliceCutGeo.dispose()
+      this.sb._sliceCutGeo = null
     }
-    sb._slicePristineGeo = null
+    this.sb._slicePristineGeo = null
     mesh.geometry = base
-    this._applySectionCut(sb._sectionAxis, sb._sectionPos)
+    this._applySectionCut(this.sb._sectionAxis, this.sb._sectionPos)
     const out = mesh.geometry
-    sb._sectionCache.set(base, { axis: sb._sectionAxis, pos: sb._sectionPos, geo: out })
+    this.sb._sectionCache.set(base, {
+      axis: this.sb._sectionAxis,
+      pos: this.sb._sectionPos,
+      geo: out
+    })
     return out
   }
 
@@ -199,15 +207,14 @@ export class SectionCutter {
    * @param {number} pos 归一化比例 [0,1]：0=包围盒一端，1=另一端，0.5=居中
    */
   _applySectionCut(axis, pos) {
-    const sb = this.sb
-    const mesh = sb.benchMesh
+    const mesh = this.sb.benchMesh
     const geo = mesh?.geometry
     const posAttr = geo?.getAttribute?.('position')
     if (!posAttr) return
     const P = posAttr.array
     // 仅当尚未捕获原始几何时才记录为"原始"，防止反复剖切时把已剖切的几何误记为原始，
     // 导致 _restoreSectionGeometry 还原到一个已被切的几何上（顶点流失/封口错乱）。
-    if (sb._slicePristineGeo == null) sb._slicePristineGeo = geo
+    if (this.sb._slicePristineGeo == null) this.sb._slicePristineGeo = geo
 
     // 计算岩体完整 AABB（标记尺寸与剖切钳制共用），并把剖切面位置
     // 解释为沿该轴的实际局部坐标、钳制在包围盒内，保证任何取值都只做
@@ -221,7 +228,7 @@ export class SectionCutter {
       }
     }
     if (Number.isFinite(box.min[axis]) && Number.isFinite(box.max[axis])) {
-      sb._sectionBox = box
+      this.sb._sectionBox = box
     }
     let cutPos = Number(pos)
     if (!Number.isFinite(cutPos)) cutPos = (box.min[axis] + box.max[axis]) / 2
@@ -366,22 +373,21 @@ export class SectionCutter {
     // 不再露洞。随后按共享顶点重算法线（平滑，无碍视觉）。
     newGeo = weldPositions(newGeo, 1e-4)
     if (!newGeo.attributes.normal) newGeo.computeVertexNormals()
-    if (sb._sliceCutGeo) {
-      if (sb._sliceCutGeo.dispose) sb._sliceCutGeo.dispose()
-      sb._sliceCutGeo = null
+    if (this.sb._sliceCutGeo) {
+      if (this.sb._sliceCutGeo.dispose) this.sb._sliceCutGeo.dispose()
+      this.sb._sliceCutGeo = null
     }
     mesh.geometry = newGeo
-    sb._sliceCutGeo = newGeo
+    this.sb._sliceCutGeo = newGeo
     mesh.material.needsUpdate = true
     // 先记录本次剖切平面，再重建轮廓线：让 _attachRockOutline 能据此过滤掉
     // 完全落在切面上的三角剖分线，只保留岩体向切面以外延伸的真实外轮廓锐利折边。
-    sb._lastCutAxis = axis
-    sb._lastCutPos = cutPos
+    this.sb._lastCutAxis = axis
+    this.sb._lastCutPos = cutPos
     // 剖切替换几何后，旧轮廓线（基于完整几何的 EdgesGeometry）仍挂在网格外，
     // 会把完整岩体的折痕线穿过剖切面叠加成杂乱线条。基于新几何重建描边，
     // 让轮廓线贴合剖切后的真实边界。
-    sb._attachRockOutline(mesh, 0.9, 91)
-    sb._benchGeoVersion++ // 剖切几何替换 → 等值线需重提取
+    this.sb._attachRockOutline(mesh, 0.9, 91)
   }
 
   // 旧式贪心走查截面环（仅在 _extractSectionLoops 退化时兜底）：
@@ -591,24 +597,23 @@ export class SectionCutter {
    * 用耳切法(ear-clipping，THREE.ShapeUtils 内含 earcut)三角化，
    * 才能真正闭合成实心；否则质心扇形/单外环会把孔洞填满或漏掉独立区域，
    * 切开后看进去仍是空洞。
-   * 同时把各区域的外环/孔洞三维顶点记录到 sb._sectionRegions 供切面轮廓标记复用。
+   * 同时把各区域的外环/孔洞三维顶点记录到 this._sectionRegions 供切面轮廓标记复用。
    * @param {number} axis 0=X 1=Y 2=Z（截面平面法线轴）
    * @param {number[][]} rings 每个元素为 secPts 索引环
    * @param {{x,y,z,u?,v?}[]} secPts 截面顶点池
    * @param {Function} emitTri 输出三角面的回调
    */
   _fillSection(axis, rings, secPts, emitTri) {
-    const sb = this.sb
     if (!rings || !rings.length) return
     const regions = this._groupSectionRegions(axis, rings, secPts)
     if (!regions.length) return
 
     // 记录轮廓点（三维）供切面轮廓标记绘制：各区域外环 + 各孔洞环
-    sb._sectionRegions = regions.map(({ outer, holes }) => ({
+    this.sb._sectionRegions = regions.map(({ outer, holes }) => ({
       outer: outer.map(i => new THREE.Vector3(secPts[i].x, secPts[i].y, secPts[i].z)),
       holes: holes.map(h => h.map(i => new THREE.Vector3(secPts[i].x, secPts[i].y, secPts[i].z)))
     }))
-    if (sb._sectionLastAxis !== axis) sb._sectionLastAxis = axis
+    if (this.sb._sectionLastAxis !== axis) this.sb._sectionLastAxis = axis
 
     for (const { outer, holes } of regions) {
       const outer3D = outer.map(i => secPts[i])
@@ -656,30 +661,29 @@ export class SectionCutter {
    * @param {Object} point {x,y,z} 岩体局部坐标
    */
   setSectionPick(axis, point = {}) {
-    const sb = this.sb
     const a = [0, 1, 2].includes(Number(axis)) ? Number(axis) : 0
     // 若已处于剖切态（切换切割轴），先还原完整几何，再对新的平面位置重新剖切，
     // 避免在已剖切几何上反复裁剪导致顶点流失、封口错乱、切面不贴合真实截面。
-    if (sb._sliceCutGeo) this._restoreSectionGeometry()
+    if (this.sb._sliceCutGeo) this._restoreSectionGeometry()
     this._clearSectionCache()
-    const base = sb.benchMesh?.geometry
+    const base = this.sb.benchMesh?.geometry
     const comp = a === 0 ? point.x : a === 1 ? point.y : point.z
     this._applySectionCut(a, Number.isFinite(Number(comp)) ? Number(comp) : 0)
-    sb._sectionEnabled = true
-    sb._sectionAxis = a
-    sb._sectionPos = sb._lastCutPos ?? 0
-    if (base && sb.benchMesh && sb.benchMesh.geometry !== base) {
-      sb._sectionCache.set(base, {
-        axis: sb._sectionAxis,
-        pos: sb._sectionPos,
-        geo: sb.benchMesh.geometry
+    this.sb._sectionEnabled = true
+    this.sb._sectionAxis = a
+    this.sb._sectionPos = this.sb._lastCutPos ?? 0
+    if (base && this.sb.benchMesh && this.sb.benchMesh.geometry !== base) {
+      this.sb._sectionCache.set(base, {
+        axis: this.sb._sectionAxis,
+        pos: this.sb._sectionPos,
+        geo: this.sb.benchMesh.geometry
       })
     }
     this._updateSectionMarker(a)
     // 拾取式剖切同样作用于全部模型（掌子面/漏斗/隧道壳/开挖管等一同被切），
     // 与岩体几何剖切对齐同一世界平面。
-    this._applySceneSection(true, a, sb._sectionPos)
-    return { enabled: 1, axis: a, pos: sb._sectionPos }
+    this._applySceneSection(true, a, this.sb._sectionPos)
+    return { enabled: 1, axis: a, pos: this.sb._sectionPos }
   }
 
   /**
@@ -688,10 +692,9 @@ export class SectionCutter {
    * @param {{x,y,z}|null} point 岩体局部坐标
    */
   setPickPointMarker(point = null) {
-    const sb = this.sb
-    const mesh = sb.benchMesh
+    const mesh = this.sb.benchMesh
     if (!mesh) return
-    if (!sb._pickPointMarker) {
+    if (!this.sb._pickPointMarker) {
       const group = new THREE.Group()
       const core = new THREE.Mesh(
         new THREE.SphereGeometry(0.55, 20, 16),
@@ -709,24 +712,23 @@ export class SectionCutter {
       group.add(core, halo)
       group.renderOrder = 100
       mesh.add(group)
-      sb._pickPointMarker = group
+      this.sb._pickPointMarker = group
     }
     if (point && Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z)) {
-      sb._pickPointMarker.position.set(point.x, point.y, point.z)
-      sb._pickPointMarker.visible = true
+      this.sb._pickPointMarker.position.set(point.x, point.y, point.z)
+      this.sb._pickPointMarker.visible = true
     } else {
-      sb._pickPointMarker.visible = false
+      this.sb._pickPointMarker.visible = false
     }
   }
 
   /** 更新切面轮廓标记到当前剖切面（局部坐标，作为岩体子对象）。
    *  轮廓取自真实剖切截面：各区域外环 + 各孔洞环边界线，以及 ear-clipping 填充面。 */
   _updateSectionMarker(axis) {
-    const sb = this.sb
-    const mesh = sb.benchMesh
-    const cutPos = sb._lastCutPos
+    const mesh = this.sb.benchMesh
+    const cutPos = this.sb._lastCutPos
     if (!mesh || !Number.isFinite(cutPos)) return
-    const regions = sb._sectionRegions || []
+    const regions = this.sb._sectionRegions || []
     if (!regions.length) return
 
     // 边界线：各区域外环 + 各孔洞环（首尾闭合，拆成线段对）
@@ -740,10 +742,10 @@ export class SectionCutter {
     // 填充面：逐区域 ear-clipping 三角化（含孔洞）
     const fillPos = this._sectionFillPositions(axis, regions)
 
-    if (!sb._sectionMarkerGroup) {
-      sb._sectionMarkerGroup = new THREE.Group()
+    if (!this.sb._sectionMarkerGroup) {
+      this.sb._sectionMarkerGroup = new THREE.Group()
       // 不再绘制蓝色边界轮廓线（用户反馈切面多一圈线，仅保留半透明填充面与中心球）
-      sb._sectionFill = new THREE.Mesh(
+      this.sb._sectionFill = new THREE.Mesh(
         new THREE.BufferGeometry(),
         new THREE.MeshBasicMaterial({
           color: 0x3b82f6,
@@ -759,16 +761,16 @@ export class SectionCutter {
           polygonOffsetUnits: -1
         })
       )
-      sb._sectionSphere = new THREE.Mesh(
+      this.sb._sectionSphere = new THREE.Mesh(
         new THREE.SphereGeometry(0.5, 16, 12),
         new THREE.MeshBasicMaterial({ color: 0xfbbf24 })
       )
-      sb._sectionMarkerGroup.add(sb._sectionFill, sb._sectionSphere)
-      sb._sectionMarkerGroup.renderOrder = 99
-      mesh.add(sb._sectionMarkerGroup)
+      this.sb._sectionMarkerGroup.add(this.sb._sectionFill, this.sb._sectionSphere)
+      this.sb._sectionMarkerGroup.renderOrder = 99
+      mesh.add(this.sb._sectionMarkerGroup)
     }
 
-    const fg = sb._sectionFill.geometry
+    const fg = this.sb._sectionFill.geometry
     fg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(fillPos), 3))
     fg.computeVertexNormals()
 
@@ -787,12 +789,12 @@ export class SectionCutter {
       cz += p.z
     }
     const n = outer.length || 1
-    sb._sectionSphere.position.set(
+    this.sb._sectionSphere.position.set(
       axis === 0 ? cutPos : cx / n,
       axis === 1 ? cutPos : cy / n,
       axis === 2 ? cutPos : cz / n
     )
-    sb._sectionMarkerGroup.visible = true
+    this.sb._sectionMarkerGroup.visible = true
   }
 
   /** 计算切面填充面顶点（平面坐标序列 [x,y,z,...]），逐区域 ear-clipping 含孔洞三角化 */
@@ -838,44 +840,42 @@ export class SectionCutter {
 
   /** 清除拾取式剖切：移除轮廓标记并还原完整岩体 */
   clearSectionPick() {
-    const sb = this.sb
-    if (sb._pickPointMarker) {
-      const parent = sb._pickPointMarker.parent
-      if (parent) parent.remove(sb._pickPointMarker)
-      sb._pickPointMarker.traverse(o => {
+    if (this.sb._pickPointMarker) {
+      const parent = this.sb._pickPointMarker.parent
+      if (parent) parent.remove(this.sb._pickPointMarker)
+      this.sb._pickPointMarker.traverse(o => {
         if (o.geometry?.dispose) o.geometry.dispose()
         if (o.material?.dispose) o.material.dispose()
       })
-      sb._pickPointMarker = null
+      this.sb._pickPointMarker = null
     }
-    if (sb._sectionMarkerGroup) {
-      const parent = sb._sectionMarkerGroup.parent
-      if (parent) parent.remove(sb._sectionMarkerGroup)
-      if (sb._sectionFill) sb._sectionFill.geometry.dispose()
-      if (sb._sectionSphere) sb._sectionSphere.geometry.dispose()
-      sb._sectionMarkerGroup = null
-      sb._sectionFill = null
-      sb._sectionSphere = null
+    if (this.sb._sectionMarkerGroup) {
+      const parent = this.sb._sectionMarkerGroup.parent
+      if (parent) parent.remove(this.sb._sectionMarkerGroup)
+      if (this.sb._sectionFill) this.sb._sectionFill.geometry.dispose()
+      if (this.sb._sectionSphere) this.sb._sectionSphere.geometry.dispose()
+      this.sb._sectionMarkerGroup = null
+      this.sb._sectionFill = null
+      this.sb._sectionSphere = null
     }
-    sb._sectionEnabled = false
-    sb._sectionPos = null
+    this.sb._sectionEnabled = false
+    this.sb._sectionPos = null
     this._clearSectionCache()
     this._restoreSectionGeometry()
-    sb._sectionBox = null
-    sb._sectionRegions = null
-    sb._sectionLastAxis = null
-    sb._lastCutAxis = null
-    sb._lastCutPos = null
+    this.sb._sectionBox = null
+    this.sb._sectionRegions = null
+    this.sb._sectionLastAxis = null
+    this.sb._lastCutAxis = null
+    this.sb._lastCutPos = null
     // 还原岩体的同时，解除全部模型的材质级裁剪（同世界平面移除）
     this._applySceneSection(false, 0, 0)
   }
 
   getSectionPlane() {
-    const sb = this.sb
     return {
-      enabled: sb._sectionEnabled ? 1 : 0,
-      axis: sb._sectionAxis,
-      pos: sb._sectionPos ?? 0
+      enabled: this.sb._sectionEnabled ? 1 : 0,
+      axis: this.sb._sectionAxis,
+      pos: this.sb._sectionPos ?? 0
     }
   }
 }

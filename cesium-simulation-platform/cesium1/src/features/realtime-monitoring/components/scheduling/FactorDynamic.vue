@@ -1,6 +1,6 @@
 <template>
   <div
-    class="flex flex-col rounded-xl border border-white/10 bg-white/[0.03] p-4 transition-colors hover:border-white/20"
+    class="rounded-xl border border-white/10 bg-white/[0.03] p-4 transition-colors hover:border-white/20"
   >
     <div class="flex items-center justify-between mb-3">
       <div
@@ -49,7 +49,7 @@
     </div>
 
     <!-- 巷道段动态 -->
-    <div class="grid flex-1 min-h-0 grid-cols-1 md:grid-cols-2 gap-2 overflow-y-auto pr-1">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[26rem] overflow-y-auto pr-1">
       <div
         v-for="s in segs"
         :key="s.id"
@@ -62,7 +62,7 @@
             >封 {{ s.blockReason }}</span
           >
           <span
-            v-else-if="s.rockburst > ROCKBURST_ALERT_THRESHOLD"
+            v-else-if="s.rockburst > 0.7"
             class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300"
           >
             岩爆高发
@@ -116,8 +116,6 @@
 
 <script setup>
 import { computed } from 'vue'
-// 岩爆高发阈值单源：useMultiObjectiveLhdTunnel.js 模块级导出（与 3D 渲染/综合评级同口径）
-import { ROCKBURST_ALERT_THRESHOLD } from '../useMultiObjectiveLhdTunnel.js'
 
 const props = defineProps({
   dynamic: { type: Object, default: () => null }

@@ -43,8 +43,29 @@ function captureCamera(viewer) {
 export function restoreCamera(viewer, snapshot) {
   if (!viewer || !snapshot) return
   try {
+    const destination = new Cesium.Cartesian3(...snapshot.position)
+    // 跨场景护栏：默认配置切换（如 demo → 阿舍勒矿山）后，上次会话的相机
+    // 通常在另一个模型上空（距离远超模型半径数倍），恢复它会把用户带回
+    // 错误地点并盖掉 resetViewToModel 的初始视角。此处仅在快照位于当前
+    // 模型附近时才恢复。
+    const prims = viewer.scene && viewer.scene.primitives
+    if (prims) {
+      let tileset = null
+      for (let i = 0; i < prims.length; i++) {
+        const p = prims.get(i)
+        if (p.root && p.boundingSphere) {
+          tileset = p
+          break
+        }
+      }
+      if (tileset) {
+        const bs = tileset.boundingSphere
+        const maxDist = (bs.radius || 1000) * 6
+        if (Cesium.Cartesian3.distance(destination, bs.center) > maxDist) return
+      }
+    }
     viewer.camera.setView({
-      destination: new Cesium.Cartesian3(...snapshot.position),
+      destination,
       orientation: {
         direction: new Cesium.Cartesian3(...snapshot.direction),
         up: new Cesium.Cartesian3(...snapshot.up)

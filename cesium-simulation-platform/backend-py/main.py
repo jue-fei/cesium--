@@ -1,11 +1,12 @@
 import os
 import logging
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from app.routes import orebodies, models, trucks, boreholes, monitoring, geology, truck_routes, blasting, blasting_ws, scheduling, scheduling_ws, timeseries, realtime_ws, equipment, deployment, audit, collab_ws
+from app.routes import orebodies, models, boreholes, monitoring, geology, blasting, blasting_ws, scheduling, scheduling_ws
 from app.security import API_TOKEN
 
 # ─── 日志配置 ──────────────────────────────────────────
@@ -19,10 +20,15 @@ logging.basicConfig(
 logger = logging.getLogger("app")
 
 # 鉴权启用状态提示（方案 B1：默认关闭，配置 BLASTING_API_TOKEN 后开启）
-if not API_TOKEN:
-    logger.warning("API 鉴权未启用：未设置环境变量 BLASTING_API_TOKEN（读/写接口均放行）")
-else:
-    logger.info("API 鉴权已启用：写接口（POST/PUT/DELETE）需携带匹配的 x-api-token Header")
+# 放在 lifespan 而非模块级：Windows 下 uvicorn --reload 用 spawn 多进程，
+# 模块级代码会随重复导入（__main__ / __mp_main__ / main）打印多次，lifespan 每个服务进程只执行一次。
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    if not API_TOKEN:
+        logger.warning("API 鉴权未启用：未设置环境变量 BLASTING_API_TOKEN（读/写接口均放行）")
+    else:
+        logger.info("API 鉴权已启用：写接口（POST/PUT/DELETE）需携带匹配的 x-api-token Header")
+    yield
 
 
 def _parse_bool_env(name: str, default: bool) -> bool:
@@ -48,7 +54,7 @@ def _get_cors_origins() -> list[str]:
     return origins or ["http://localhost:3000"]
 
 
-app = FastAPI(title="Cesium 仿真平台 API", version="1.0.0")
+app = FastAPI(title="Cesium 仿真平台 API", version="1.0.0", lifespan=lifespan)
 
 cors_origins = _get_cors_origins()
 cors_allow_credentials = _parse_bool_env("CORS_ALLOW_CREDENTIALS", True)
@@ -111,21 +117,13 @@ async def logging_middleware(request: Request, call_next):
 # 注册路由
 app.include_router(orebodies.router)
 app.include_router(models.router)
-app.include_router(trucks.router)
 app.include_router(boreholes.router)
 app.include_router(monitoring.router)
 app.include_router(geology.router)
-app.include_router(truck_routes.router)
 app.include_router(blasting.router)
 app.include_router(blasting_ws.router)
 app.include_router(scheduling.router)
 app.include_router(scheduling_ws.router)
-app.include_router(timeseries.router)
-app.include_router(realtime_ws.router)
-app.include_router(equipment.router)
-app.include_router(deployment.router)
-app.include_router(audit.router)
-app.include_router(collab_ws.router)
 
 
 @app.get("/api/health")

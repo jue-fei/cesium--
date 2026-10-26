@@ -31,6 +31,22 @@ thesis-guidance/
 振动文献/
 爆堆文献/
 
+# Large 3D scene assets (keep local, not in Git)
+cesium-simulation-platform/cesium1/public/3d/ashele/
+
+# Generated analysis outputs & local debug artifacts
+cesium-simulation-platform/output/
+cesium-simulation-platform/backend-py/_lit_export/
+cesium-simulation-platform/backend-py/_lit_extract*.py
+cesium-simulation-platform/backend-py/field_comparison_all/
+cesium-simulation-platform/cesium1/.playwright-cli/
+cesium-simulation-platform/cesium1/__frag_containment_check.mjs
+cesium-simulation-platform/cesium1/__muckfield_patch_check.mjs
+cesium-simulation-platform/cesium1/_bisect_early.mjs
+cesium-simulation-platform/cesium1/_facediag.mjs
+cesium-simulation-platform/cesium1/_shot*.png
+cesium-simulation-platform/cesium1/curve-test.html
+
 # Working copies / tooling
 早期版本/
 .zcode/

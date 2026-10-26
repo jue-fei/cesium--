@@ -1,43 +1,45 @@
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { BlastingManager } from './blastingManager.js'
+import {
+  fetchBlastingEvents,
+  fetchBlastingEvent,
+  fetchBlastingDesign,
+  saveBlastingDesign,
+  fetchBlastingResult,
+  saveBlastingResult,
+  saveRuntimeStats,
+  validateKco
+} from './blastingApi.js'
 import { DEFAULT_KCO_PARAMS } from './core/computation/kcoModelCore.js'
 import { DEFAULT_FRAGMENT_RENDER_LIMIT } from './core/blastDefaults.js'
+import {
+  LOCAL_SIM_DEFAULT_K,
+  LOCAL_SIM_DEFAULT_ALPHA,
+  SADOVSKY_DEFAULT_K,
+  SADOVSKY_DEFAULT_ALPHA
+} from './core/vibrationDefaults.js'
+import { matchLiteratureEvent } from './core/literatureEvents.js'
+import { BlastingWsConnector, FrameType } from './core/realtime/blastingWsConnector.js'
 import useMessage from '@/composables/useMessage.js'
-import { createPlaybackParts, DEFAULT_PLAYBACK_SPEED_MS } from './useBlastingParts/playbackParts.js'
-import { createWsParts } from './useBlastingParts/wsParts.js'
-import { createKeyframeParts } from './useBlastingParts/keyframeParts.js'
-import { createVibrationParts } from './useBlastingParts/vibrationParts.js'
-import { createRenderParts } from './useBlastingParts/renderParts.js'
-import { createDatasetDbParts } from './useBlastingParts/datasetDbParts.js'
+
+// 本地定义默认播放速度（原 blastingDataCore 已移除）
+const DEFAULT_PLAYBACK_SPEED_MS = 50
+
+// ─── 统一高性能模式 ───
+// 取消双档切换，始终使用高保真模式：开碰撞。
+// fragmentCountRenderLimit 为默认碎片渲染上限（UI 可调 40-20000），用户未配置时回退此值。
+const PERFORMANCE_PROFILE = {
+  fragmentCountRenderLimit: DEFAULT_FRAGMENT_RENDER_LIMIT,
+  enableInterCollision: true
+}
+
+// 算法版本号（用于运行时统计可追溯）
+const ALGORITHM_VERSION = 'kco-v2.1'
 
 let blastingManager = null
 let playbackTimer = null
 let blastingWs = null
 let pendingWsDataset = null
-let lastWsSeekFrame = -1
-// ─── Seek Lock（拖动进度条期间的帧守卫）────────────────
-// "拖动后糊成色块"的来源之一：seek 请求发出后，后端在**旧游标**位置继续推送的
-// 若干帧会先于目标帧到达，与目标帧/残留纹理混写。这里维护一把锁：seek 生效
-// 期间丢弃非目标帧，直到目标帧的三场切片到达（或超时兜底）再解锁渲染。
-let seekLockFrame = null
-let seekLockDropped = 0
-// 超时兜底：后端对 seek 目标帧号有 clamp（total_frames），前端 maxFrame 与之
-// 可能差 1 帧；若严格等待会永久锁死 → 丢弃超过 40 帧（约 2s 推流）自动解锁。
-const SEEK_LOCK_MAX_DROPS = 40
-const isStaleSeekFrame = frame => {
-  if (seekLockFrame == null) return false
-  if (Number(frame) === seekLockFrame) {
-    seekLockFrame = null
-    seekLockDropped = 0
-    return false
-  }
-  seekLockDropped++
-  if (seekLockDropped > SEEK_LOCK_MAX_DROPS) {
-    seekLockFrame = null
-    seekLockDropped = 0
-    return false
-  }
-  return true
-}
 let lastStatsUpdateMs = 0
 // 预计算完成后待自动播放（用户在预计算期间点了播放）
 let pendingAutoStart = false
@@ -127,268 +129,1111 @@ const kcoParams = ref({
   fragmentCountRenderLimit: DEFAULT_FRAGMENT_RENDER_LIMIT
 })
 
-// ─── 模块级可变句柄存取器（供 useBlastingParts/* 域工厂经 ctx 存取）───────
-// 上方 let 声明的句柄会被整体重绑定（let 赋新值），域工厂不得捕获值副本；
-// 统一经以下存取器读写，保持"模块级单例"语义与拆分前完全一致。
-const getManager = () => blastingManager
-const setManager = manager => {
-  blastingManager = manager
+// ─── 后端 KCO 计算（运行时打通 /validate/kco） ───────────
+// x50/n 由后端统一计算，前端仅负责参数整理与分布采样，消除前后端公式漂移。
+// 后端 schema 字段为大写字首（Q/A/RWS/B/S/d/H/xmax/b/W_abs/x_allow），见 blastingApi.validateKco。
+function buildKcoBackendInput(params = {}) {
+  const num = v => (Number.isFinite(Number(v)) ? Number(v) : null)
+  const RMD = num(params.RMD) ?? 0
+  const RDI = num(params.RDI) ?? 0
+  const HF = num(params.HF) ?? 0
+  const payload = {
+    Q: num(params.Q) ?? 100,
+    A: 0.06 * (RMD + RDI + HF),
+    RWS: num(params.SANFO) ?? 100,
+    B: num(params.B) ?? 1.5,
+    S: num(params.S) ?? 2.0,
+    d: (num(params.d) ?? 90) / 1000, // 孔径 mm → m
+    H: num(params.H) ?? 4.5,
+    xmax: num(params.xmax) ?? 2.0,
+    b: num(params.b) ?? 2.0,
+    W_abs: Math.max(0, num(params.drillDeviation) ?? 0)
+  }
+  // x_allow 可选（允许最大块度 m，≤xmax；不传则大块率为 0）
+  const xAllow = num(params.x_allow)
+  if (xAllow !== null) payload.x_allow = xAllow
+  return payload
 }
-const getPlaybackTimer = () => playbackTimer
-const setPlaybackTimer = timer => {
-  playbackTimer = timer
-}
-const getWs = () => blastingWs
-const setWs = ws => {
-  blastingWs = ws
-}
-const getPendingWsDataset = () => pendingWsDataset
-const setPendingWsDataset = ds => {
-  pendingWsDataset = ds
-}
-const getLastWsSeekFrame = () => lastWsSeekFrame
-const setLastWsSeekFrame = frame => {
-  lastWsSeekFrame = frame
-}
-// seek 锁写入器：两处写点均为"设帧号 + 清零丢弃计数"（读取仅在 isStaleSeekFrame 内）
-const setSeekLockFrame = frame => {
-  seekLockFrame = frame
-}
-const setSeekLockDropped = dropped => {
-  seekLockDropped = dropped
-}
-const getLastStatsUpdateMs = () => lastStatsUpdateMs
-const setLastStatsUpdateMs = ms => {
-  lastStatsUpdateMs = ms
-}
-const getPendingAutoStart = () => pendingAutoStart
-const setPendingAutoStart = pending => {
-  pendingAutoStart = pending
-}
-const getWsVibrationStarted = () => wsVibrationStarted
-const setWsVibrationStarted = started => {
-  wsVibrationStarted = started
-}
-const getPlaybackAccumulator = () => _playbackAccumulator
-const setPlaybackAccumulator = acc => {
-  _playbackAccumulator = acc
-}
-const getPlaybackLastTime = () => _playbackLastTime
-const setPlaybackLastTime = t => {
-  _playbackLastTime = t
-}
-const getPrecomputePollTimer = () => precomputePollTimer
-const setPrecomputePollTimer = timer => {
-  precomputePollTimer = timer
-}
-const getReplaySeq = () => replaySeq
-const setReplaySeq = seq => {
-  replaySeq = seq
+
+async function fetchKcoFromBackend(params) {
+  try {
+    const res = await validateKco(buildKcoBackendInput(params))
+    if (res && Number.isFinite(res.x50) && res.x50 > 0) {
+      return {
+        x50: res.x50,
+        n: Number.isFinite(res.n) ? res.n : null,
+        x80: Number.isFinite(res.x80) ? res.x80 : null,
+        oversizeRatio: Number.isFinite(res.oversizeRatio) ? res.oversizeRatio : null
+      }
+    }
+  } catch (e) {
+    console.warn('[useBlasting] 后端 KCO 计算失败，回退本地计算', e?.message)
+  }
+  return null
 }
 
 /**
  * 爆破板块组合式状态（应用级单例）
  *
- * 关键可变句柄与定时器等单例状态收拢在模块作用域（见上方"单例可变状态"块）：
- * 多次调用本函数返回同一份共享状态（App.vue 与面板控制器共享 dataset/播放状态），
- * 调用方无需（也不得）假设独立实例。组件卸载不清理播放定时器——
- * 面板收起后动画持续运行是有意行为。
- *
- * 函数体按六大职责拆分至 useBlastingParts/*：回放控制（playbackParts）、
- * 实时推送（wsParts）、关键帧预计算（keyframeParts）、数据集与数据库
- * （datasetDbParts）、渲染与图层（renderParts）、振动场与监测点
- * （vibrationParts）。本函数收缩为聚合器：构建共享上下文 ctx → 依次调用
- * 各域工厂 → 组装返回对象（键集合与键序与拆分前完全一致）。
+ * 所有响应式状态与可变句柄均在模块作用域：多次调用本函数返回同一份共享状态
+ * （App.vue 与面板控制器共享 dataset/播放状态），调用方无需（也不得）假设
+ * 独立实例。组件卸载不清理播放定时器——面板收起后动画持续运行是有意行为。
  */
 export default function useBlasting() {
   const { showMessage } = useMessage()
 
-  // 共享上下文：模块级单例状态 + 可变句柄存取器，显式传给各域工厂（避免隐藏耦合）。
-  // 跨域方法经 ctx.<域>.<方法> 在运行期调用（延迟绑定，见下方绑定处），
-  // 各工厂构造期不得互调——与拆分前的惰性求值行为一致。
-  const ctx = {
-    showMessage,
-    // 模块级响应式单例（稳定引用，直接共享）
-    dataset,
-    isPlaying,
-    currentFrame,
-    playbackSpeedMs,
-    playbackRate,
-    isLooping,
-    abLoop,
-    loadProgress,
-    replayReady,
-    replayPrecompute,
-    statsVersion,
-    randomSeed,
-    wsConnected,
-    wsBackendCompleted,
-    dbEvents,
-    dbLoading,
-    currentEventId,
-    muckPileOutlineEnabled,
-    muckPileMeasure,
-    kcoParams,
-    // 模块级可变句柄存取器（let 重绑定，经存取器读写）
-    getManager,
-    setManager,
-    getPlaybackTimer,
-    setPlaybackTimer,
-    getWs,
-    setWs,
-    getPendingWsDataset,
-    setPendingWsDataset,
-    getLastWsSeekFrame,
-    setLastWsSeekFrame,
-    setSeekLockFrame,
-    setSeekLockDropped,
-    getLastStatsUpdateMs,
-    setLastStatsUpdateMs,
-    getPendingAutoStart,
-    setPendingAutoStart,
-    getWsVibrationStarted,
-    setWsVibrationStarted,
-    getPlaybackAccumulator,
-    setPlaybackAccumulator,
-    getPlaybackLastTime,
-    setPlaybackLastTime,
-    getPrecomputePollTimer,
-    setPrecomputePollTimer,
-    getReplaySeq,
-    setReplaySeq,
-    // 模块级纯函数（seek 锁判帧，直接读写上方模块句柄）
-    isStaleSeekFrame
+  // ─── 时间-based 回放控制 ─────────────────────────────
+  // SubTask 6.6：新数据集不再包含 frames 数组，总帧数由
+  // result.simulationDurationS / result.timeStepS 计算。
+  // 时长优先取渲染器实测/回放时长（全部碎片落地 + 保持 3s，随事件自适应），
+  // 使进度条与每个爆破事件真正绑定：碎片还在抛掷时进度条不会提前到底。
+  const effectiveDurationS = ref(null)
+  const maxFrame = computed(() => {
+    const duration =
+      effectiveDurationS.value || Number(dataset.value?.result?.simulationDurationS) || 10
+    // 显示帧网格固定 0.05s：与回放关键帧烘焙网格/物理子步长一致
+    const dt = 0.05
+    return Math.max(0, Math.floor(duration / dt) - 1)
+  })
+
+  const previewMode = computed(() => {
+    const sourceMode = threeStats.value?.kcoSourceMode || kcoParams.value?.sourceMode
+    if (sourceMode === 'result') return '历史结果回放'
+    return '参数趋势预览'
+  })
+
+  const previewDisclaimer = computed(
+    () => '当前板块用于辅助观察参数与效果变化趋势，算法结果为可视化估算，不作为工程定量结论。'
+  )
+
+  const setFrame = frame => {
+    if (!dataset.value) return
+    const clamped = Math.max(0, Math.min(maxFrame.value, Number(frame) || 0))
+    currentFrame.value = clamped
+    blastingManager?.setFrame(clamped)
+    // 同步渲染器时长信号（回放就绪/实测达成时进度条随之延长，
+    // 与每个事件的实际动画时长绑定：全落地 + 保持 3s）
+    const d = blastingManager?.getDurationS?.()
+    if (d != null && Number.isFinite(d) && d > 0 && d !== effectiveDurationS.value) {
+      effectiveDurationS.value = d
+    }
+    // 始终刷新振动场元信息：无论 WS 是否连接，本地模拟与 WS 数据均通过同一渲染器接口
+    // 更新场纹理，UI 需即时反映当前帧的 PPV/应力/损伤就绪状态
+    vibrationFieldInfo.value = blastingManager?.getVibrationFieldInfo?.() || null
+    // 递增脏标记，使 threeStats 重新求值
+    // 节流到 200ms（5Hz），避免高倍速播放时 Vue 响应式风暴阻塞主线程
+    const now = performance.now()
+    if (!lastStatsUpdateMs || now - lastStatsUpdateMs >= 200) {
+      lastStatsUpdateMs = now
+      statsVersion.value++
+    }
+    // 爆堆轮廓开启时逐帧回读安息角/堆高/堆宽/堆长（渲染器节流重建，读不到时为 null）
+    if (muckPileOutlineEnabled.value) {
+      muckPileMeasure.value = blastingManager?.getMuckPileMeasure?.() ?? null
+    }
   }
 
-  // 六大职责域工厂（各调用一次）。工厂内的函数内局部 ref（effectiveDurationS、
-  // cameraViewMode、layerVisibility、振动场各开关等）随每次 useBlasting() 调用
-  // 重建——与拆分前"定义在函数内"的生命周期一致；模块级单例仍全局共享。
-  const playback = createPlaybackParts(ctx)
-  const ws = createWsParts(ctx)
-  const keyframe = createKeyframeParts(ctx)
-  const vibration = createVibrationParts(ctx)
-  const render = createRenderParts(ctx)
-  const datasetDb = createDatasetDbParts(ctx)
+  const pausePlayback = () => {
+    if (playbackTimer) {
+      cancelAnimationFrame(playbackTimer)
+      playbackTimer = null
+    }
+    _playbackAccumulator = 0
+    _playbackLastTime = 0
+    isPlaying.value = false
+    pendingWsDataset = null
+    blastingWs?.stopStream?.()
+    blastingManager?.setLocalVibrationEnabled(true)
+  }
 
-  // 跨域 API 延迟绑定：工厂体内经 ctx.playback / ctx.ws / ctx.keyframe /
-  // ctx.vibration / ctx.render 调用彼此（datasetDb 无被调方，暂不暴露）
-  ctx.playback = playback
-  ctx.ws = ws
-  ctx.keyframe = keyframe
-  ctx.vibration = vibration
-  ctx.render = render
-  ctx.datasetDb = datasetDb
+  // 根据 playbackRate 计算有效帧间隔（ms），rate 越大间隔越短
+  // 不设下限，由 RAF 回调节流自然限制（~60fps ≈ 16.7ms/帧）
+  const _effectiveFrameInterval = () => {
+    const base = Math.max(16, Number(playbackSpeedMs.value || DEFAULT_PLAYBACK_SPEED_MS))
+    const rate = Math.max(1, Number(playbackRate.value) || 1)
+    return base / rate
+  }
+
+  // B1：播放时计算下一帧（处理 AB 区间循环与整体循环）
+  const computeNextFrame = () => {
+    const cur = currentFrame.value
+    const last = maxFrame.value
+    // AB 区间循环优先
+    if (abLoop.value.enabled && abLoop.value.a != null && abLoop.value.b != null) {
+      const a = Math.min(abLoop.value.a, abLoop.value.b)
+      const b = Math.max(abLoop.value.a, abLoop.value.b)
+      // 当前位于区间内：到 B 点回到 A 点
+      if (cur >= a && cur <= b) {
+        return cur >= b ? a : cur + 1
+      }
+      // 当前位于区间外：跳回 A 点
+      if (cur < a) return a
+      return a // cur > b
+    }
+    // 整体循环
+    if (cur >= last) {
+      return isLooping.value ? 0 : cur
+    }
+    return cur + 1
+  }
+
+  const _playbackTick = timestamp => {
+    if (!isPlaying.value || !dataset.value) return
+    if (_playbackLastTime === 0) {
+      _playbackLastTime = timestamp
+      playbackTimer = requestAnimationFrame(_playbackTick)
+      return
+    }
+    const elapsed = timestamp - _playbackLastTime
+    _playbackLastTime = timestamp
+    _playbackAccumulator += elapsed
+
+    const interval = _effectiveFrameInterval()
+    while (_playbackAccumulator >= interval) {
+      _playbackAccumulator -= interval
+      const next = computeNextFrame()
+      if (next === currentFrame.value && currentFrame.value >= maxFrame.value) {
+        // 非循环模式到达末尾：停止
+        if (!isLooping.value && !(abLoop.value.enabled && abLoop.value.a != null)) {
+          pausePlayback()
+          if (wsBackendCompleted.value) {
+            showMessage('预览播放完成', 'success')
+          }
+          return
+        }
+      }
+      setFrame(next)
+    }
+    playbackTimer = requestAnimationFrame(_playbackTick)
+  }
+
+  const startPlayback = () => {
+    if (!dataset.value || isPlaying.value) return
+    // 全速预计算（关键帧烘焙）未完成：提示并等待，完成后自动开始播放。
+    // 这样首次播放即进入关键帧回放——倍速/循环/拖拽/进度条时长全部即时、精确。
+    if (!replayReady.value) {
+      pendingAutoStart = true
+      const pct = replayPrecompute.value?.pct ?? 0
+      showMessage(
+        pct > 0
+          ? `爆破物理预计算中（${pct}%），完成后自动播放`
+          : '爆破物理预计算中，完成后自动播放',
+        'info'
+      )
+      return
+    }
+    isPlaying.value = true
+    _playbackAccumulator = 0
+    _playbackLastTime = 0
+    if (currentFrame.value === 0) {
+      pendingWsDataset = dataset.value
+      if (wsConnected.value) {
+        startBlastingWsStream(dataset.value)
+      }
+    } else {
+      blastingManager?.setLocalVibrationEnabled(true)
+    }
+    playbackTimer = requestAnimationFrame(_playbackTick)
+  }
+
+  const togglePlayback = () => {
+    if (isPlaying.value) pausePlayback()
+    else startPlayback()
+  }
+
+  // B1：直接设置播放倍速（下拉选择全部倍数）
+  const PLAYBACK_RATES = [1, 2, 4, 8]
+  const setPlaybackRate = rate => {
+    const r = Number(rate)
+    if (!Number.isFinite(r) || r <= 0) return
+    playbackRate.value = r
+    // RAF 驱动模式下，速度切换后下一帧自然按新 interval 计算，无需重启
+    showMessage(`播放倍速 ${r}x`, 'info')
+  }
+
+  // B1：逐帧步进（direction: +1 前进 / -1 后退）
+  const stepFrame = (direction = 1) => {
+    if (!dataset.value) return
+    pausePlayback()
+    const target = currentFrame.value + (direction > 0 ? 1 : -1)
+    setFrame(Math.max(0, Math.min(maxFrame.value, target)))
+  }
+
+  // B1：整体循环开关
+  const toggleLoop = () => {
+    isLooping.value = !isLooping.value
+    showMessage(`整体循环已${isLooping.value ? '开启' : '关闭'}`, 'info')
+  }
+
+  // B1：标记 AB 区间点（在当前帧打点，第一次标记 A，第二次标记 B）
+  const markAbLoopPoint = () => {
+    if (!dataset.value) {
+      showMessage('请先加载数据', 'warning')
+      return
+    }
+    const cur = currentFrame.value
+    const ab = abLoop.value
+    if (ab.a == null) {
+      abLoop.value = { ...ab, a: cur, b: null }
+      showMessage(`已标记 A 点（帧 ${cur + 1}）`, 'info')
+    } else if (ab.b == null) {
+      abLoop.value = { ...ab, b: cur, enabled: true }
+      showMessage(`已标记 B 点（帧 ${cur + 1}），AB 循环已启用`, 'success')
+    } else {
+      // 重新开始标记
+      abLoop.value = { a: cur, b: null, enabled: false }
+      showMessage(`重新标记 A 点（帧 ${cur + 1}）`, 'info')
+    }
+  }
+
+  // B1：清除 AB 区间
+  const clearAbLoop = () => {
+    abLoop.value = { a: null, b: null, enabled: false }
+    showMessage('AB 区间循环已清除', 'info')
+  }
+
+  // B1：切换 AB 循环启用状态
+  const toggleAbLoop = () => {
+    const ab = abLoop.value
+    if (ab.a == null || ab.b == null) {
+      showMessage('请先标记 A、B 两点', 'warning')
+      return
+    }
+    abLoop.value = { ...ab, enabled: !ab.enabled }
+    showMessage(`AB 循环已${abLoop.value.enabled ? '启用' : '禁用'}`, 'info')
+  }
+
+  // ─── 实时推送通道（WebSocket） ──────────────────────
+  // 建立与后端的实时连接，接收模拟进度帧与分段起爆事件。
+  // 降级策略：WS 不可用或断开时，本地 setInterval 播放不受影响。
+  const buildWsStartPayload = ds => {
+    if (!ds) return null
+    const duration = Number(ds?.result?.simulationDurationS) || 10
+    const timestep = Number(ds?.result?.timeStepS) || 0.05
+    const holes = (ds?.design?.holes || []).map(h => ({
+      id: h.id,
+      delayMs: h.delayMs,
+      detonatorSeries: h.detonatorSeries,
+      chargeKg: h.chargeKg
+    }))
+    const ppvParams = blastingManager?.getPpvStreamParams?.() || {}
+    ppvParams.explosiveType =
+      kcoParams.value?.explosiveType || ds?.event?.explosiveType || 'emulsion'
+    // 多装药源（各炮孔装药段位置/药量/延时）：后端据此计算多应力波矢量叠加，
+    // 非单一同心圆波场，符合真实掏槽微差起爆的波场干涉效果。
+    ppvParams.sources = blastingManager?._computeBlastSources?.() || null
+    // JWL+FDTD 在 build_ppv_grid 的 1.5m 分辨率网格上无法解析爆腔（R0≈0.28m < 1 格），
+    // 实测 PPV 输出 ~1e-11 m/s（低于前端可见阈值 8 个数量级），三场（PPV/应力/损伤）
+    // 全部不可见。降级萨道夫斯基近似（与本地模拟器同物理模型，量级正常），
+    // 待后端 FDTD 支持亚格子源或自适应加密后再启用。
+    ppvParams.useJwl = false
+    if (ds?.event?.rockParams) {
+      ppvParams.rockParams = ds.event.rockParams
+    }
+    return { duration, timestep, holes, ppvParams }
+  }
+
+  const startBlastingWsStream = (ds = dataset.value) => {
+    if (!blastingWs) return
+    const payload = buildWsStartPayload(ds)
+    if (!payload) return
+    pendingWsDataset = null
+    wsBackendCompleted.value = false
+    wsVibrationStarted = false
+    // 不立即禁用本地模拟：WS 数据到达前由本地模拟器填充振动场，避免可视化空窗。
+    // 首帧 PPV 到达后由 PPV_FIELD 处理器禁用本地模拟，切换到 WS 实时数据。
+    blastingManager?.setLocalVibrationEnabled(true)
+    blastingWs.startStream(payload.duration, payload.timestep, payload.holes, payload.ppvParams)
+  }
+
+  const connectBlastingWs = eventId => {
+    disconnectBlastingWs()
+    // 启用本地振动场模拟作为主数据源（WS 不可用时自行模拟实时数据）
+    // 波前粒子特效始终由播放时钟驱动，保证振动传播可视化始终可用
+    blastingManager?.setLocalVibrationEnabled(true)
+    blastingWs = new BlastingWsConnector(eventId)
+    blastingWs.on('_open', () => {
+      wsConnected.value = true
+      wsBackendCompleted.value = false
+      blastingManager?.setLocalVibrationEnabled(true)
+      if (pendingWsDataset && currentFrame.value === 0 && isPlaying.value) {
+        startBlastingWsStream(pendingWsDataset)
+      }
+    })
+    blastingWs.on('_close', () => {
+      wsConnected.value = false
+      wsVibrationStarted = false
+      // WS 断开：恢复本地热力图模拟，保证可视化不中断
+      blastingManager?.setLocalVibrationEnabled(true)
+    })
+    blastingWs.on('_giveup', () => {
+      wsConnected.value = false
+      wsVibrationStarted = false
+      blastingManager?.setLocalVibrationEnabled(true)
+      showMessage('实时连接断开，已切换到本地预览', 'warning')
+    })
+    blastingWs.on(FrameType.PROGRESS, () => {
+      // 不驱动 setFrame：本地播放定时器（startPlayback）已增量推进碎片动画，
+      // PROGRESS 帧的 setFrame 会与本地播放冲突——偏差 > 10 帧时 seekTo
+      // 触发异步重建粒子系统，碎片 InstancedMesh 在重建期间不更新，
+      // 导致动画卡顿、帧跳转、轨迹不连贯。
+      // WebSocket 仅负责推送振动场/应力/损伤数据，碎片动画由本地播放独立驱动。
+    })
+    // PPV 振动场二进制帧：首帧初始化体积，后续帧更新 Data3DTexture
+    blastingWs.on(FrameType.PPV_FIELD, payload => {
+      if (!blastingManager) return
+      const { frame, t, gridShape, boundsMin, boundsMax, ppv } = payload
+      // 网格不一致时重建体积（本地模拟可能已用默认 32×32×64 网格初始化，
+      // 不重建则 WS 帧因长度不匹配被丢弃，画面冻结）
+      blastingManager.ensureVibrationField({
+        gridShape,
+        boundsMin,
+        boundsMax,
+        gridSampleMode: 'nodes'
+      })
+      blastingManager.updateVibrationField(ppv, t, frame)
+      // 首帧 WS 数据到达：禁用本地 PPV 写入（应力/损伤仍由本地兜底），切换到 WS 实时数据
+      if (!wsVibrationStarted) {
+        wsVibrationStarted = true
+        blastingManager?.setLocalVibrationEnabled(false)
+      }
+      // 每帧刷新振动场元信息，使 UI 即时反映 PPV 就绪状态
+      vibrationFieldInfo.value = blastingManager?.getVibrationFieldInfo?.() || null
+    })
+    // σ_vm 应力场二进制帧：与 PPV 同时刻推送，更新应力纹理
+    blastingWs.on(FrameType.STRESS_FIELD, payload => {
+      if (!blastingManager) return
+      const { frame, t, gridShape, boundsMin, boundsMax, sigmaVm } = payload
+      blastingManager.ensureVibrationField({
+        gridShape,
+        boundsMin,
+        boundsMax,
+        gridSampleMode: 'nodes'
+      })
+      blastingManager.updateStressField(sigmaVm, t, frame)
+      // 每帧刷新振动场元信息，使 UI 即时反映应力就绪状态
+      vibrationFieldInfo.value = blastingManager?.getVibrationFieldInfo?.() || null
+    })
+    // 损伤分区二进制帧：与 PPV 同时刻推送，更新损伤纹理
+    blastingWs.on(FrameType.DAMAGE_FIELD, payload => {
+      if (!blastingManager) return
+      const { frame, t, gridShape, boundsMin, boundsMax, zones } = payload
+      blastingManager.ensureVibrationField({
+        gridShape,
+        boundsMin,
+        boundsMax,
+        gridSampleMode: 'nodes'
+      })
+      blastingManager.updateDamageField(zones, t, frame, 'nodes')
+      // 每帧刷新振动场元信息，使 UI 即时反映损伤就绪状态
+      vibrationFieldInfo.value = blastingManager?.getVibrationFieldInfo?.() || null
+    })
+    blastingWs.on(FrameType.COMPLETED, () => {
+      // 后端推送完成 ≠ 本地动画播放完成。
+      // 设置标志，等本地播放到达最后一帧时才弹窗（双条件同步）。
+      // 若本地播放已停止（本地快于后端），直接弹窗。
+      wsBackendCompleted.value = true
+      if (!isPlaying.value) {
+        showMessage('预览播放完成', 'success')
+      }
+    })
+    blastingWs.connect()
+  }
+
+  const disconnectBlastingWs = () => {
+    pendingWsDataset = null
+    wsVibrationStarted = false
+    if (blastingWs) {
+      blastingWs.disconnect()
+      blastingWs = null
+    }
+    wsConnected.value = false
+    // WS 断开：恢复本地热力图模拟
+    blastingManager?.setLocalVibrationEnabled(true)
+  }
+
+  const clearSimulation = () => {
+    pausePlayback()
+    disconnectBlastingWs()
+    stopPrecomputeWatch()
+    pendingAutoStart = false
+    blastingManager?.clearScene()
+    dataset.value = null
+    currentFrame.value = 0
+    effectiveDurationS.value = null
+    replayReady.value = false
+    replayPrecompute.value = { active: false, pct: 0 }
+    currentEventId.value = null
+    // B1：重置回放增强状态
+    abLoop.value = { a: null, b: null, enabled: false }
+    loadProgress.value = 0
+    // 清理场点拾取
+    blastingManager?.disablePpvPick?.()
+    ppvPickEnabled.value = false
+    pickedPpv.value = null
+  }
+
+  // ─── 关键帧回放就绪监听（全速预计算） ──────────────
+  // 预计算（Worker 全速烘焙整段物理）完成后轮询置位 replayReady，
+  // 期间若用户点了播放则等待完成后自动开始（保证首播即关键帧回放）。
+
+  const _pollPrecompute = () => {
+    if (!blastingManager) return
+    const ready = !!blastingManager.isBlastReplayReady?.()
+    const prog = blastingManager.getReplayProgress?.() || { active: false, pct: 0 }
+    replayReady.value = ready
+    if (prog.active !== replayPrecompute.value.active || prog.pct !== replayPrecompute.value.pct) {
+      replayPrecompute.value = { active: prog.active, pct: prog.pct }
+    }
+    if (ready) {
+      if (pendingAutoStart) {
+        pendingAutoStart = false
+        startPlayback()
+      }
+      stopPrecomputeWatch()
+    }
+  }
+
+  const startPrecomputeWatch = () => {
+    stopPrecomputeWatch()
+    if (!blastingManager) return
+    const ready = !!blastingManager.isBlastReplayReady?.()
+    replayReady.value = ready
+    replayPrecompute.value = blastingManager.getReplayProgress?.() || { active: false, pct: 0 }
+    if (!ready) {
+      precomputePollTimer = setInterval(_pollPrecompute, 500)
+    }
+  }
+
+  const stopPrecomputeWatch = () => {
+    if (precomputePollTimer) {
+      clearInterval(precomputePollTimer)
+      precomputePollTimer = null
+    }
+  }
+
+  // ─── 数据集应用 ─────────────────────────────────────
+  const applyDataset = (nextDataset, options = {}) => {
+    const autoPlay = Boolean(options?.autoPlay)
+    pausePlayback()
+    dataset.value = nextDataset
+    currentFrame.value = 0
+    blastingManager?.setDataset(nextDataset, {
+      kcoOverride: {
+        ...kcoParams.value,
+        randomSeed: randomSeed.value
+      }
+    })
+    blastingManager?.setFrame(0)
+    // 数据加载后同步图层可见性与爆破设计数据
+    syncLayerVisibility()
+    // 监控全速预计算进度；就绪后若请求了自动播放则开始
+    startPrecomputeWatch()
+    if (autoPlay) startPlayback()
+  }
+
+  // ─── MySQL 数据库事件加载 ───────────────────────────
+
+  const loadDbEvents = async () => {
+    dbLoading.value = true
+    try {
+      const events = await fetchBlastingEvents()
+      dbEvents.value = events
+      return events
+    } catch (error) {
+      showMessage(`加载事件列表失败: ${error.message}`, 'error')
+      dbEvents.value = []
+      return []
+    } finally {
+      dbLoading.value = false
+    }
+  }
+
+  // SubTask 6.1：重写 loadDbEvent
+  // 数据流：fetchBlastingEvent → fetchBlastingDesign + fetchBlastingResult
+  //        → 组装 {event, design, result} → BlastingManager.setDataset
+  const loadDbEvent = async (eventId, options = {}) => {
+    const autoPlay = options.autoPlay === true
+    dbLoading.value = true
+    // B7：加载进度反馈
+    loadProgress.value = 10
+    try {
+      // 1. 获取事件（fetchBlastingEvent 返回 { event, design, result }，取 event 字段）
+      const eventData = await fetchBlastingEvent(eventId)
+      const event = eventData?.event || eventData
+      loadProgress.value = 30
+      // 2. 获取爆破设计 + 炮孔列表
+      const { design, holes } = await fetchBlastingDesign(eventId)
+      loadProgress.value = 60
+      // 3. 获取爆破结果（新事件可能尚无结果，容错处理）
+      let result = null
+      try {
+        result = await fetchBlastingResult(eventId)
+      } catch (e) {
+        // result 可能尚未生成（新建事件），置为 null 即可
+        result = null
+      }
+      loadProgress.value = 80
+      // 4. 组装数据集
+      const nextDataset = {
+        event,
+        design: { ...design, holes: holes || [] },
+        result
+      }
+      // 5. SubTask 6.3：从 design + result 提取 KCO 参数（不再单独 fetchKCOParams）
+      // Q 为单孔装药量：优先取孔位平均单孔药量，否则按总药量 ÷ 孔数估算
+      const chargedHoles = (holes || []).filter(h => Number(h.chargeKg) > 0)
+      const holeChargeKg =
+        chargedHoles.length > 0
+          ? chargedHoles.reduce((s, h) => s + Number(h.chargeKg), 0) / chargedHoles.length
+          : holes && holes.length > 0
+            ? Number(event.chargeKg || 100) / holes.length
+            : Number(event.chargeKg || 100)
+      if (result) {
+        kcoParams.value = {
+          ...DEFAULT_KCO_PARAMS,
+          Q: holeChargeKg,
+          xmax: result.fragmentXmax ?? 2.0,
+          x50: result.fragmentX50 ?? 0.5,
+          b: result.fragmentB ?? 2.0,
+          n: result.fragmentN ?? 1.5,
+          explosiveType: event.explosiveType || 'emulsion',
+          rockDensity:
+            Number(event.rockParams?.density) ||
+            Number(event.density) ||
+            DEFAULT_KCO_PARAMS.rockDensity ||
+            2650,
+          sourceMode: 'result',
+          fragmentCountRenderLimit: DEFAULT_FRAGMENT_RENDER_LIMIT
+        }
+      } else {
+        kcoParams.value = {
+          ...DEFAULT_KCO_PARAMS,
+          Q: holeChargeKg,
+          explosiveType: event.explosiveType || 'emulsion',
+          rockDensity:
+            Number(event.rockParams?.density) ||
+            Number(event.density) ||
+            DEFAULT_KCO_PARAMS.rockDensity ||
+            2650,
+          sourceMode: 'design',
+          fragmentCountRenderLimit: DEFAULT_FRAGMENT_RENDER_LIMIT
+        }
+      }
+      // 文献化萨道夫斯基参数注入：按事件下发场地常数，避免同一套参数通用或上一事件残留。
+      // 事件匹配规则与各事件 K/α 见 core/literatureEvents.js（单源，与设计盖章共用同一映射）；
+      // 无文献标定的事件（005~007）重置默认 K/α，避免残留上一事件参数。
+      const litEvent = matchLiteratureEvent(eventId, nextDataset.event?.name)
+      setSadoskyParams(
+        litEvent?.sadosky || { k: SADOVSKY_DEFAULT_K, alpha: SADOVSKY_DEFAULT_ALPHA }
+      )
+      applyDataset(nextDataset, { autoPlay })
+      currentEventId.value = eventId
+      // 建立实时推送通道（WS 不可用时降级到本地 setInterval 播放）
+      connectBlastingWs(eventId)
+      loadProgress.value = 100
+      showMessage(`爆破事件 ${eventId} 已加载，可手动播放或重播预览`, 'success')
+      return nextDataset
+    } catch (error) {
+      loadProgress.value = 0
+      showMessage(`加载事件失败: ${error.message}`, 'error')
+      return null
+    } finally {
+      dbLoading.value = false
+    }
+  }
+
+  // SubTask 6.7：保存模拟结果回写到数据库
+  // 设计结果写入 blasting_result，运行时统计写入 blasting_runtime_stats
+  const saveSimulationResult = async () => {
+    if (!currentEventId.value || !dataset.value?.result) {
+      showMessage('无可保存的模拟结果', 'warning')
+      return
+    }
+    // 获取 three.js 运行时统计
+    const stats = blastingManager?.getThreeStats?.() || {}
+
+    // 步骤1：设计结果字段写入 blasting_result
+    // 保留现有 dataset.result 字段（fragmentX50/N/xmax/b、throwDistance、crater 等）
+    const resultData = {
+      ...dataset.value.result,
+      // 仅在算法侧未提供 fragmentCount 时兜底使用生成数，避免用渲染统计污染设计结果语义。
+      ...(stats &&
+      typeof stats.fragmentCountGenerated === 'number' &&
+      !Number.isFinite(Number(dataset.value.result?.fragmentCount))
+        ? { fragmentCount: stats.fragmentCountGenerated }
+        : {})
+    }
+    // 新增：数量细分字段
+    if (stats.fragmentCountTarget != null)
+      resultData.fragmentCountTarget = stats.fragmentCountTarget
+    if (stats.fragmentCountGenerated != null)
+      resultData.fragmentCountGenerated = stats.fragmentCountGenerated
+    if (stats.fragmentCountRendered != null)
+      resultData.fragmentCountRendered = stats.fragmentCountRendered
+    // 新增：质量字段
+    if (stats.fragmentMassTargetKg != null)
+      resultData.fragmentMassTargetKg = stats.fragmentMassTargetKg
+    if (stats.fragmentMassGeneratedKg != null)
+      resultData.fragmentMassGeneratedKg = stats.fragmentMassGeneratedKg
+    // 新增：直方图 JSON 字段
+    if (stats.sizeHistogramGenerated)
+      resultData.fragmentHistogramJson = stats.sizeHistogramGenerated
+    if (stats.velocityHistogramGenerated)
+      resultData.velocityHistogramJson = stats.velocityHistogramGenerated
+    if (stats.renderScaleMode) resultData.renderScaleMode = stats.renderScaleMode
+
+    try {
+      await saveBlastingResult(currentEventId.value, resultData)
+    } catch (e) {
+      console.error('[saveSimulationResult] 保存设计结果失败:', e)
+      showMessage(`保存设计结果失败: ${e.message}`, 'error')
+    }
+
+    // 步骤2：运行时统计写入 blasting_runtime_stats
+    const runtimePayload = {
+      randomSeed: randomSeed.value,
+      algorithmVersion: ALGORITHM_VERSION,
+      paramsSnapshot: {
+        // 核心输入参数快照
+        chargeKg: stats.chargeKg || null,
+        x50: stats.x50Applied || null,
+        n: stats.nApplied || null,
+        explosiveType: stats.explosiveType || null,
+        rockDensityKgM3: stats.rockDensityKgM3 || null,
+        fragmentCountTarget: stats.fragmentCountTarget || null,
+        fragmentCountRenderLimit: stats.fragmentCountRenderLimit || null,
+        kcoSourceMode: stats.kcoSourceMode || null
+      },
+      statsSnapshot: {
+        fragmentCountGenerated: stats.fragmentCountGenerated || null,
+        fragmentCountRendered: stats.fragmentCountRendered || null,
+        fragmentMassCoverage: stats.fragmentMassCoverage || null,
+        velocityMean: stats.velocityMean || null,
+        velocityP95: stats.velocityP95 || null,
+        throwDistancePredictedAvg: stats.throwDistancePredictedAvg || null,
+        throwDistancePredictedMax: stats.throwDistancePredictedMax || null,
+        sizeKLDivergence: stats.sizeKLDivergence || null,
+        energyStats: stats.energyStats || null,
+        sizeHistogramGenerated: stats.sizeHistogramGenerated || null,
+        velocityHistogramGenerated: stats.velocityHistogramGenerated || null
+      }
+    }
+
+    try {
+      await saveRuntimeStats(currentEventId.value, runtimePayload)
+      showMessage('预览结果已保存', 'success')
+    } catch (e) {
+      console.error('[saveSimulationResult] 保存运行时统计失败:', e)
+      showMessage(`保存运行时统计失败: ${e.message}`, 'error')
+    }
+  }
+
+  // 保存爆破设计到数据库，并自动重新加载事件以同步前端状态
+  // designPayload: { design: {...}, holes: [...] }（camelCase）
+  const saveDesign = async designPayload => {
+    if (!currentEventId.value) {
+      showMessage('未选中事件，无法保存设计', 'warning')
+      return
+    }
+    try {
+      await saveBlastingDesign(currentEventId.value, designPayload)
+      showMessage('爆破设计已保存，正在重新加载...', 'success')
+      // 保存成功后自动重载事件，使前端状态与 DB 一致
+      await loadDbEvent(currentEventId.value, { autoPlay: false })
+    } catch (error) {
+      showMessage(`保存设计失败: ${error.message}`, 'error')
+    }
+  }
+
+  // ─── Three.js 渲染管理 ─────────────────────────────
+
+  const initBlastingManager = viewer => {
+    if (!blastingManager && viewer) {
+      blastingManager = new BlastingManager(viewer)
+    }
+  }
+
+  const flyToCenter = () => {
+    blastingManager?.flyToCenter()
+  }
+
+  // ─── 三维观察视角（内部 / 外部） ─────────────────────────
+  // 'interior' = 隧道内部直面掌子面；'exterior' = 外部测区整体视角（见渲染器 setCameraViewMode）
+  const cameraViewMode = ref('interior')
+  const setCameraViewMode = mode => {
+    if (mode !== 'interior' && mode !== 'exterior') return
+    cameraViewMode.value = mode
+    blastingManager?.setCameraViewMode(mode)
+    showMessage(`已切换到${mode === 'interior' ? '隧道内部视角' : '外部测区视角'}`, 'info')
+  }
+
+  // ─── 爆堆轮廓（三维包络 + 安息角标注） ─────────────────────
+  // 状态 muckPileOutlineEnabled/muckPileMeasure 为模块级单例（见文件头部说明）
+  const toggleMuckPileOutline = () => {
+    muckPileOutlineEnabled.value = !muckPileOutlineEnabled.value
+    blastingManager?.setMuckPileOutlineEnabled?.(muckPileOutlineEnabled.value)
+    if (muckPileOutlineEnabled.value) {
+      const measure = blastingManager?.getMuckPileMeasure?.() ?? null
+      muckPileMeasure.value = measure
+      showMessage(
+        measure?.height != null
+          ? measure.angle != null
+            ? `已绘制爆堆轮廓，安息角 φ≈${measure.angle.toFixed(1)}°`
+            : '已绘制爆堆轮廓'
+          : '已开启爆堆轮廓，等待碎片落地堆积后测量安息角',
+        'info'
+      )
+    } else {
+      muckPileMeasure.value = null
+      showMessage('已关闭爆堆轮廓', 'info')
+    }
+  }
+
+  // 重新触发 three.js 爆破效果
+  // kcoOverride：可选，外部传入的 KCO 参数覆盖（用于 UI 实时编辑后重播）
+  // KCO 参数（x50/n）已打通后端：由 /validate/kco 计算，后端不可用时回退本地计算。
+  // 重播为异步：先请求后端再启动动画，用序号丢弃过期的并发请求结果。
+  const replayBlast = async kcoOverride => {
+    if (!dataset.value) {
+      showMessage('请先加载数据', 'warning')
+      return
+    }
+    const seq = ++replaySeq
+    // 不强制 sourceMode='design'：保持与初次加载一致（'result'），
+    // 避免重新播放时 KCO 参数计算方式不同导致动画不一致。
+    // 只有用户在 UI 中修改了 KCO 参数时，_initThreeBridge 才会自动切到 'design'。
+    const merged = {
+      ...kcoParams.value,
+      ...(kcoOverride || {}),
+      enableInterCollision: PERFORMANCE_PROFILE.enableInterCollision,
+      randomSeed: randomSeed.value
+    }
+    // 碎片渲染上限：优先用户配置（UI 可调，40-20000），未设置时用默认 3000
+    const userLimit = Number(merged.fragmentCountRenderLimit)
+    merged.fragmentCountRenderLimit = Number.isFinite(userLimit)
+      ? Math.max(40, Math.min(20000, Math.round(userLimit)))
+      : PERFORMANCE_PROFILE.fragmentCountRenderLimit
+    // 运行时打通后端：x50/n 以后端 /validate/kco 计算结果为准
+    const backend = await fetchKcoFromBackend(merged)
+    if (seq !== replaySeq) return // 已有更新的重播请求，放弃本次结果
+    if (backend) {
+      // 显式注入后端计算的 x50/n；calculateKCOParams 优先使用显式值
+      merged.x50 = backend.x50
+      merged.n = backend.n
+    } else {
+      showMessage('后端 KCO 计算不可用，已使用本地计算', 'info')
+    }
+    blastingManager?.replayBlast(merged)
+    // 重新预计算关键帧：重置就绪标志并重新监听（首个 step 到达前完成则直接就绪）
+    startPrecomputeWatch()
+    // 递增脏标记，使 threeStats 读取到新的 _fragmentStats
+    statsVersion.value++
+    // 重播后重新同步图层与设计数据
+    syncLayerVisibility()
+
+    // 完整重置播放状态：重置帧号 + 重置完成标志 + 重启播放
+    // 不重连 WS：重连后端会重新推送振动场帧，与碎片动画 GPU 负载叠加导致卡顿。
+    // 振动场数据在重新加载事件（loadDbEvent）时自动推送。
+    wsBackendCompleted.value = false
+    currentFrame.value = 0
+    pausePlayback()
+    startPlayback()
+
+    showMessage('爆破效果已重播（KCO 模型）', 'success')
+  }
+
+  // 获取 three.js 渲染统计
+  // 读取 statsVersion 建立响应式依赖，使 setFrame / replayBlast 后能自动刷新
+  const threeStats = computed(() => {
+    statsVersion.value // 建立响应式依赖
+    return blastingManager?.getThreeStats() || null
+  })
+
+  // 块度分布统计（按 physSize 分组）：依赖 statsVersion 以便 replayBlast 后刷新
+  const fragmentDistribution = computed(() => {
+    statsVersion.value // 建立响应式依赖
+    return blastingManager?.getFragmentDistribution?.() || null
+  })
+
+  // 高亮指定块度范围的碎片（FragmentDistribution 子组件以 { min, max } 对象形式 emit）
+  const highlightFragmentsBySize = ({ min, max }) => {
+    blastingManager?.highlightFragmentsBySize?.(Number(min), Number(max))
+  }
+
+  // 清除碎片高亮，恢复原始颜色
+  const clearFragmentHighlight = () => {
+    blastingManager?.clearFragmentHighlight?.()
+  }
+
+  // 重置 KCO 参数为默认值
+  const resetKcoParams = () => {
+    kcoParams.value = { ...DEFAULT_KCO_PARAMS, sourceMode: 'design', velocityScale: 0.42 }
+    showMessage('KCO 参数已重置为默认值', 'info')
+  }
+
+  // ─── 图层可见性控制（烟雾/碎石/隧道/钻孔/标注等） ─────
+  // 图层定义：key → 中文标签，用于 UI 显示
+  // 注意：振动场不是视觉图层——它是独立功能，由 VibrationFieldPanel 顶部的
+  // "开启/退出振动场"按钮单独控制（vibrationFieldEnabled）。layerVisibility
+  // 中仍保留 vibrationField 键，作为渲染器 _applyVibrationOcclusion 的内部标志。
+  const LAYER_DEFS = [
+    { key: 'smoke', label: '烟雾' },
+    { key: 'dust', label: '粉尘' },
+    { key: 'fragment', label: '碎块' },
+    { key: 'fire', label: '火球' },
+    { key: 'spark', label: '火花' },
+    { key: 'shock_wave', label: '冲击波' },
+    { key: 'glow', label: '泛光光斑' },
+    { key: 'vibrationParticles', label: '振动波粒子' },
+    { key: 'tunnel', label: '隧道内壁' },
+    { key: 'bench', label: '岩体' },
+    { key: 'face', label: '掌子面' },
+    { key: 'blastHoles', label: '爆破钻孔' },
+    { key: 'annotations', label: '标注' }
+  ]
+  // 各图层开关状态（与渲染器 layerVisibility 同步）。
+  // vibrationField 键不来自 LAYER_DEFS（已解耦为独立功能），但必须保留在
+  // 状态对象中：syncLayerVisibility 重建场景后会把它连同其他图层一起推回渲染器。
+  const layerVisibility = ref(
+    LAYER_DEFS.reduce(
+      (acc, def) => {
+        // 默认模式只显示原始爆破动画：专业标注默认关闭，用户需要时开启
+        acc[def.key] = def.key !== 'annotations'
+        return acc
+      },
+      // 振动场默认关闭：用户通过面板的独立开关显式开启
+      { vibrationField: false }
+    )
+  )
+
+  // ─── 振动场独立开关（与视觉图层开关解耦）──────────────────
+  // 用户要求：振动场是单独的功能，有明确的开启/退出按钮，不与视觉图层
+  // 开关绑定，也不受切割/断面更新等场景重建操作影响状态。
+  const vibrationFieldEnabled = ref(false)
+  const setVibrationFieldEnabled = enabled => {
+    const next = enabled === undefined ? !vibrationFieldEnabled.value : !!enabled
+    vibrationFieldEnabled.value = next
+    // 渲染器内部标志同步（_applyVibrationOcclusion / 场渲染可见性都读它）
+    layerVisibility.value.vibrationField = next
+    blastingManager?.setLayerVisible?.('vibrationField', next)
+    // 开/关后立即刷新元信息，面板图例/场数据即时反映
+    vibrationFieldInfo.value = blastingManager?.getVibrationFieldInfo?.() || null
+  }
+
+  // ─── 振动场显示模式（PPV/应力/损伤 三模式切换）──────────────────
+  // 与 blastVibrationFieldRenderer.DISPLAY_MODE 对应（字符串形式便于 UI）
+  const VIBRATION_MODES = [
+    // 注意：该模式渲染的是 t 时刻的瞬时质点振速 v(t)（波前到达→峰值→衰减回落），
+    // 并非全程最大 PPV，故对外命名"瞬时振速"。内部字段/后端帧名沿用 ppv（其幅值即峰值）。
+    { key: 'ppv', label: '瞬时振速', unit: 'cm/s' },
+    { key: 'stress', label: 'σ_vm 应力', unit: 'MPa' },
+    { key: 'damage', label: '损伤分区', unit: '' }
+  ]
+  const vibrationDisplayMode = ref('ppv')
+  // 振动场元信息（gridShape/各场就绪状态/当前时间帧，由 WS 帧处理器刷新）
+  const vibrationFieldInfo = ref(null)
+
+  // 萨道夫斯基场地参数（K/α），可在振动场面板调节，经 WS 透传后端、同步本地模拟器
+  // 初始值与 LocalVibrationSimulator 默认同源（vibrationDefaults.js）
+  const sadoskyParams = ref({ k: LOCAL_SIM_DEFAULT_K, alpha: LOCAL_SIM_DEFAULT_ALPHA })
+
+  // 振动场底材"白模"开关（true=场图层开启时岩体切白模底；false=保留岩石纹理底，
+  // 热力色直接叠在岩色上，便于观察岩体纹理细节）
+  const whiteModelEnabled = ref(false)
+  const setWhiteModelEnabled = enabled => {
+    whiteModelEnabled.value = enabled === undefined ? !whiteModelEnabled.value : !!enabled
+    blastingManager?.setWhiteModelEnabled?.(whiteModelEnabled.value)
+  }
+
+  // 波包载波频率（Hz，0=关）：只改变热力图瞬时场的空间频率（干涉条纹疏密），
+  // 不影响损伤分区（其取峰值包络）。λ = visualCp/f，默认 0 = 纯包络。
+  const carrierHz = ref(0)
+  const setVibrationCarrierHz = hz => {
+    const v = Math.max(0, Math.min(30, Number(hz) || 0))
+    carrierHz.value = v
+    blastingManager?.setVibrationCarrierHz?.(v)
+    // 载波改变会改变瞬时波形 → 已拾取的探测点曲线需重算（峰值包络不变）
+    refreshPointHistory()
+  }
+
+  const setSadoskyParams = ({ k, alpha } = {}) => {
+    const next = {
+      k: Number.isFinite(Number(k)) && Number(k) > 0 ? Number(k) : sadoskyParams.value.k,
+      alpha:
+        Number.isFinite(Number(alpha)) && Number(alpha) > 0
+          ? Number(alpha)
+          : sadoskyParams.value.alpha
+    }
+    sadoskyParams.value = next
+    blastingManager?.setSadoskyParams(next)
+    // WS 已连接且事件已加载时重启推送，使后端按新 K/α 重新计算 PPV 场
+    if (blastingWs && wsConnected.value && dataset.value) {
+      startBlastingWsStream(dataset.value)
+    }
+  }
+
+  // 场点拾取：用户在场景中点击振动场内任意点，查询该点 PPV/应力/损伤
+  const ppvPickEnabled = ref(false)
+  const pickedPpv = ref(null)
+  // 探测点全时程曲线：{ t, vx, vy, vz, vmag, ppv, peakT, local } | null
+  // 与热力图同口径的解析时程（manager.computePointTimeHistory），供面板画二维曲线。
+  const pointHistory = ref(null)
+
+  /** 拾取成功后重算该点的全时程曲线（K/α/载波等参数变化后也调用此函数刷新） */
+  const refreshPointHistory = () => {
+    const sample = pickedPpv.value
+    // 场外命中（inside=false）或未拾取 → 无曲线
+    if (!sample?.inside || !Array.isArray(sample.local)) {
+      pointHistory.value = null
+      return
+    }
+    const h = blastingManager?.computePointTimeHistory?.(sample.local)
+    pointHistory.value = h ? { ...h, local: sample.local } : null
+  }
+
+  const togglePpvPick = enabled => {
+    const next = enabled === undefined ? !ppvPickEnabled.value : !!enabled
+    if (next) {
+      blastingManager?.enablePpvPick(sample => {
+        pickedPpv.value = sample
+        refreshPointHistory()
+      })
+    } else {
+      blastingManager?.disablePpvPick()
+      pickedPpv.value = null
+      pointHistory.value = null
+    }
+    ppvPickEnabled.value = next
+  }
+
+  const setVibrationDisplayMode = mode => {
+    if (!VIBRATION_MODES.some(m => m.key === mode)) return
+    vibrationDisplayMode.value = mode
+    blastingManager?.setVibrationDisplayMode(mode)
+    // 用户主动切换振动场模式时，经独立开关自动开启振动场（默认关闭）。
+    // 渲染器 _applyVibrationOcclusion 依赖 layerVisibility.vibrationField!==false，
+    // 否则 uFieldWeight 恒为 0，岩体表面不会渲染热力图 → 统一走独立开关开启。
+    setVibrationFieldEnabled(true)
+  }
+  // 爆破设计数据（炮孔布置图 + 统计）
+  const blastDesign = ref(null)
+
+  const setLayerVisible = (layer, visible) => {
+    layerVisibility.value[layer] = !!visible
+    blastingManager?.setLayerVisible(layer, !!visible)
+  }
+
+  // 运行时更新断面参数 + cutPattern，并自动重播以重建布孔
+  const updateSection = payload => {
+    blastingManager?.updateSection(payload)
+    replayBlast()
+  }
+
+  // 将 Vue 的图层可见性状态推送到渲染器（数据加载后调用，保持用户设置不被覆盖）
+  const syncLayerVisibility = () => {
+    // 推送当前 Vue 状态到渲染器，而非从渲染器回读
+    const current = { ...layerVisibility.value }
+    if (blastingManager) {
+      blastingManager.setLayersVisible(current)
+    }
+    // 白模开关同样在场景重建后保持用户设置
+    blastingManager?.setWhiteModelEnabled?.(whiteModelEnabled.value)
+    // 载波频率同属材质 uniform，场景重建后一并重放
+    blastingManager?.setVibrationCarrierHz?.(carrierHz.value)
+    // 场景(重)建后立刻刷新振动场元信息，使"振动场"面板的模式按钮/就绪徽标
+    // 无需等待播放帧或 WS 推送即可用（本地解析场三模式随时可切换）
+    vibrationFieldInfo.value = blastingManager?.getVibrationFieldInfo?.() || null
+    blastDesign.value = blastingManager?.getBlastDesign?.() || null
+  }
 
   return {
     dataset,
     isPlaying,
     currentFrame,
-    maxFrame: playback.maxFrame,
+    maxFrame,
     playbackSpeedMs,
     // B1 回放增强
     playbackRate,
-    setPlaybackRate: playback.setPlaybackRate,
-    playbackRates: playback.PLAYBACK_RATES,
+    setPlaybackRate,
+    playbackRates: PLAYBACK_RATES,
     isLooping,
     abLoop,
-    stepFrame: playback.stepFrame,
-    toggleLoop: playback.toggleLoop,
-    markAbLoopPoint: playback.markAbLoopPoint,
-    clearAbLoop: playback.clearAbLoop,
-    toggleAbLoop: playback.toggleAbLoop,
+    stepFrame,
+    toggleLoop,
+    markAbLoopPoint,
+    clearAbLoop,
+    toggleAbLoop,
     // B7 加载进度
     loadProgress,
     // 关键帧回放就绪 / 全速预计算进度
     replayReady,
     replayPrecompute,
-    previewMode: playback.previewMode,
-    previewDisclaimer: playback.previewDisclaimer,
+    previewMode,
+    previewDisclaimer,
     // 实时推送连接状态
     wsConnected,
     // three.js 渲染
-    threeStats: render.threeStats,
-    replayBlast: render.replayBlast,
+    threeStats,
+    replayBlast,
     // 块度分布与高亮
-    fragmentDistribution: render.fragmentDistribution,
-    highlightFragmentsBySize: render.highlightFragmentsBySize,
-    clearFragmentHighlight: render.clearFragmentHighlight,
+    fragmentDistribution,
+    highlightFragmentsBySize,
+    clearFragmentHighlight,
     // KCO 模型参数（碎块尺寸分布）
     kcoParams,
-    resetKcoParams: render.resetKcoParams,
+    resetKcoParams,
     // 图层可见性与爆破设计
-    LAYER_DEFS: render.LAYER_DEFS,
-    layerVisibility: render.layerVisibility,
-    setLayerVisible: render.setLayerVisible,
-    updateSection: render.updateSection,
-    syncLayerVisibility: render.syncLayerVisibility,
+    LAYER_DEFS,
+    layerVisibility,
+    setLayerVisible,
+    updateSection,
+    syncLayerVisibility,
     // 振动场显示模式（PPV/应力/损伤）
-    VIBRATION_MODES: vibration.VIBRATION_MODES,
-    vibrationDisplayMode: vibration.vibrationDisplayMode,
-    vibrationFieldInfo: vibration.vibrationFieldInfo,
-    setVibrationDisplayMode: vibration.setVibrationDisplayMode,
+    VIBRATION_MODES,
+    vibrationDisplayMode,
+    vibrationFieldInfo,
+    setVibrationDisplayMode,
+    // 振动场独立开关（与视觉图层开关解耦，切割/重建不影响状态）
+    vibrationFieldEnabled,
+    setVibrationFieldEnabled,
     // 萨道夫斯基场地参数（K/α）
-    sadoskyParams: vibration.sadoskyParams,
-    setSadoskyParams: vibration.setSadoskyParams,
-    // 自动量程（色标满刻度跟随岩体代表性峰值，供图例显示）
-    fieldRange: vibration.fieldRange,
+    sadoskyParams,
+    setSadoskyParams,
     // 振动场底材"白模"开关（场图层开启时是否切白模底）
-    whiteModelEnabled: vibration.whiteModelEnabled,
-    setWhiteModelEnabled: vibration.setWhiteModelEnabled,
-    translucentEnabled: vibration.translucentEnabled,
-    setTranslucentEnabled: vibration.setTranslucentEnabled,
-    isoLineEnabled: vibration.isoLineEnabled,
-    setIsoLineEnabled: vibration.setIsoLineEnabled,
-    // 色彩标尺 / 等值线密度 / 提取诊断
-    normMode: vibration.normMode,
-    setVibrationNormMode: vibration.setVibrationNormMode,
-    carrierHz: vibration.carrierHz,
-    setVibrationCarrierHz: vibration.setVibrationCarrierHz,
-    contourDensity: vibration.contourDensity,
-    setVibrationContourDensity: vibration.setVibrationContourDensity,
-    contourStats: vibration.contourStats,
-    // 矢量箭头场（P1-6）
-    vectorFieldOn: vibration.vectorFieldOn,
-    setVectorFieldOn: vibration.setVectorFieldOn,
-    // 仿真 PPV 衰减 vs 萨道夫斯基对比曲线（P2-8 验证）
-    ppvDecayData: vibration.ppvDecayData,
-    // 场点拾取全时程曲线（P1-6 点击出时程）
-    pointHistory: vibration.pointHistory,
-    // 雷管延期误差（蒙特卡洛）
-    delayJitter: vibration.delayJitter,
-    setDelayJitter: vibration.setDelayJitter,
-    // 监测点（测点波时程曲线）
-    monitorPoints: vibration.monitorPoints,
-    addMonitorPoint: vibration.addMonitorPoint,
-    removeMonitorPoint: vibration.removeMonitorPoint,
-    monitorPickActive: vibration.monitorPickActive,
-    toggleMonitorPick: vibration.toggleMonitorPick,
+    whiteModelEnabled,
+    setWhiteModelEnabled,
+    carrierHz,
+    setVibrationCarrierHz,
     // 场点拾取（查询空间任意点 PPV/应力/损伤）
-    ppvPickEnabled: vibration.ppvPickEnabled,
-    pickedPpv: vibration.pickedPpv,
-    togglePpvPick: vibration.togglePpvPick,
-    blastDesign: render.blastDesign,
+    ppvPickEnabled,
+    pickedPpv,
+    togglePpvPick,
+    pointHistory,
+    refreshPointHistory,
+    blastDesign,
     // MySQL 数据库事件
     dbEvents,
     dbLoading,
     currentEventId,
-    loadDbEvents: datasetDb.loadDbEvents,
-    loadDbEvent: datasetDb.loadDbEvent,
+    loadDbEvents,
+    loadDbEvent,
     // SubTask 6.7：模拟结果保存
-    saveSimulationResult: datasetDb.saveSimulationResult,
+    saveSimulationResult,
     // 运行时统计随机种子（供 UI 展示或编辑）
     randomSeed,
     // 保存爆破设计（保存后自动重载）
-    saveDesign: datasetDb.saveDesign,
-    flyToCenter: render.flyToCenter,
-    cameraViewMode: render.cameraViewMode,
-    setCameraViewMode: render.setCameraViewMode,
+    saveDesign,
+    flyToCenter,
+    cameraViewMode,
+    setCameraViewMode,
     // 爆堆轮廓（三维包络 + 安息角标注）
     muckPileOutlineEnabled,
     muckPileMeasure,
-    toggleMuckPileOutline: render.toggleMuckPileOutline,
-    initBlastingManager: render.initBlastingManager,
-    setFrame: playback.setFrame,
-    togglePlayback: playback.togglePlayback,
-    clearSimulation: ws.clearSimulation
+    toggleMuckPileOutline,
+    initBlastingManager,
+    setFrame,
+    togglePlayback,
+    clearSimulation
   }
 }

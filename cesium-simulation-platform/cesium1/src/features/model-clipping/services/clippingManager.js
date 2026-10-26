@@ -1,5 +1,4 @@
 import * as Cesium from 'cesium'
-import { warn } from '@/utils/errorHandler.js'
 
 // ===== 常量定义 =====
 // 默认法向量
@@ -995,7 +994,7 @@ class ClippingManager {
       })
       return this.createResult(true, '')
     } catch (e) {
-      warn('model-clipping', 'ClippingManager', e)
+      console.error('Failed to create excavation planes:', e)
       return this.createResult(false, '创建挖掘面失败: ' + e.message)
     }
   }
@@ -1144,9 +1143,7 @@ class ClippingManager {
    * 使用 Cesium.ClippingPolygonCollection
    */
   applyPolygonClipping(positions) {
-    if (!this.isViewerAlive() || !this.isTilesetAlive()) {
-      return this.createResult(false, '模型未准备好')
-    }
+    if (!this.isViewerAlive() || !this.isTilesetAlive()) return
 
     this.lastPolygonPositions = positions
     this.clearAllPlanes()
@@ -1172,11 +1169,8 @@ class ClippingManager {
       })
       this.tileset.clippingPolygons = this.clippingPolygonCollection
     } catch (e) {
-      warn('model-clipping', 'ClippingManager', e)
-      return this.createResult(false, '创建多边形切割失败: ' + e.message)
+      return
     }
-
-    return this.createResult(true, `已应用${isExcavate ? '挖掘' : '保留'}（无限深度）`)
   }
 
   /**
