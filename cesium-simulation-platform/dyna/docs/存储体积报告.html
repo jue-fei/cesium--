@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>LS-DYNA 容器存储体积报告</title>
+<style>
+  :root { --bg:#0f1318; --panel:#171c23; --line:#242b35; --ink:#e6ebf2; --ink2:#9aa7b8; --ink3:#6b7889;
+          --accent:#5aa9e6; --good:#7bd389; --warn:#f2b134; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:14px/1.65 "Segoe UI","Microsoft YaHei",system-ui,sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:40px 28px 72px; }
+  h1 { font-size:26px; margin:0 0 6px; letter-spacing:.01em; }
+  h2 { font-size:17px; margin:38px 0 12px; padding-left:10px; border-left:3px solid var(--accent); }
+  .meta { color:var(--ink3); font-size:12.5px; margin-bottom:26px; }
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+  .kpi { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
+  .kpi .k { color:var(--ink3); font-size:12px; }
+  .kpi .v { font-size:23px; font-weight:600; margin-top:4px; }
+  .kpi .v small { font-size:12px; color:var(--ink2); font-weight:400; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--ink2); font-weight:500; font-size:12px; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .sub { color:var(--ink3); font-size:11.5px; font-weight:400; }
+  .good { color:var(--good); font-weight:600; }
+  .bar { background:#222833; border-radius:4px; height:14px; overflow:hidden; flex:1; }
+  .bar span { display:block; height:100%; border-radius:4px; }
+  .barlabel { color:var(--ink2); font-size:12px; width:74px; text-align:right; font-variant-numeric:tabular-nums; }
+  .rankrow { display:flex; align-items:center; gap:12px; margin:7px 0; }
+  .rname { width:74px; color:var(--ink2); font-size:12.5px; }
+  .frow { margin:12px 0 16px; }
+  .fname { font-size:12.5px; margin-bottom:5px; }
+  .stack { display:flex; height:16px; border-radius:4px; overflow:hidden; background:#222833; }
+  .stack span { display:block; height:100%; }
+  .legend { margin-top:5px; color:var(--ink3); font-size:11px; }
+  .legend i { display:inline-block; width:8px; height:8px; border-radius:2px; margin:0 4px 0 10px; }
+  .legend i:first-child { margin-left:0; }
+  .note { background:#1a2029; border:1px solid var(--line); border-left:3px solid var(--warn);
+           border-radius:8px; padding:12px 14px; color:var(--ink2); font-size:13px; margin-top:14px; }
+  code { background:#232a34; padding:1px 5px; border-radius:4px; font-size:12px; }
+  ul { margin:8px 0 0 18px; padding:0; color:var(--ink2); }
+  li { margin:4px 0; }
+</style></head><body><div class="wrap">
+
+<h1>LS-DYNA 容器存储体积报告</h1>
+<div class="meta">数据根 <code>C:\Users\allblack\Desktop\dyna转换\cesium-simulation-platform\dyna\webapp\data_v3</code> · 生成时间 2026-10-26 20:53 · 统计对象：6 个算例</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="k">容器合计（落盘）</div><div class="v">2.74 <small>GiB</small></div></div>
+  <div class="kpi"><div class="k">源 d3plot 合计</div><div class="v">30.0 <small>GiB</small></div></div>
+  <div class="kpi"><div class="k">容器 / 源数据</div><div class="v">9.2<small>%</small></div></div>
+  <div class="kpi"><div class="k">zstd 压缩比</div><div class="v">2.05<small>×</small></div></div>
+</div>
+
+<h2>一句话结论</h2>
+<div class="card">
+  容器 <b>2.74 GiB</b> 已经是源 d3plot <b>30.0 GiB</b> 的
+  <b class="good">9.2%</b>（约 1/10.9），
+  且帧块已在转换阶段做过 <b>u2 量化 + 每帧 zstd-9</b>（5.5 GiB → 2.7 GiB，2.05×）。
+  现在看起来"还是很大"，是因为<b>体积 = 帧数 × 单元/节点数 × 字段数 × 精度</b>，这几个乘数都是物理量：
+  sph1 单帧未压缩 27.33 MiB × 87 帧 = 2.32 GiB，压完仍有 1.40 GiB，它一个就占了全库 <b>51%</b>。
+</div>
+
+<h2>各算例体积排行</h2>
+<div class="card"><div class="rankrow">
+      <div class="rname">sph1</div>
+      <div class="bar"><span style="width:102.7%;background:#5aa9e6"></span></div><span class="barlabel">1.44 GiB</span>
+    </div><div class="rankrow">
+      <div class="rname">presplit</div>
+      <div class="bar"><span style="width:28.3%;background:#5aa9e6"></span></div><span class="barlabel">407 MiB</span>
+    </div><div class="rankrow">
+      <div class="rname">smooth</div>
+      <div class="bar"><span style="width:27.8%;background:#5aa9e6"></span></div><span class="barlabel">399 MiB</span>
+    </div><div class="rankrow">
+      <div class="rname">airblast</div>
+      <div class="bar"><span style="width:20.4%;background:#5aa9e6"></span></div><span class="barlabel">293 MiB</span>
+    </div><div class="rankrow">
+      <div class="rname">tnt_1</div>
+      <div class="bar"><span style="width:10.8%;background:#5aa9e6"></span></div><span class="barlabel">155 MiB</span>
+    </div><div class="rankrow">
+      <div class="rname">tnt_re1</div>
+      <div class="bar"><span style="width:5.6%;background:#5aa9e6"></span></div><span class="barlabel">80 MiB</span>
+    </div></div>
+
+<h2>逐算例明细</h2>
+<div class="card"><table>
+  <tr><th>算例</th><th class="num">源 d3plot</th><th class="num">容器</th><th class="num">占源</th>
+      <th class="num">帧数</th><th class="num">单帧未压缩</th><th class="num">zstd</th><th>主要字段</th></tr>
+  <tr>
+      <td><b>sph1</b><div class="sub">PBM 粒子爆破 · mixed</div></td>
+      <td class="num">12.34 GiB</td>
+      <td class="num"><b>1.44 GiB</b><div class="sub">mesh 38 MiB + frames 1.40 GiB</div></td>
+      <td class="num">12%</td>
+      <td class="num">87</td>
+      <td class="num">27.33 MiB</td>
+      <td class="num">1.66×</td>
+      <td class="sub">stress 57%、u 14%、vel 14%</td>
+    </tr><tr>
+      <td><b>presplit</b><div class="sub">预裂爆破 · fem</div></td>
+      <td class="num">7.91 GiB</td>
+      <td class="num"><b>407 MiB</b><div class="sub">mesh 18 MiB + frames 389 MiB</div></td>
+      <td class="num">5%</td>
+      <td class="num">102</td>
+      <td class="num">10.44 MiB</td>
+      <td class="num">2.73×</td>
+      <td class="sub">stress 61%、u 15%、vel 15%</td>
+    </tr><tr>
+      <td><b>smooth</b><div class="sub">光面爆破 · fem</div></td>
+      <td class="num">5.32 GiB</td>
+      <td class="num"><b>399 MiB</b><div class="sub">mesh 18 MiB + frames 382 MiB</div></td>
+      <td class="num">7%</td>
+      <td class="num">102</td>
+      <td class="num">10.44 MiB</td>
+      <td class="num">2.79×</td>
+      <td class="sub">stress 61%、u 15%、vel 15%</td>
+    </tr><tr>
+      <td><b>airblast</b><div class="sub">空气中爆炸 · ale</div></td>
+      <td class="num">3.15 GiB</td>
+      <td class="num"><b>293 MiB</b><div class="sub">mesh 4 MiB + frames 289 MiB</div></td>
+      <td class="num">9%</td>
+      <td class="num">222</td>
+      <td class="num">2.74 MiB</td>
+      <td class="num">2.10×</td>
+      <td class="sub">stress 58%、u 14%、vel 14%</td>
+    </tr><tr>
+      <td><b>tnt_1</b><div class="sub">混凝土-算例1 · fem</div></td>
+      <td class="num">641 MiB</td>
+      <td class="num"><b>155 MiB</b><div class="sub">mesh 2 MiB + frames 153 MiB</div></td>
+      <td class="num">24%</td>
+      <td class="num">102</td>
+      <td class="num">3.18 MiB</td>
+      <td class="num">2.12×</td>
+      <td class="sub">hist 51%、stress 29%、u 7%</td>
+    </tr><tr>
+      <td><b>tnt_re1</b><div class="sub">混凝土-算例1-rerun · fem</div></td>
+      <td class="num">641 MiB</td>
+      <td class="num"><b>80 MiB</b><div class="sub">mesh 2 MiB + frames 78 MiB</div></td>
+      <td class="num">13%</td>
+      <td class="num">102</td>
+      <td class="num">1.56 MiB</td>
+      <td class="num">2.04×</td>
+      <td class="sub">stress 59%、u 15%、vel 15%</td>
+    </tr>
+</table>
+<div class="note">「占源」= 容器 / 源 d3plot 目录下 <code>d3plot*</code> 文件合计；mesh.bin 是表面网格（未压缩），frames.bin 是逐帧场数据（u2 + zstd）。</div>
+</div>
+
+<h2>帧内字段构成（每帧未压缩字节占比）</h2>
+<div class="card"><div class="frow">
+      <div class="fname">sph1<span class="sub"> 27.33 MiB/帧</span></div>
+      <div class="stack"><span style="width:56.51%;background:#5aa9e6" title="stress 56.5%"></span><span style="width:14.13%;background:#f2b134" title="u 14.1%"></span><span style="width:14.13%;background:#7bd389" title="vel 14.1%"></span><span style="width:4.17%;background:#e06c75" title="damage 4.2%"></span><span style="width:4.17%;background:#b48ead" title="eps 4.2%"></span><span style="width:6.88%;background:#3a4250" title="其余字段"></span></div>
+      <div class="legend"><i style="background:#5aa9e6"></i>stress 57% <i style="background:#f2b134"></i>u 14% <i style="background:#7bd389"></i>vel 14% <i style="background:#e06c75"></i>damage 4% <i style="background:#b48ead"></i>eps 4% <i style="background:#3a4250"></i>其余</div>
+    </div><div class="frow">
+      <div class="fname">presplit<span class="sub"> 10.44 MiB/帧</span></div>
+      <div class="stack"><span style="width:61.48%;background:#5aa9e6" title="stress 61.5%"></span><span style="width:15.37%;background:#f2b134" title="u 15.4%"></span><span style="width:15.37%;background:#7bd389" title="vel 15.4%"></span><span style="width:2.54%;background:#e06c75" title="damage 2.5%"></span><span style="width:2.54%;background:#b48ead" title="eps 2.5%"></span><span style="width:2.70%;background:#3a4250" title="其余字段"></span></div>
+      <div class="legend"><i style="background:#5aa9e6"></i>stress 61% <i style="background:#f2b134"></i>u 15% <i style="background:#7bd389"></i>vel 15% <i style="background:#e06c75"></i>damage 3% <i style="background:#b48ead"></i>eps 3% <i style="background:#3a4250"></i>其余</div>
+    </div><div class="frow">
+      <div class="fname">smooth<span class="sub"> 10.44 MiB/帧</span></div>
+      <div class="stack"><span style="width:61.48%;background:#5aa9e6" title="stress 61.5%"></span><span style="width:15.37%;background:#f2b134" title="u 15.4%"></span><span style="width:15.37%;background:#7bd389" title="vel 15.4%"></span><span style="width:2.54%;background:#e06c75" title="damage 2.5%"></span><span style="width:2.54%;background:#b48ead" title="eps 2.5%"></span><span style="width:2.70%;background:#3a4250" title="其余字段"></span></div>
+      <div class="legend"><i style="background:#5aa9e6"></i>stress 61% <i style="background:#f2b134"></i>u 15% <i style="background:#7bd389"></i>vel 15% <i style="background:#e06c75"></i>damage 3% <i style="background:#b48ead"></i>eps 3% <i style="background:#3a4250"></i>其余</div>
+    </div><div class="frow">
+      <div class="fname">airblast<span class="sub"> 2.74 MiB/帧</span></div>
+      <div class="stack"><span style="width:57.57%;background:#5aa9e6" title="stress 57.6%"></span><span style="width:14.39%;background:#f2b134" title="u 14.4%"></span><span style="width:14.39%;background:#7bd389" title="vel 14.4%"></span><span style="width:4.46%;background:#e06c75" title="damage 4.5%"></span><span style="width:4.46%;background:#b48ead" title="eps 4.5%"></span><span style="width:4.73%;background:#3a4250" title="其余字段"></span></div>
+      <div class="legend"><i style="background:#5aa9e6"></i>stress 58% <i style="background:#f2b134"></i>u 14% <i style="background:#7bd389"></i>vel 14% <i style="background:#e06c75"></i>damage 4% <i style="background:#b48ead"></i>eps 4% <i style="background:#3a4250"></i>其余</div>
+    </div><div class="frow">
+      <div class="fname">tnt_1<span class="sub"> 3.18 MiB/帧</span></div>
+      <div class="stack"><span style="width:50.99%;background:#5aa9e6" title="hist 51.0%"></span><span style="width:28.95%;background:#f2b134" title="stress 29.0%"></span><span style="width:7.24%;background:#7bd389" title="u 7.2%"></span><span style="width:7.24%;background:#e06c75" title="vel 7.2%"></span><span style="width:1.82%;background:#b48ead" title="damage 1.8%"></span><span style="width:3.76%;background:#3a4250" title="其余字段"></span></div>
+      <div class="legend"><i style="background:#5aa9e6"></i>hist 51% <i style="background:#f2b134"></i>stress 29% <i style="background:#7bd389"></i>u 7% <i style="background:#e06c75"></i>vel 7% <i style="background:#b48ead"></i>damage 2% <i style="background:#3a4250"></i>其余</div>
+    </div><div class="frow">
+      <div class="fname">tnt_re1<span class="sub"> 1.56 MiB/帧</span></div>
+      <div class="stack"><span style="width:59.08%;background:#5aa9e6" title="stress 59.1%"></span><span style="width:14.77%;background:#f2b134" title="u 14.8%"></span><span style="width:14.77%;background:#7bd389" title="vel 14.8%"></span><span style="width:3.72%;background:#e06c75" title="damage 3.7%"></span><span style="width:3.72%;background:#b48ead" title="eps 3.7%"></span><span style="width:3.95%;background:#3a4250" title="其余字段"></span></div>
+      <div class="legend"><i style="background:#5aa9e6"></i>stress 59% <i style="background:#f2b134"></i>u 15% <i style="background:#7bd389"></i>vel 15% <i style="background:#e06c75"></i>damage 4% <i style="background:#b48ead"></i>eps 4% <i style="background:#3a4250"></i>其余</div>
+    </div>
+<div class="note"><b>stress 是最大项</b>：6 个分量 × 节点数 × <code>f4</code>（4 字节），在 5 个算例里占 57~61%；
+它保持 f4 是因为 6 个分量量级差很大，共享 u2 的 scale/offset 会把小分量压成 0。
+tnt_1 里 <b>hist</b> 反而占 51%（nel × nv3d 个 word，显式开 <code>--extract hist</code> 才有）。</div>
+</div>
+
+<h2>可选的瘦身手段（按收益排序）</h2>
+<div class="card"><table>
+  <tr><th>手段</th><th class="num">瘦身后总量</th><th>代价</th></tr>
+  <tr><td><b>不提取 stress 层（6 分量 f4）</b><div class="sub">重转时去掉 --extract stress</div></td>
+      <td class="num good">1.24 GiB</td><td class="sub">失去 vm / σ1 / σ3 三个应力视图，位移/损伤/应变/压力/速度保留</td></tr>
+<tr><td><b>同时不提取 stress + hist</b><div class="sub">tnt_1 的 hist 占 51%（nel×nv3d）</div></td>
+      <td class="num good">1.16 GiB</td><td class="sub">再失去单元历史曲线（hist 图表）</td></tr>
+<tr><td><b>帧数降到 1/3</b><div class="sub">--frames-limit N（只保留前 N 帧）</div></td>
+      <td class="num good">937 MiB</td><td class="sub">时间分辨率变粗，看不到后期过程</td></tr>
+<tr><td><b>删掉 sph1 一个算例</b><div class="sub">前端标签悬停 × 或 DELETE /api/dyna/cases/sph1</div></td>
+      <td class="num good">1.30 GiB</td><td class="sub">失去该算例（可随时重转）</td></tr>
+<tr><td><b>平台不再存第二份</b><div class="sub">DYNA_DATA_DIR 指向 工作区/webapp/data_v3</div></td>
+      <td class="num good">2.74 GiB 磁盘</td><td class="sub">平台不再自包含，依赖外部目录</td></tr>
+</table>
+<div class="note">以上都是"重转"或"删数据"级别的手段，不做就不会变；压缩层面已经没有多少余量（zstd 已 2.03×，u2 量化已生效）。</div>
+</div>
+
+<h2>平台其他目录</h2>
+<div class="card"><table>
+  <tr><th>目录</th><th class="num">体积</th><th>说明</th></tr>
+  <tr><td>dyna/</td><td class="num">2.74 GiB</td><td class="sub">算例容器 + 报告 + 转换器（本报告主体）</td></tr>
+  <tr><td>backend-py/</td><td class="num">527 MiB</td><td class="sub">主要是 .venv（Python 依赖，可随时重建）</td></tr>
+  <tr><td>cesium1/</td><td class="num">≥175 MiB</td><td class="sub">前端源码 + node_modules：cesium 74 / element-plus 59 / three 29 / @dimforge 10 MiB（共 336 个包，未逐一统计）；生产构建后不需要</td></tr>
+  <tr><td>output/</td><td class="num">228 KiB</td><td class="sub">可忽略</td></tr>
+</table></div>
+
+<h2>现状</h2>
+<ul>
+  <li>已删除算例 <code>sph2</code>（约 288 MiB）：容器文件、<code>dyna_cases</code> / <code>dyna_case_files</code> 记录、<code>cases.json</code> 条目均已清理，删除链路验证通过。</li>
+  <li>工作区 <code>工作区/webapp/data_v3</code> 仍有一份同样的 3.1 GiB 拷贝，与平台这份互不引用（磁盘上实际占用翻倍）。</li>
+  <li>报告口径与数据库一致：<code>GET /api/dyna/files</code> 的 <code>bytes / raw_bytes / ratio</code> 与本报告同源。</li>
+</ul>
+
+</div></body></html>

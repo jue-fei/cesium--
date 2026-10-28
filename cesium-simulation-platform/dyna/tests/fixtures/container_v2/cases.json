@@ -1,0 +1,128 @@
+{
+ "fixture_hexa": {
+  "label": "fixture_hexa",
+  "key": "fixture_hexa",
+  "schema_version": 2,
+  "requires_frontend": 2,
+  "type": "fem",
+  "data_prefix": "fixture_hexa",
+  "mesh": "fixture_hexa.mesh.bin",
+  "frames": "fixture_hexa.frames.bin",
+  "nframes": 2,
+  "times": [
+   0.0,
+   0.09920589897057493
+  ],
+  "parts": [
+   {
+    "pid": 1,
+    "role": "structure",
+    "mat": "MAT_CONCRETE_DAMAGE_REL3",
+    "elems": 17100
+   },
+   {
+    "pid": 2,
+    "role": "structure",
+    "mat": "MAT_JOHNSON_COOK",
+    "elems": 2900
+   },
+   {
+    "pid": 3,
+    "role": "air",
+    "mat": "MAT_NULL",
+    "elems": 10376
+   },
+   {
+    "pid": 4,
+    "role": "explosive",
+    "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+    "elems": 24
+   }
+  ],
+  "part_types": {
+   "1": "structure",
+   "2": "structure",
+   "3": "air",
+   "4": "explosive"
+  },
+  "fields": [
+   {
+    "id": "u",
+    "location": "node",
+    "unit": "displacement",
+    "role": "field",
+    "confidence": "high"
+   },
+   {
+    "id": "damage",
+    "location": "element",
+    "unit": "-",
+    "role": "field",
+    "confidence": "high"
+   },
+   {
+    "id": "eps",
+    "location": "element",
+    "unit": "-",
+    "role": "field",
+    "confidence": "high"
+   },
+   {
+    "id": "pressure",
+    "location": "element",
+    "unit": "stress",
+    "role": "field",
+    "confidence": "high"
+   },
+   {
+    "id": "vel",
+    "location": "node",
+    "unit": "velocity",
+    "role": "field",
+    "confidence": "high"
+   },
+   {
+    "id": "active_mask",
+    "location": "element",
+    "unit": "-",
+    "role": "mask",
+    "confidence": "high"
+   }
+  ],
+  "low_confidence_fields": [],
+  "surf_groups": [
+   {
+    "partId": 1,
+    "role": "structure",
+    "quads": 9142
+   },
+   {
+    "partId": 2,
+    "role": "structure",
+    "quads": 6058
+   },
+   {
+    "partId": 3,
+    "role": "air",
+    "quads": 3840
+   },
+   {
+    "partId": 4,
+    "role": "explosive",
+    "quads": 68
+   }
+  ],
+  "particles": [],
+  "scales": {
+   "u": 0.0,
+   "damage": 0.0,
+   "eps": 0.0,
+   "pressure": 0.01719059608876705,
+   "vel": 1960.675048828125
+  },
+  "report": "C:\\Users\\allblack\\Desktop\\dyna转换\\工作区\\reports\\fixture_hexa.report.json",
+  "detector": {
+   "times_unit": "原始单位"
+  }
+ }
+}

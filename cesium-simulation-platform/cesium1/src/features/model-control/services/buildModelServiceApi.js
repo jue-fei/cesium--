@@ -79,6 +79,17 @@ export function buildModelServiceApi({
       selectedModel.value = model
     },
     highlightModel: model => interaction.highlightModel(model),
+    // 选中模型的包围球（世界坐标）：取要素所在瓦片的包围球，供切割面等需要
+    // “模型级基准”的功能使用；要素尚未加载时返回 null（调用方回退整场景）
+    getModelBounds: model => {
+      const featureId = model && (model.featureId || model.id)
+      if (!featureId) return null
+      const feature = interaction.featureManager.featureMap.get(featureId)
+      const tile = feature && feature.content && feature.content.tile
+      const sphere = tile && tile.boundingSphere
+      if (!sphere || !sphere.center || !(sphere.radius > 0)) return null
+      return { center: sphere.center, radius: sphere.radius }
+    },
     toggleFollowModel,
     followedModelId,
     showModelProperties: model => {

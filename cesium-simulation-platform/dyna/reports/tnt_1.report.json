@@ -1,0 +1,3091 @@
+{
+ "key": "tnt_1",
+ "label": "混凝土-算例1",
+ "dir": "C:\\Users\\allblack\\Desktop\\tnt\\1",
+ "ok": true,
+ "stage": "all",
+ "precision_mode": "auto",
+ "id_source": "k_elem_align",
+ "id_map_note": "k_elem_align",
+ "deck": {
+  "encoding": "utf-8-sig",
+  "include_files": [],
+  "contiguous": false
+ },
+ "container": {
+  "mesh": {
+   "path": "tnt_1.mesh.bin",
+   "header_bytes": 8212,
+   "blocks_bytes": 2517072,
+   "file_bytes": 2525292,
+   "header": {
+    "_doc": "自描述容器 v3。块区各块的 offset 是相对\"块区起点\"(=magic4+len4+header_json)的字节偏移，len 为元素个数，dtype: f4=f32, i4=i32, u1=uint8。coords/bbox 为模型单位(×units.length 得 m)；conn 是 i4[nel,8] 六面体连接表。值语义见 frames.bin 的 fields.scale/offset。faces 为四边形顶点索引(每 quad 4 个节点序号)，三角形化顺序固定：quad i → tri 2i(0,1,2) 与 2i+1(0,2,3)。markers/outline 为视觉层参数（起爆点标记样式尺寸、模型描边阈值），前端元数据驱动读取。",
+    "version": "D2W3",
+    "key": "tnt_1",
+    "schema_version": 2,
+    "id_base": 1,
+    "id_source": "k_elem_align",
+    "id_map_note": "k_elem_align",
+    "id_note": "编号来源：k_elem_align=连接表(内部)↔.k *ELEMENT_SOLID(用户)逐位对齐反推（双射且全覆盖）；contiguous=.k 编号恰为 1..N（arange 精确）；internal=d3plot 仅存内部编号 1..N（.k 用户编号带空洞、无 narbs 映射可恢复）；fallback=均不成立（按 1..N 假定）",
+    "source": {
+     "dir": "C:\\Users\\allblack\\Desktop\\tnt\\1",
+     "solver": "smp",
+     "version_raw": "R12",
+     "version_norm": "r12.0",
+     "d3plot_files": [
+      "d3plot",
+      "d3plot01",
+      "d3plot02",
+      "d3plot03",
+      "d3plot04",
+      "d3plot05",
+      "d3plot06"
+     ],
+     "stride": 818537,
+     "block_plan": [
+      {
+       "name": "time",
+       "words": 1,
+       "off": 0
+      },
+      {
+       "name": "globals",
+       "words": 34,
+       "off": 1
+      },
+      {
+       "name": "coords",
+       "words": 120834,
+       "off": 35
+      },
+      {
+       "name": "velocity",
+       "words": 120834,
+       "off": 120869
+      },
+      {
+       "name": "acceleration",
+       "words": 120834,
+       "off": 241703
+      },
+      {
+       "name": "solid_hist",
+       "words": 425600,
+       "off": 362537
+      },
+      {
+       "name": "solid_part",
+       "words": 30400,
+       "off": 788137
+      },
+      {
+       "name": "tail",
+       "words": 0,
+       "off": 818537
+      }
+     ],
+     "layout": {
+      "head_name": "blocks=3N(实测通用)",
+      "head": 362537,
+      "n_sph": 0,
+      "rec_sph": 0,
+      "n_pbm": 0,
+      "rec_pbm": 0,
+      "tail": 0,
+      "beam": 0,
+      "shell": 0,
+      "score": 11
+     },
+     "header": {
+      "title": null,
+      "run_time": null,
+      "ndim": 4,
+      "icode": 6,
+      "it": 0,
+      "iu": 1,
+      "iv": 1,
+      "ia": 1,
+      "maxint": -10003,
+      "verified": false,
+      "note": "title 取自 d3plot 头部前 80 字节；ndim/icode/it/iu/iv/ia/maxint 按 HDR_IDX 读取，未经逐版本核对，仅作审计线索；run_time 未解析（尾部格式随版本）"
+     }
+    },
+    "units": {
+     "length": 0.001,
+     "time": 0.001,
+     "mass": 1.0,
+     "stress": 1000000000.0,
+     "velocity": 1.0,
+     "density": 1000000000.0,
+     "energy": 1.0,
+     "force": 1000.0,
+     "displacement": 0.001,
+     "acceleration": 1000.0
+    },
+    "units_system": "kg-mm-ms",
+    "units_doc": "length→m, time→s, mass→kg, stress→Pa, velocity→m/s, density→kg/m³, energy→J, force→N, displacement→m",
+    "counts": {
+     "numnp": 40278,
+     "nel": 30400
+    },
+    "bbox": {
+     "min": [
+      -1040.0,
+      0.0,
+      0.0
+     ],
+     "max": [
+      1040.0,
+      300.0,
+      1000.0
+     ],
+     "size": [
+      2080.0,
+      300.0,
+      1000.0
+     ]
+    },
+    "parts": [
+     {
+      "pid": 1,
+      "name": "cement",
+      "mat": "MAT_CONCRETE_DAMAGE_REL3",
+      "sec": "section_solid_title",
+      "roles": [
+       "structure"
+      ],
+      "elform": 1,
+      "thickness": null,
+      "elems": 17100,
+      "basis": ".k: pid1 -> MAT_CONCRETE_DAMAGE_REL3(未在映射表, 默认 structure)"
+     },
+     {
+      "pid": 2,
+      "name": "I beam",
+      "mat": "MAT_JOHNSON_COOK",
+      "sec": "section_solid_title",
+      "roles": [
+       "structure"
+      ],
+      "elform": 1,
+      "thickness": null,
+      "elems": 2900,
+      "basis": ".k: pid2 -> MAT_JOHNSON_COOK + section_solid_title"
+     },
+     {
+      "pid": 3,
+      "name": "air",
+      "mat": "MAT_NULL",
+      "sec": "section_solid_title",
+      "roles": [
+       "air"
+      ],
+      "elform": 11,
+      "thickness": null,
+      "elems": 10376,
+      "basis": ".k: pid3 -> MAT_NULL + section_solid_title"
+     },
+     {
+      "pid": 4,
+      "name": "TNT",
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "sec": "section_solid_title",
+      "roles": [
+       "explosive"
+      ],
+      "elform": 11,
+      "thickness": null,
+      "elems": 24,
+      "basis": ".k: pid4 -> MAT_HIGH_EXPLOSIVE_BURN + section_solid_title"
+     }
+    ],
+    "deto": [
+     {
+      "pid": 4,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 1000.0,
+      "lt": 0.0
+     }
+    ],
+    "markers": {
+     "kind": "point",
+     "dot_ratio": 0.011,
+     "dim_factor": 0.45,
+     "bucket": 100.0,
+     "delay_colors": [
+      [
+       1.0,
+       0.25,
+       0.2
+      ],
+      [
+       1.0,
+       0.62,
+       0.1
+      ],
+      [
+       1.0,
+       0.9,
+       0.3
+      ],
+      [
+       0.5,
+       1.0,
+       0.3
+      ],
+      [
+       0.3,
+       1.0,
+       0.95
+      ]
+     ]
+    },
+    "outline": {
+     "crease_deg": 60.0,
+     "frag_ratio": 0.02,
+     "flat_deg": 1.5,
+     "width_px": 1.9
+    },
+    "fieldmap": [
+     {
+      "pid": 1,
+      "mat": "MAT_CONCRETE_DAMAGE_REL3",
+      "elem_type": "solid",
+      "role": "structure",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_CONCRETE_DAMAGE_REL3); nv3d=14命中; 核对依据: 已核对(2026-10-19)：w6 = 该本构的**比例损伤变量 δ**(Scaled damage factor)，容器直接存 δ(0..2)，不再乘 0.5。证据：① tnt/1 与 re-1 的混凝土(part1) 实测 w6 在 t≈0.1 时全 0、爆心区单调上升到**恒定上限 2.000**（两算例一致）；② LS-DYNA 官方历史变量表：*MAT_072R3 实体的第 6 个历史变量 = lambda（损伤）；③ 工程文献定义 δ=0 弹性 / 0<δ<1 屈服塑性 / 1<δ<2 软化（故上限 2）。**eps 字段已删除**：w7 实测中位数为次正规噪声 1.26e-27、早期峰值 293.7（re-1 为 503.4）、t≈2 出现负值 -11.6，不可能是有效塑性应变；且该 run 的 *DATABASE_EXTENT_BINARY 未请求额外历史变量（d3hsp: number of extra history variables for solids = 0）、w8..w13 恒 0 → 判定 w7 为未填充缓冲区的残留值，不输出。可 --fieldmap 覆盖",
+      "fields": {
+       "stress": [
+        0,
+        6
+       ],
+       "damage": 6,
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     },
+     {
+      "pid": 2,
+      "mat": "MAT_JOHNSON_COOK",
+      "elem_type": "solid",
+      "role": "structure",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_JOHNSON_COOK); nv3d=14命中; 核对依据: tnt/1 的 I 梁(part2)实测：w6 塑性应变仅屈服单元非零(37/2900)，w7 另有小量值，w8 恒 0（该算例未输损伤）",
+      "fields": {
+       "stress": [
+        0,
+        6
+       ],
+       "eps": 6,
+       "damage": 8,
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     },
+     {
+      "pid": 3,
+      "mat": "MAT_NULL",
+      "elem_type": "solid",
+      "role": "air",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_NULL); nv3d=14命中; 核对依据: 空气/ALE 实测：w0=w1=w2=压力(压为负)。w11 不可靠（单材料 ALE 时像密度 5.8e-4~0.84，多材料 ALE(tnt/1) 时是材料分数 1~2），故不输出 density 字段",
+      "fields": {
+       "stress": [
+        0,
+        6
+       ],
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     },
+     {
+      "pid": 4,
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "elem_type": "solid",
+      "role": "explosive",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=14命中; 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+      "fields": {
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     }
+    ],
+    "surf_groups": [
+     {
+      "partId": 1,
+      "role": "structure",
+      "kind": "solid",
+      "quads": 9142,
+      "stat": {
+       "ext_raw": 9142,
+       "quads": 9142,
+       "degenerate": 0,
+       "flipped": 2400,
+       "open_edges": 0,
+       "directed_conflicts": 0,
+       "edges": 36568
+      },
+      "faces": {
+       "len": 36568,
+       "dtype": "i4",
+       "offset": 1982048
+      },
+      "owner_elem": {
+       "len": 9142,
+       "dtype": "i4",
+       "offset": 2128320
+      },
+      "ecent": {
+       "len": 18284,
+       "dtype": "f4",
+       "offset": 2164888
+      }
+     },
+     {
+      "partId": 2,
+      "role": "structure",
+      "kind": "solid",
+      "quads": 6058,
+      "stat": {
+       "ext_raw": 6058,
+       "quads": 6058,
+       "degenerate": 0,
+       "flipped": 1400,
+       "open_edges": 0,
+       "directed_conflicts": 0,
+       "edges": 24232
+      },
+      "faces": {
+       "len": 24232,
+       "dtype": "i4",
+       "offset": 2238024
+      },
+      "owner_elem": {
+       "len": 6058,
+       "dtype": "i4",
+       "offset": 2334952
+      },
+      "ecent": {
+       "len": 12116,
+       "dtype": "f4",
+       "offset": 2359184
+      }
+     },
+     {
+      "partId": 3,
+      "role": "air",
+      "kind": "solid",
+      "quads": 3840,
+      "stat": {
+       "ext_raw": 3840,
+       "quads": 3840,
+       "degenerate": 0,
+       "flipped": 416,
+       "open_edges": 0,
+       "directed_conflicts": 0,
+       "edges": 15360
+      },
+      "faces": {
+       "len": 15360,
+       "dtype": "i4",
+       "offset": 2407648
+      },
+      "owner_elem": {
+       "len": 3840,
+       "dtype": "i4",
+       "offset": 2469088
+      },
+      "ecent": {
+       "len": 7680,
+       "dtype": "f4",
+       "offset": 2484448
+      }
+     },
+     {
+      "partId": 4,
+      "role": "explosive",
+      "kind": "solid",
+      "quads": 68,
+      "stat": {
+       "ext_raw": 68,
+       "quads": 68,
+       "degenerate": 0,
+       "flipped": 24,
+       "open_edges": 0,
+       "directed_conflicts": 0,
+       "edges": 272
+      },
+      "faces": {
+       "len": 272,
+       "dtype": "i4",
+       "offset": 2515168
+      },
+      "owner_elem": {
+       "len": 68,
+       "dtype": "i4",
+       "offset": 2516256
+      },
+      "ecent": {
+       "len": 136,
+       "dtype": "f4",
+       "offset": 2516528
+      }
+     }
+    ],
+    "particles": [],
+    "coords": {
+     "offset": 0,
+     "len": 120834,
+     "dtype": "f4"
+    },
+    "node_ids": {
+     "offset": 483336,
+     "len": 40278,
+     "dtype": "i4"
+    },
+    "elem_ids": {
+     "offset": 644448,
+     "len": 30400,
+     "dtype": "i4"
+    },
+    "conn": {
+     "offset": 766048,
+     "len": 243200,
+     "dtype": "i4",
+     "shape": [
+      30400,
+      8
+     ]
+    },
+    "conn_part": {
+     "offset": 1738848,
+     "len": 30400,
+     "dtype": "i4"
+    },
+    "elem_volume": {
+     "offset": 1860448,
+     "len": 30400,
+     "dtype": "f4"
+    }
+   }
+  },
+  "frames": {
+   "path": "tnt_1.frames.bin",
+   "bytes": 160358576,
+   "frame_bytes": 3338608,
+   "codec": "zstd",
+   "raw_bytes": 340538016,
+   "ratio": 2.12
+  }
+ },
+ "block_plan": [
+  {
+   "name": "time",
+   "words": 1,
+   "off": 0
+  },
+  {
+   "name": "globals",
+   "words": 34,
+   "off": 1
+  },
+  {
+   "name": "coords",
+   "words": 120834,
+   "off": 35
+  },
+  {
+   "name": "velocity",
+   "words": 120834,
+   "off": 120869
+  },
+  {
+   "name": "acceleration",
+   "words": 120834,
+   "off": 241703
+  },
+  {
+   "name": "solid_hist",
+   "words": 425600,
+   "off": 362537
+  },
+  {
+   "name": "solid_part",
+   "words": 30400,
+   "off": 788137
+  },
+  {
+   "name": "tail",
+   "words": 0,
+   "off": 818537
+  }
+ ],
+ "block_solution": {
+  "head_name": "blocks=3N(实测通用)",
+  "head": 362537,
+  "n_sph": 0,
+  "rec_sph": 0,
+  "n_pbm": 0,
+  "rec_pbm": 0,
+  "tail": 0,
+  "beam": 0,
+  "shell": 0,
+  "score": 11
+ },
+ "block_candidates": [
+  {
+   "head_name": "blocks=3N(实测通用)",
+   "head": 362537,
+   "n_sph": 0,
+   "rec_sph": 0,
+   "n_pbm": 0,
+   "rec_pbm": 0,
+   "tail": 0,
+   "beam": 0,
+   "shell": 0,
+   "score": 11
+  },
+  {
+   "head_name": "blocks=(1+iu+ia)*N",
+   "head": 362537,
+   "n_sph": 0,
+   "rec_sph": 0,
+   "n_pbm": 0,
+   "rec_pbm": 0,
+   "tail": 0,
+   "beam": 0,
+   "shell": 0,
+   "score": 8
+  }
+ ],
+ "particle_slots": null,
+ "part_source": "k_deck",
+ "part_map": null,
+ "part_map_note": "编号本就与 .k *PART 一致（无需重编号）",
+ "layout_probe": {
+  "accepted": "FEM/ALE blocks=3N(实测通用), tail=0, 无粒子",
+  "stride": 818537,
+  "library_entry": "r12.*|smp",
+  "fp_msg": "基文件坐标 @ 字 66（与 d3plot01 状态0 匹配）"
+ },
+ "geometry": {
+  "numnp": 40278,
+  "nel": 30400,
+  "nv3d": 14,
+  "nglbv": 34,
+  "bbox": {
+   "min": [
+    -1040.0,
+    0.0,
+    0.0
+   ],
+   "max": [
+    1040.0,
+    300.0,
+    1000.0
+   ],
+   "size": [
+    2080.0,
+    300.0,
+    1000.0
+   ]
+  },
+  "n_sph": 0,
+  "n_pbm": 0,
+  "node_base": 1,
+  "elem_base": 1,
+  "note": "bbox 与 coords 均为模型单位（×units.length → m）；conn 为 i4[nel,8] 六面体连接表"
+ },
+ "elements_note": null,
+ "elements": {
+  "nel8": 30400,
+  "nel4": 0,
+  "nel2": 0,
+  "source": "header hint（索引未验证，仅提示；nv3d=0 已置 0）",
+  "shell": null,
+  "unhandled": null,
+  "shell_confidence": null,
+  "note": "P2 静态实现：壳按中面四边形尝试提取（d3plot 布局未验证）；梁/2D 未实现"
+ },
+ "surf": [
+  {
+   "partId": 1,
+   "role": "structure",
+   "elems": 17100,
+   "ext_raw": 9142,
+   "quads": 9142,
+   "degenerate": 0,
+   "flipped": 2400,
+   "open_edges": 0,
+   "directed_conflicts": 0,
+   "edges": 36568
+  },
+  {
+   "partId": 2,
+   "role": "structure",
+   "elems": 2900,
+   "ext_raw": 6058,
+   "quads": 6058,
+   "degenerate": 0,
+   "flipped": 1400,
+   "open_edges": 0,
+   "directed_conflicts": 0,
+   "edges": 24232
+  },
+  {
+   "partId": 3,
+   "role": "air",
+   "elems": 10376,
+   "ext_raw": 3840,
+   "quads": 3840,
+   "degenerate": 0,
+   "flipped": 416,
+   "open_edges": 0,
+   "directed_conflicts": 0,
+   "edges": 15360
+  },
+  {
+   "partId": 4,
+   "role": "explosive",
+   "elems": 24,
+   "ext_raw": 68,
+   "quads": 68,
+   "degenerate": 0,
+   "flipped": 24,
+   "open_edges": 0,
+   "directed_conflicts": 0,
+   "edges": 272
+  }
+ ],
+ "surf_note": "各 part 外表面闭合（开边 0 / 退化 0）",
+ "particles": [],
+ "fieldmap": [
+  {
+   "pid": 1,
+   "mat": "MAT_CONCRETE_DAMAGE_REL3",
+   "elem_type": "solid",
+   "role": "structure",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_CONCRETE_DAMAGE_REL3); nv3d=14命中; 核对依据: 已核对(2026-10-19)：w6 = 该本构的**比例损伤变量 δ**(Scaled damage factor)，容器直接存 δ(0..2)，不再乘 0.5。证据：① tnt/1 与 re-1 的混凝土(part1) 实测 w6 在 t≈0.1 时全 0、爆心区单调上升到**恒定上限 2.000**（两算例一致）；② LS-DYNA 官方历史变量表：*MAT_072R3 实体的第 6 个历史变量 = lambda（损伤）；③ 工程文献定义 δ=0 弹性 / 0<δ<1 屈服塑性 / 1<δ<2 软化（故上限 2）。**eps 字段已删除**：w7 实测中位数为次正规噪声 1.26e-27、早期峰值 293.7（re-1 为 503.4）、t≈2 出现负值 -11.6，不可能是有效塑性应变；且该 run 的 *DATABASE_EXTENT_BINARY 未请求额外历史变量（d3hsp: number of extra history variables for solids = 0）、w8..w13 恒 0 → 判定 w7 为未填充缓冲区的残留值，不输出。可 --fieldmap 覆盖",
+   "fields": {
+    "stress": [
+     0,
+     6
+    ],
+    "damage": 6,
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "pid": 2,
+   "mat": "MAT_JOHNSON_COOK",
+   "elem_type": "solid",
+   "role": "structure",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_JOHNSON_COOK); nv3d=14命中; 核对依据: tnt/1 的 I 梁(part2)实测：w6 塑性应变仅屈服单元非零(37/2900)，w7 另有小量值，w8 恒 0（该算例未输损伤）",
+   "fields": {
+    "stress": [
+     0,
+     6
+    ],
+    "eps": 6,
+    "damage": 8,
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "pid": 3,
+   "mat": "MAT_NULL",
+   "elem_type": "solid",
+   "role": "air",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_NULL); nv3d=14命中; 核对依据: 空气/ALE 实测：w0=w1=w2=压力(压为负)。w11 不可靠（单材料 ALE 时像密度 5.8e-4~0.84，多材料 ALE(tnt/1) 时是材料分数 1~2），故不输出 density 字段",
+   "fields": {
+    "stress": [
+     0,
+     6
+    ],
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "pid": 4,
+   "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+   "elem_type": "solid",
+   "role": "explosive",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=14命中; 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+   "fields": {
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  }
+ ],
+ "fields": [
+  {
+   "id": "u",
+   "dtype": "u2",
+   "location": "node",
+   "count": 120834,
+   "scale": 0.003592391133062843,
+   "offset": -98.90522766113281,
+   "role": "field",
+   "unit": "displacement",
+   "comps": 3,
+   "shape": [
+    40278,
+    3
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "damage",
+   "dtype": "u2",
+   "location": "element",
+   "count": 30400,
+   "scale": 3.0518043793392844e-05,
+   "offset": 0.0,
+   "role": "field",
+   "unit": "-",
+   "comps": 1,
+   "shape": [
+    30400
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "eps",
+   "dtype": "u2",
+   "location": "element",
+   "count": 30400,
+   "scale": 3.5033194004166015e-08,
+   "offset": 0.0,
+   "role": "field",
+   "unit": "-",
+   "comps": 1,
+   "shape": [
+    30400
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "pressure",
+   "dtype": "u2",
+   "location": "element",
+   "count": 30400,
+   "scale": 4.650436741377875e-06,
+   "offset": -0.06738179922103882,
+   "role": "field",
+   "unit": "stress",
+   "comps": 1,
+   "shape": [
+    30400
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "stress",
+   "dtype": "f4",
+   "location": "node",
+   "count": 241668,
+   "scale": 1.0,
+   "offset": 0.0,
+   "role": "field",
+   "unit": "stress",
+   "comps": 6,
+   "components": [
+    "sxx",
+    "syy",
+    "szz",
+    "sxy",
+    "syz",
+    "sxz"
+   ],
+   "shape": [
+    40278,
+    6
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "vel",
+   "dtype": "u2",
+   "location": "node",
+   "count": 120834,
+   "scale": 0.30209464348725873,
+   "offset": -9606.1572265625,
+   "role": "field",
+   "unit": "velocity",
+   "comps": 3,
+   "components": null,
+   "shape": [
+    40278,
+    3
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "hist",
+   "dtype": "f4",
+   "location": "element",
+   "count": 425600,
+   "scale": 1.0,
+   "offset": 0.0,
+   "role": "field",
+   "unit": "varies",
+   "comps": 14,
+   "shape": [
+    30400,
+    14
+   ],
+   "hist_words": [
+    {
+     "w": 0,
+     "name": "sxx",
+     "unit": "stress"
+    },
+    {
+     "w": 1,
+     "name": "syy",
+     "unit": "stress"
+    },
+    {
+     "w": 2,
+     "name": "szz",
+     "unit": "stress"
+    },
+    {
+     "w": 3,
+     "name": "sxy",
+     "unit": "stress"
+    },
+    {
+     "w": 4,
+     "name": "syz",
+     "unit": "stress"
+    },
+    {
+     "w": 5,
+     "name": "sxz",
+     "unit": "stress"
+    },
+    {
+     "w": 6,
+     "name": "history var#6",
+     "confidence": "unknown"
+    },
+    {
+     "w": 7,
+     "name": "history var#7",
+     "confidence": "unknown"
+    },
+    {
+     "w": 8,
+     "name": "history var#8",
+     "confidence": "unknown"
+    },
+    {
+     "w": 9,
+     "name": "history var#9",
+     "confidence": "unknown"
+    },
+    {
+     "w": 10,
+     "name": "history var#10",
+     "confidence": "unknown"
+    },
+    {
+     "w": 11,
+     "name": "history var#11",
+     "confidence": "unknown"
+    },
+    {
+     "w": 12,
+     "name": "history var#12",
+     "confidence": "unknown"
+    },
+    {
+     "w": 13,
+     "name": "history var#13",
+     "confidence": "unknown"
+    }
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "active_mask",
+   "dtype": "u1",
+   "location": "element",
+   "count": 3800,
+   "scale": 1.0,
+   "offset": 0.0,
+   "role": "mask",
+   "bits": 30400,
+   "unit": "-",
+   "comps": 1,
+   "shape": [
+    30400
+   ],
+   "_doc": "1 bit/单元, 1=未删除; byte=idx>>3, bit=idx&7(LSB 优先, 与 np.packbits(bitorder=\"little\") 一致)",
+   "confidence": "high"
+  }
+ ],
+ "extract_layers": [
+  "stress",
+  "velocity",
+  "hist"
+ ],
+ "low_confidence_fields": [],
+ "units": {
+  "pick": "kg-mm-ms",
+  "factors": {
+   "length": 0.001,
+   "time": 0.001,
+   "mass": 1.0,
+   "stress": 1000000000.0,
+   "velocity": 1.0,
+   "density": 1000000000.0,
+   "energy": 1.0,
+   "force": 1000.0,
+   "displacement": 0.001,
+   "acceleration": 1000.0
+  },
+  "source": {
+   "candidates": [
+    {
+     "system": "kg-mm-ms",
+     "model_span_m": 2.08,
+     "total_time_s": 0.010000927843016778,
+     "ppv_m_s": 3609.52,
+     "pressure_pa": 61800000.0,
+     "ok_span": true,
+     "ok_time": true,
+     "ok_ppv": true,
+     "ok_pressure": true,
+     "score": 4,
+     "plausible": true
+    },
+    {
+     "system": "g-cm-µs",
+     "model_span_m": 20.8,
+     "total_time_s": 1.0000927843016776e-05,
+     "ppv_m_s": 36095175.08,
+     "pressure_pa": 6180000000.0,
+     "ok_span": true,
+     "ok_time": true,
+     "ok_ppv": false,
+     "ok_pressure": true,
+     "score": 3,
+     "plausible": true
+    },
+    {
+     "system": "g-mm-ms",
+     "model_span_m": 2.08,
+     "total_time_s": 0.010000927843016778,
+     "ppv_m_s": 3609.52,
+     "pressure_pa": 61800.0,
+     "ok_span": true,
+     "ok_time": true,
+     "ok_ppv": true,
+     "ok_pressure": false,
+     "score": 3,
+     "plausible": true
+    },
+    {
+     "system": "t-mm-s",
+     "model_span_m": 2.08,
+     "total_time_s": 10.000927843016777,
+     "ppv_m_s": 3.61,
+     "pressure_pa": 61800.0,
+     "ok_span": true,
+     "ok_time": false,
+     "ok_ppv": true,
+     "ok_pressure": false,
+     "score": 2,
+     "plausible": false
+    },
+    {
+     "system": "kg-m-s",
+     "model_span_m": 2080.0,
+     "total_time_s": 10.000927843016777,
+     "ppv_m_s": 3609.52,
+     "pressure_pa": 0.0618,
+     "ok_span": false,
+     "ok_time": false,
+     "ok_ppv": true,
+     "ok_pressure": false,
+     "score": 1,
+     "plausible": false
+    }
+   ],
+   "pick": "kg-mm-ms",
+   "ambiguous": false,
+   "basis": [
+    "材料常数锚点定论：kg-mm-ms。该项下 空气密度/kg·m⁻³=1.293、炸药密度/kg·m⁻³=1630.0、爆速/m·s⁻¹=7840.0、PCJ/GPa=26.0；命中 4 项，领先次高 3 项",
+    "场值锚点交叉核对（同一 kg-mm-ms 制下）：模型尺度 2.08 m、总时长 0.01 s、PPV 3609.52 m/s、峰值压力 61800000.0 Pa（场值得分 4/4；时长/压力若越阈值区间，是算例结果量级偏小，不改判据）",
+    "最大节点速度原始值 3609.52（模型单位）→ 各制换算：kg-mm-ms:3609.52 / g-cm-µs:36095175.08 / g-mm-ms:3609.52 / t-mm-s:3.61 / kg-m-s:3609.52",
+    "峰值压力原始值 0.0617963（模型单位）→ 各制换算：kg-mm-ms:61800000.0 / g-cm-µs:6180000000.0 / g-mm-ms:61800.0 / t-mm-s:61800.0 / kg-m-s:0.0618",
+    "d3plot 末帧原始时间 10 与 .k ENDTIM=10.0 相对差 0.01% → 时间单位与 .k 一致"
+   ],
+   "confidence": "high",
+   "endtim_from_k": 10.0,
+   "last_time_raw": 10.000927843016777,
+   "vmax_raw": 3609.5175081009284,
+   "pmax_raw": 0.06179634086950989,
+   "deck_hint": "kg-mm-ms",
+   "endtim_rel_diff": 9.278430167771745e-05
+  },
+  "override": false,
+  "deck_check": {
+   "deck_ro_air": 1.293e-09,
+   "deck_ro_explosive": 1.63e-06,
+   "deck_detonation_d": 7840.0,
+   "deck_rock_shear": null,
+   "deck_pcj": 26.0,
+   "candidates": [
+    {
+     "system": "g-cm-µs",
+     "air_density_kg_m3": 1.293e-06,
+     "explosive_ro_kg_m3": 0.0016300000000000002,
+     "det_velocity_m_s": 78400000.0,
+     "rock_shear_gpa": null,
+     "pcj_gpa": 2600.0,
+     "hits": 0
+    },
+    {
+     "system": "g-mm-ms",
+     "air_density_kg_m3": 0.0012929999999999999,
+     "explosive_ro_kg_m3": 1.6300000000000001,
+     "det_velocity_m_s": 7840.0,
+     "rock_shear_gpa": null,
+     "pcj_gpa": 0.026,
+     "hits": 1
+    },
+    {
+     "system": "kg-mm-ms",
+     "air_density_kg_m3": 1.293,
+     "explosive_ro_kg_m3": 1630.0,
+     "det_velocity_m_s": 7840.0,
+     "rock_shear_gpa": null,
+     "pcj_gpa": 26.0,
+     "hits": 4
+    },
+    {
+     "system": "t-mm-s",
+     "air_density_kg_m3": 1293.0,
+     "explosive_ro_kg_m3": 1630000.0,
+     "det_velocity_m_s": 7.84,
+     "rock_shear_gpa": null,
+     "pcj_gpa": 0.026,
+     "hits": 0
+    },
+    {
+     "system": "kg-m-s",
+     "air_density_kg_m3": 1.293e-09,
+     "explosive_ro_kg_m3": 1.63e-06,
+     "det_velocity_m_s": 7840.0,
+     "rock_shear_gpa": null,
+     "pcj_gpa": 2.6e-08,
+     "hits": 1
+    }
+   ],
+   "stress_hint_system": "kg-mm-ms",
+   "stress_hint_score": 1,
+   "material_hint_system": "kg-mm-ms",
+   "material_hint_score": 4,
+   "material_hint_margin": 3
+  }
+ },
+ "interpolation": {
+  "location": "element",
+  "weight": "单元体积加权（六面体 6 四面体分解）",
+  "peaks_element": {
+   "damage": 2.0,
+   "eps": 0.0022959003690630198,
+   "pressure": 0.23738457262516022
+  },
+  "peaks_node": {
+   "damage": 0.0,
+   "eps": 0.0,
+   "pressure": 0.0
+  },
+  "note": "单元→节点会抹平峰值；两处峰值差即该效应的量化"
+ },
+ "states": {
+  "total": 102,
+  "per_file": [
+   {
+    "file": "d3plot",
+    "kind": "base",
+    "words": 465408,
+    "states": 0,
+    "body": 465408
+   },
+   {
+    "file": "d3plot01",
+    "kind": "seq",
+    "words": 18008064,
+    "states": 22,
+    "body": 18008064
+   },
+   {
+    "file": "d3plot02",
+    "kind": "seq",
+    "words": 18008064,
+    "states": 22,
+    "body": 18008064
+   },
+   {
+    "file": "d3plot03",
+    "kind": "seq",
+    "words": 18008064,
+    "states": 22,
+    "body": 18008064
+   },
+   {
+    "file": "d3plot04",
+    "kind": "seq",
+    "words": 18008064,
+    "states": 22,
+    "body": 18008064
+   },
+   {
+    "file": "d3plot05",
+    "kind": "seq",
+    "words": 10641408,
+    "states": 13,
+    "body": 10641408
+   },
+   {
+    "file": "d3plot06",
+    "kind": "seq",
+    "words": 818688,
+    "states": 1,
+    "body": 818688
+   }
+  ],
+  "times": [
+   0.0,
+   0.09920589897057493,
+   0.19957764913513046,
+   0.29994939929968695,
+   0.3989922778032113,
+   0.49946933220913825,
+   0.599994980232306,
+   0.6996614293976676,
+   0.7990314235442828,
+   0.8995646253705288,
+   0.9998219503753295,
+   1.0990463724566657,
+   1.1993224420150452,
+   1.2994720439645904,
+   1.3993833936840758,
+   1.4991228444037998,
+   1.5998595522704784,
+   1.699522881126028,
+   1.799889601171012,
+   1.8991476952502009,
+   1.999301382014247,
+   2.0993617866628878,
+   2.1992931123445163,
+   2.299030209856405,
+   2.399862184658483,
+   2.499525789547395,
+   2.5989745277393994,
+   2.6994538710897045,
+   2.7998566044622537,
+   2.8996986713317376,
+   2.999501277047654,
+   3.0997694151307407,
+   3.1994917023146208,
+   3.2997864090728903,
+   3.399677595955117,
+   3.4998453947508428,
+   3.5997950225674344,
+   3.6999849189423877,
+   3.799826027944866,
+   3.8996793780097043,
+   3.9999310958145853,
+   4.099701270164535,
+   4.199829837330432,
+   4.299702012761642,
+   4.39971719580317,
+   4.499537262012284,
+   4.5995220963513885,
+   4.699810393946952,
+   4.799679113832075,
+   4.899391715309919,
+   4.999373910951704,
+   5.099512127447809,
+   5.199400652993785,
+   5.299591163064468,
+   5.399564135335893,
+   5.499126554199576,
+   5.599551105568935,
+   5.699415831442836,
+   5.799708111521131,
+   5.899544579602428,
+   5.999496297744304,
+   6.099779209820504,
+   6.199709932932666,
+   6.299692462467025,
+   6.399683935914386,
+   6.4992809849522954,
+   6.599908377205293,
+   6.6993750810794905,
+   6.7996429262151405,
+   6.899791621327795,
+   6.9999857899680205,
+   7.099454850500773,
+   7.199451649705459,
+   7.299555620300188,
+   7.399624093330152,
+   7.499377942267694,
+   7.59916860270978,
+   7.699790058580735,
+   7.7998508308085315,
+   7.899431624484152,
+   7.999999744410817,
+   8.09977711887165,
+   8.199856766505631,
+   8.299044353488213,
+   8.399920961353827,
+   8.49995662632163,
+   8.599963558314704,
+   8.699164062140628,
+   8.799377931891826,
+   8.899436681858685,
+   8.999402911969291,
+   9.09957905513909,
+   9.199787863213787,
+   9.299453867049616,
+   9.399405068176964,
+   9.499569720700904,
+   9.599847303154197,
+   9.699577647325814,
+   9.799393679239694,
+   9.89923330451598,
+   9.99994310440595,
+   10.000927843016777
+  ],
+  "active_per_frame": [
+   30400,
+   30400,
+   30400,
+   30400,
+   30400,
+   30400,
+   30400,
+   30400,
+   30400,
+   30400,
+   30398,
+   30389,
+   30380,
+   30364,
+   30341,
+   30315,
+   30295,
+   30276,
+   30237,
+   30187,
+   30143,
+   30106,
+   30073,
+   30047,
+   30021,
+   29977,
+   29935,
+   29870,
+   29807,
+   29744,
+   29673,
+   29623,
+   29582,
+   29548,
+   29513,
+   29484,
+   29457,
+   29435,
+   29412,
+   29387,
+   29368,
+   29342,
+   29316,
+   29294,
+   29264,
+   29236,
+   29206,
+   29174,
+   29144,
+   29115,
+   29081,
+   29049,
+   29018,
+   28991,
+   28958,
+   28927,
+   28901,
+   28867,
+   28832,
+   28798,
+   28763,
+   28719,
+   28689,
+   28659,
+   28622,
+   28591,
+   28557,
+   28514,
+   28476,
+   28425,
+   28376,
+   28333,
+   28300,
+   28266,
+   28231,
+   28186,
+   28143,
+   28102,
+   28079,
+   28044,
+   28005,
+   27976,
+   27947,
+   27904,
+   27874,
+   27847,
+   27815,
+   27773,
+   27732,
+   27700,
+   27662,
+   27622,
+   27599,
+   27573,
+   27538,
+   27509,
+   27476,
+   27451,
+   27415,
+   27388,
+   27362,
+   27362
+  ],
+  "checksum": [
+   [
+    0.0,
+    0.0
+   ],
+   [
+    0.0,
+    0.0
+   ],
+   [
+    0.0,
+    0.0
+   ],
+   [
+    0.0,
+    0.0
+   ],
+   [
+    696.5317,
+    0.2686
+   ],
+   [
+    3396.4824,
+    0.5722
+   ],
+   [
+    7715.7573,
+    -0.0152
+   ],
+   [
+    12509.8242,
+    0.9084
+   ],
+   [
+    17043.1523,
+    1.704
+   ],
+   [
+    21305.2363,
+    7.1473
+   ],
+   [
+    25500.9883,
+    10.1749
+   ],
+   [
+    29646.5195,
+    8.7395
+   ],
+   [
+    33748.2773,
+    8.5616
+   ],
+   [
+    37778.0547,
+    7.1423
+   ],
+   [
+    41757.5977,
+    6.717
+   ],
+   [
+    45660.0234,
+    6.6923
+   ],
+   [
+    49529.6172,
+    6.5906
+   ],
+   [
+    53325.1953,
+    9.0864
+   ],
+   [
+    57074.1875,
+    12.8764
+   ],
+   [
+    60768.7344,
+    17.3967
+   ],
+   [
+    64457.4141,
+    21.8947
+   ],
+   [
+    68533.0469,
+    24.6713
+   ],
+   [
+    72589.875,
+    26.999
+   ],
+   [
+    76656.5859,
+    28.7387
+   ],
+   [
+    80729.5703,
+    29.5127
+   ],
+   [
+    84743.5781,
+    30.5899
+   ],
+   [
+    88669.1719,
+    31.5597
+   ],
+   [
+    92588.7344,
+    32.1289
+   ],
+   [
+    96456.0469,
+    32.8919
+   ],
+   [
+    100278.5781,
+    32.7395
+   ],
+   [
+    104037.7031,
+    31.5823
+   ],
+   [
+    107835.0781,
+    30.1818
+   ],
+   [
+    111598.875,
+    28.3723
+   ],
+   [
+    115597.4531,
+    26.243
+   ],
+   [
+    119686.3125,
+    24.5067
+   ],
+   [
+    123827.2812,
+    21.1741
+   ],
+   [
+    127915.9141,
+    16.7311
+   ],
+   [
+    132014.5625,
+    10.3367
+   ],
+   [
+    136017.6562,
+    1.6924
+   ],
+   [
+    139998.9844,
+    -7.9117
+   ],
+   [
+    143920.3281,
+    -18.8097
+   ],
+   [
+    147795.625,
+    -29.4321
+   ],
+   [
+    151598.9844,
+    -39.7885
+   ],
+   [
+    155389.5312,
+    -50.11
+   ],
+   [
+    159113.9062,
+    -59.801
+   ],
+   [
+    162980.1406,
+    -70.0968
+   ],
+   [
+    166837.3125,
+    -80.5301
+   ],
+   [
+    170724.3125,
+    -90.9715
+   ],
+   [
+    174556.7031,
+    -101.2078
+   ],
+   [
+    178401.3906,
+    -109.9946
+   ],
+   [
+    182213.4531,
+    -118.4173
+   ],
+   [
+    186040.6406,
+    -126.3529
+   ],
+   [
+    189826.9375,
+    -134.2031
+   ],
+   [
+    193623.2656,
+    -142.854
+   ],
+   [
+    197368.6406,
+    -151.7651
+   ],
+   [
+    201129.1562,
+    -160.3508
+   ],
+   [
+    204895.0938,
+    -168.1575
+   ],
+   [
+    208724.25,
+    -174.5486
+   ],
+   [
+    212583.7031,
+    -179.9981
+   ],
+   [
+    216465.9375,
+    -185.2409
+   ],
+   [
+    220297.625,
+    -190.4065
+   ],
+   [
+    224164.3281,
+    -196.1874
+   ],
+   [
+    227953.7344,
+    -202.0517
+   ],
+   [
+    231764.7188,
+    -207.1408
+   ],
+   [
+    235524.7344,
+    -211.305
+   ],
+   [
+    239294.0469,
+    -213.7782
+   ],
+   [
+    243056.0,
+    -215.2873
+   ],
+   [
+    246838.5,
+    -216.4728
+   ],
+   [
+    250659.6562,
+    -217.6214
+   ],
+   [
+    254506.4844,
+    -219.5953
+   ],
+   [
+    258315.9531,
+    -221.5698
+   ],
+   [
+    262099.9219,
+    -222.9058
+   ],
+   [
+    265866.875,
+    -223.3331
+   ],
+   [
+    269641.4062,
+    -222.5777
+   ],
+   [
+    273378.7812,
+    -221.2723
+   ],
+   [
+    277114.5,
+    -219.8965
+   ],
+   [
+    280821.0312,
+    -218.5866
+   ],
+   [
+    284573.3125,
+    -217.5698
+   ],
+   [
+    288277.375,
+    -216.2892
+   ],
+   [
+    292019.6875,
+    -214.242
+   ],
+   [
+    295804.875,
+    -211.327
+   ],
+   [
+    299582.0625,
+    -207.2917
+   ],
+   [
+    303335.75,
+    -202.8737
+   ],
+   [
+    307067.4375,
+    -198.9271
+   ],
+   [
+    310827.8125,
+    -194.926
+   ],
+   [
+    314564.0938,
+    -191.3544
+   ],
+   [
+    318264.0,
+    -187.2441
+   ],
+   [
+    321940.5312,
+    -181.8317
+   ],
+   [
+    325624.7812,
+    -175.6901
+   ],
+   [
+    329330.4062,
+    -168.6958
+   ],
+   [
+    333033.375,
+    -161.7535
+   ],
+   [
+    336764.8438,
+    -155.6665
+   ],
+   [
+    340472.75,
+    -149.8708
+   ],
+   [
+    344167.8125,
+    -144.6426
+   ],
+   [
+    347847.8125,
+    -139.1275
+   ],
+   [
+    351538.375,
+    -132.4124
+   ],
+   [
+    355212.375,
+    -125.2948
+   ],
+   [
+    358870.8438,
+    -117.6393
+   ],
+   [
+    362514.625,
+    -110.3251
+   ],
+   [
+    366168.25,
+    -104.2543
+   ],
+   [
+    369841.1562,
+    -98.7237
+   ],
+   [
+    369877.4688,
+    -98.6734
+   ]
+  ],
+  "frames": [
+   {
+    "frame": 0,
+    "t": 0.0,
+    "active": 30400,
+    "nbytes": 3338608,
+    "comp_bytes": 553,
+    "checksum": [
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "frame": 1,
+    "t": 0.09920589897057493,
+    "active": 30400,
+    "nbytes": 3338608,
+    "comp_bytes": 61521,
+    "checksum": [
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "frame": 2,
+    "t": 0.19957764913513046,
+    "active": 30400,
+    "nbytes": 3338608,
+    "comp_bytes": 123703,
+    "checksum": [
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "frame": 3,
+    "t": 0.29994939929968695,
+    "active": 30400,
+    "nbytes": 3338608,
+    "comp_bytes": 178078,
+    "checksum": [
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "frame": 4,
+    "t": 0.3989922778032113,
+    "active": 30400,
+    "nbytes": 3338608,
+    "comp_bytes": 1299522,
+    "checksum": [
+     696.5317,
+     0.2686
+    ]
+   },
+   {
+    "frame": 5,
+    "t": 0.49946933220913825,
+    "active": 30400,
+    "nbytes": 3338608,
+    "comp_bytes": 1528170,
+    "checksum": [
+     3396.4824,
+     0.5722
+    ]
+   },
+   {
+    "frame": 6,
+    "t": 0.599994980232306,
+    "active": 30400,
+    "nbytes": 3338608,
+    "comp_bytes": 1585844,
+    "checksum": [
+     7715.7573,
+     -0.0152
+    ]
+   },
+   {
+    "frame": 7,
+    "t": 0.6996614293976676,
+    "active": 30400,
+    "nbytes": 3338608,
+    "comp_bytes": 1625977,
+    "checksum": [
+     12509.8242,
+     0.9084
+    ]
+   },
+   {
+    "frame": 8,
+    "t": 0.7990314235442828,
+    "active": 30400,
+    "nbytes": 3338608,
+    "comp_bytes": 1635802,
+    "checksum": [
+     17043.1523,
+     1.704
+    ]
+   },
+   {
+    "frame": 9,
+    "t": 0.8995646253705288,
+    "active": 30400,
+    "nbytes": 3338608,
+    "comp_bytes": 1638941,
+    "checksum": [
+     21305.2363,
+     7.1473
+    ]
+   },
+   {
+    "frame": 10,
+    "t": 0.9998219503753295,
+    "active": 30398,
+    "nbytes": 3338608,
+    "comp_bytes": 1638825,
+    "checksum": [
+     25500.9883,
+     10.1749
+    ]
+   },
+   {
+    "frame": 11,
+    "t": 1.0990463724566657,
+    "active": 30389,
+    "nbytes": 3338608,
+    "comp_bytes": 1639635,
+    "checksum": [
+     29646.5195,
+     8.7395
+    ]
+   },
+   {
+    "frame": 12,
+    "t": 1.1993224420150452,
+    "active": 30380,
+    "nbytes": 3338608,
+    "comp_bytes": 1635957,
+    "checksum": [
+     33748.2773,
+     8.5616
+    ]
+   },
+   {
+    "frame": 13,
+    "t": 1.2994720439645904,
+    "active": 30364,
+    "nbytes": 3338608,
+    "comp_bytes": 1635128,
+    "checksum": [
+     37778.0547,
+     7.1423
+    ]
+   },
+   {
+    "frame": 14,
+    "t": 1.3993833936840758,
+    "active": 30341,
+    "nbytes": 3338608,
+    "comp_bytes": 1636766,
+    "checksum": [
+     41757.5977,
+     6.717
+    ]
+   },
+   {
+    "frame": 15,
+    "t": 1.4991228444037998,
+    "active": 30315,
+    "nbytes": 3338608,
+    "comp_bytes": 1633862,
+    "checksum": [
+     45660.0234,
+     6.6923
+    ]
+   },
+   {
+    "frame": 16,
+    "t": 1.5998595522704784,
+    "active": 30295,
+    "nbytes": 3338608,
+    "comp_bytes": 1632084,
+    "checksum": [
+     49529.6172,
+     6.5906
+    ]
+   },
+   {
+    "frame": 17,
+    "t": 1.699522881126028,
+    "active": 30276,
+    "nbytes": 3338608,
+    "comp_bytes": 1629962,
+    "checksum": [
+     53325.1953,
+     9.0864
+    ]
+   },
+   {
+    "frame": 18,
+    "t": 1.799889601171012,
+    "active": 30237,
+    "nbytes": 3338608,
+    "comp_bytes": 1628869,
+    "checksum": [
+     57074.1875,
+     12.8764
+    ]
+   },
+   {
+    "frame": 19,
+    "t": 1.8991476952502009,
+    "active": 30187,
+    "nbytes": 3338608,
+    "comp_bytes": 1631482,
+    "checksum": [
+     60768.7344,
+     17.3967
+    ]
+   },
+   {
+    "frame": 20,
+    "t": 1.999301382014247,
+    "active": 30143,
+    "nbytes": 3338608,
+    "comp_bytes": 1640218,
+    "checksum": [
+     64457.4141,
+     21.8947
+    ]
+   },
+   {
+    "frame": 21,
+    "t": 2.0993617866628878,
+    "active": 30106,
+    "nbytes": 3338608,
+    "comp_bytes": 1653756,
+    "checksum": [
+     68533.0469,
+     24.6713
+    ]
+   },
+   {
+    "frame": 22,
+    "t": 2.1992931123445163,
+    "active": 30073,
+    "nbytes": 3338608,
+    "comp_bytes": 1666680,
+    "checksum": [
+     72589.875,
+     26.999
+    ]
+   },
+   {
+    "frame": 23,
+    "t": 2.299030209856405,
+    "active": 30047,
+    "nbytes": 3338608,
+    "comp_bytes": 1676398,
+    "checksum": [
+     76656.5859,
+     28.7387
+    ]
+   },
+   {
+    "frame": 24,
+    "t": 2.399862184658483,
+    "active": 30021,
+    "nbytes": 3338608,
+    "comp_bytes": 1679119,
+    "checksum": [
+     80729.5703,
+     29.5127
+    ]
+   },
+   {
+    "frame": 25,
+    "t": 2.499525789547395,
+    "active": 29977,
+    "nbytes": 3338608,
+    "comp_bytes": 1680468,
+    "checksum": [
+     84743.5781,
+     30.5899
+    ]
+   },
+   {
+    "frame": 26,
+    "t": 2.5989745277393994,
+    "active": 29935,
+    "nbytes": 3338608,
+    "comp_bytes": 1682277,
+    "checksum": [
+     88669.1719,
+     31.5597
+    ]
+   },
+   {
+    "frame": 27,
+    "t": 2.6994538710897045,
+    "active": 29870,
+    "nbytes": 3338608,
+    "comp_bytes": 1685055,
+    "checksum": [
+     92588.7344,
+     32.1289
+    ]
+   },
+   {
+    "frame": 28,
+    "t": 2.7998566044622537,
+    "active": 29807,
+    "nbytes": 3338608,
+    "comp_bytes": 1686585,
+    "checksum": [
+     96456.0469,
+     32.8919
+    ]
+   },
+   {
+    "frame": 29,
+    "t": 2.8996986713317376,
+    "active": 29744,
+    "nbytes": 3338608,
+    "comp_bytes": 1686356,
+    "checksum": [
+     100278.5781,
+     32.7395
+    ]
+   },
+   {
+    "frame": 30,
+    "t": 2.999501277047654,
+    "active": 29673,
+    "nbytes": 3338608,
+    "comp_bytes": 1686847,
+    "checksum": [
+     104037.7031,
+     31.5823
+    ]
+   },
+   {
+    "frame": 31,
+    "t": 3.0997694151307407,
+    "active": 29623,
+    "nbytes": 3338608,
+    "comp_bytes": 1685531,
+    "checksum": [
+     107835.0781,
+     30.1818
+    ]
+   },
+   {
+    "frame": 32,
+    "t": 3.1994917023146208,
+    "active": 29582,
+    "nbytes": 3338608,
+    "comp_bytes": 1682961,
+    "checksum": [
+     111598.875,
+     28.3723
+    ]
+   },
+   {
+    "frame": 33,
+    "t": 3.2997864090728903,
+    "active": 29548,
+    "nbytes": 3338608,
+    "comp_bytes": 1683067,
+    "checksum": [
+     115597.4531,
+     26.243
+    ]
+   },
+   {
+    "frame": 34,
+    "t": 3.399677595955117,
+    "active": 29513,
+    "nbytes": 3338608,
+    "comp_bytes": 1682833,
+    "checksum": [
+     119686.3125,
+     24.5067
+    ]
+   },
+   {
+    "frame": 35,
+    "t": 3.4998453947508428,
+    "active": 29484,
+    "nbytes": 3338608,
+    "comp_bytes": 1682112,
+    "checksum": [
+     123827.2812,
+     21.1741
+    ]
+   },
+   {
+    "frame": 36,
+    "t": 3.5997950225674344,
+    "active": 29457,
+    "nbytes": 3338608,
+    "comp_bytes": 1675913,
+    "checksum": [
+     127915.9141,
+     16.7311
+    ]
+   },
+   {
+    "frame": 37,
+    "t": 3.6999849189423877,
+    "active": 29435,
+    "nbytes": 3338608,
+    "comp_bytes": 1677575,
+    "checksum": [
+     132014.5625,
+     10.3367
+    ]
+   },
+   {
+    "frame": 38,
+    "t": 3.799826027944866,
+    "active": 29412,
+    "nbytes": 3338608,
+    "comp_bytes": 1674835,
+    "checksum": [
+     136017.6562,
+     1.6924
+    ]
+   },
+   {
+    "frame": 39,
+    "t": 3.8996793780097043,
+    "active": 29387,
+    "nbytes": 3338608,
+    "comp_bytes": 1673654,
+    "checksum": [
+     139998.9844,
+     -7.9117
+    ]
+   },
+   {
+    "frame": 40,
+    "t": 3.9999310958145853,
+    "active": 29368,
+    "nbytes": 3338608,
+    "comp_bytes": 1672945,
+    "checksum": [
+     143920.3281,
+     -18.8097
+    ]
+   },
+   {
+    "frame": 41,
+    "t": 4.099701270164535,
+    "active": 29342,
+    "nbytes": 3338608,
+    "comp_bytes": 1672527,
+    "checksum": [
+     147795.625,
+     -29.4321
+    ]
+   },
+   {
+    "frame": 42,
+    "t": 4.199829837330432,
+    "active": 29316,
+    "nbytes": 3338608,
+    "comp_bytes": 1669130,
+    "checksum": [
+     151598.9844,
+     -39.7885
+    ]
+   },
+   {
+    "frame": 43,
+    "t": 4.299702012761642,
+    "active": 29294,
+    "nbytes": 3338608,
+    "comp_bytes": 1665289,
+    "checksum": [
+     155389.5312,
+     -50.11
+    ]
+   },
+   {
+    "frame": 44,
+    "t": 4.39971719580317,
+    "active": 29264,
+    "nbytes": 3338608,
+    "comp_bytes": 1661624,
+    "checksum": [
+     159113.9062,
+     -59.801
+    ]
+   },
+   {
+    "frame": 45,
+    "t": 4.499537262012284,
+    "active": 29236,
+    "nbytes": 3338608,
+    "comp_bytes": 1660323,
+    "checksum": [
+     162980.1406,
+     -70.0968
+    ]
+   },
+   {
+    "frame": 46,
+    "t": 4.5995220963513885,
+    "active": 29206,
+    "nbytes": 3338608,
+    "comp_bytes": 1657537,
+    "checksum": [
+     166837.3125,
+     -80.5301
+    ]
+   },
+   {
+    "frame": 47,
+    "t": 4.699810393946952,
+    "active": 29174,
+    "nbytes": 3338608,
+    "comp_bytes": 1656017,
+    "checksum": [
+     170724.3125,
+     -90.9715
+    ]
+   },
+   {
+    "frame": 48,
+    "t": 4.799679113832075,
+    "active": 29144,
+    "nbytes": 3338608,
+    "comp_bytes": 1653091,
+    "checksum": [
+     174556.7031,
+     -101.2078
+    ]
+   },
+   {
+    "frame": 49,
+    "t": 4.899391715309919,
+    "active": 29115,
+    "nbytes": 3338608,
+    "comp_bytes": 1651472,
+    "checksum": [
+     178401.3906,
+     -109.9946
+    ]
+   },
+   {
+    "frame": 50,
+    "t": 4.999373910951704,
+    "active": 29081,
+    "nbytes": 3338608,
+    "comp_bytes": 1650722,
+    "checksum": [
+     182213.4531,
+     -118.4173
+    ]
+   },
+   {
+    "frame": 51,
+    "t": 5.099512127447809,
+    "active": 29049,
+    "nbytes": 3338608,
+    "comp_bytes": 1649235,
+    "checksum": [
+     186040.6406,
+     -126.3529
+    ]
+   },
+   {
+    "frame": 52,
+    "t": 5.199400652993785,
+    "active": 29018,
+    "nbytes": 3338608,
+    "comp_bytes": 1646886,
+    "checksum": [
+     189826.9375,
+     -134.2031
+    ]
+   },
+   {
+    "frame": 53,
+    "t": 5.299591163064468,
+    "active": 28991,
+    "nbytes": 3338608,
+    "comp_bytes": 1643899,
+    "checksum": [
+     193623.2656,
+     -142.854
+    ]
+   },
+   {
+    "frame": 54,
+    "t": 5.399564135335893,
+    "active": 28958,
+    "nbytes": 3338608,
+    "comp_bytes": 1641593,
+    "checksum": [
+     197368.6406,
+     -151.7651
+    ]
+   },
+   {
+    "frame": 55,
+    "t": 5.499126554199576,
+    "active": 28927,
+    "nbytes": 3338608,
+    "comp_bytes": 1638057,
+    "checksum": [
+     201129.1562,
+     -160.3508
+    ]
+   },
+   {
+    "frame": 56,
+    "t": 5.599551105568935,
+    "active": 28901,
+    "nbytes": 3338608,
+    "comp_bytes": 1635614,
+    "checksum": [
+     204895.0938,
+     -168.1575
+    ]
+   },
+   {
+    "frame": 57,
+    "t": 5.699415831442836,
+    "active": 28867,
+    "nbytes": 3338608,
+    "comp_bytes": 1633858,
+    "checksum": [
+     208724.25,
+     -174.5486
+    ]
+   },
+   {
+    "frame": 58,
+    "t": 5.799708111521131,
+    "active": 28832,
+    "nbytes": 3338608,
+    "comp_bytes": 1630921,
+    "checksum": [
+     212583.7031,
+     -179.9981
+    ]
+   },
+   {
+    "frame": 59,
+    "t": 5.899544579602428,
+    "active": 28798,
+    "nbytes": 3338608,
+    "comp_bytes": 1627321,
+    "checksum": [
+     216465.9375,
+     -185.2409
+    ]
+   },
+   {
+    "frame": 60,
+    "t": 5.999496297744304,
+    "active": 28763,
+    "nbytes": 3338608,
+    "comp_bytes": 1623350,
+    "checksum": [
+     220297.625,
+     -190.4065
+    ]
+   },
+   {
+    "frame": 61,
+    "t": 6.099779209820504,
+    "active": 28719,
+    "nbytes": 3338608,
+    "comp_bytes": 1622025,
+    "checksum": [
+     224164.3281,
+     -196.1874
+    ]
+   },
+   {
+    "frame": 62,
+    "t": 6.199709932932666,
+    "active": 28689,
+    "nbytes": 3338608,
+    "comp_bytes": 1621084,
+    "checksum": [
+     227953.7344,
+     -202.0517
+    ]
+   },
+   {
+    "frame": 63,
+    "t": 6.299692462467025,
+    "active": 28659,
+    "nbytes": 3338608,
+    "comp_bytes": 1620435,
+    "checksum": [
+     231764.7188,
+     -207.1408
+    ]
+   },
+   {
+    "frame": 64,
+    "t": 6.399683935914386,
+    "active": 28622,
+    "nbytes": 3338608,
+    "comp_bytes": 1617178,
+    "checksum": [
+     235524.7344,
+     -211.305
+    ]
+   },
+   {
+    "frame": 65,
+    "t": 6.4992809849522954,
+    "active": 28591,
+    "nbytes": 3338608,
+    "comp_bytes": 1614703,
+    "checksum": [
+     239294.0469,
+     -213.7782
+    ]
+   },
+   {
+    "frame": 66,
+    "t": 6.599908377205293,
+    "active": 28557,
+    "nbytes": 3338608,
+    "comp_bytes": 1611327,
+    "checksum": [
+     243056.0,
+     -215.2873
+    ]
+   },
+   {
+    "frame": 67,
+    "t": 6.6993750810794905,
+    "active": 28514,
+    "nbytes": 3338608,
+    "comp_bytes": 1611265,
+    "checksum": [
+     246838.5,
+     -216.4728
+    ]
+   },
+   {
+    "frame": 68,
+    "t": 6.7996429262151405,
+    "active": 28476,
+    "nbytes": 3338608,
+    "comp_bytes": 1611316,
+    "checksum": [
+     250659.6562,
+     -217.6214
+    ]
+   },
+   {
+    "frame": 69,
+    "t": 6.899791621327795,
+    "active": 28425,
+    "nbytes": 3338608,
+    "comp_bytes": 1609809,
+    "checksum": [
+     254506.4844,
+     -219.5953
+    ]
+   },
+   {
+    "frame": 70,
+    "t": 6.9999857899680205,
+    "active": 28376,
+    "nbytes": 3338608,
+    "comp_bytes": 1604467,
+    "checksum": [
+     258315.9531,
+     -221.5698
+    ]
+   },
+   {
+    "frame": 71,
+    "t": 7.099454850500773,
+    "active": 28333,
+    "nbytes": 3338608,
+    "comp_bytes": 1603748,
+    "checksum": [
+     262099.9219,
+     -222.9058
+    ]
+   },
+   {
+    "frame": 72,
+    "t": 7.199451649705459,
+    "active": 28300,
+    "nbytes": 3338608,
+    "comp_bytes": 1599932,
+    "checksum": [
+     265866.875,
+     -223.3331
+    ]
+   },
+   {
+    "frame": 73,
+    "t": 7.299555620300188,
+    "active": 28266,
+    "nbytes": 3338608,
+    "comp_bytes": 1598447,
+    "checksum": [
+     269641.4062,
+     -222.5777
+    ]
+   },
+   {
+    "frame": 74,
+    "t": 7.399624093330152,
+    "active": 28231,
+    "nbytes": 3338608,
+    "comp_bytes": 1598287,
+    "checksum": [
+     273378.7812,
+     -221.2723
+    ]
+   },
+   {
+    "frame": 75,
+    "t": 7.499377942267694,
+    "active": 28186,
+    "nbytes": 3338608,
+    "comp_bytes": 1595481,
+    "checksum": [
+     277114.5,
+     -219.8965
+    ]
+   },
+   {
+    "frame": 76,
+    "t": 7.59916860270978,
+    "active": 28143,
+    "nbytes": 3338608,
+    "comp_bytes": 1591523,
+    "checksum": [
+     280821.0312,
+     -218.5866
+    ]
+   },
+   {
+    "frame": 77,
+    "t": 7.699790058580735,
+    "active": 28102,
+    "nbytes": 3338608,
+    "comp_bytes": 1589379,
+    "checksum": [
+     284573.3125,
+     -217.5698
+    ]
+   },
+   {
+    "frame": 78,
+    "t": 7.7998508308085315,
+    "active": 28079,
+    "nbytes": 3338608,
+    "comp_bytes": 1587925,
+    "checksum": [
+     288277.375,
+     -216.2892
+    ]
+   },
+   {
+    "frame": 79,
+    "t": 7.899431624484152,
+    "active": 28044,
+    "nbytes": 3338608,
+    "comp_bytes": 1588512,
+    "checksum": [
+     292019.6875,
+     -214.242
+    ]
+   },
+   {
+    "frame": 80,
+    "t": 7.999999744410817,
+    "active": 28005,
+    "nbytes": 3338608,
+    "comp_bytes": 1587342,
+    "checksum": [
+     295804.875,
+     -211.327
+    ]
+   },
+   {
+    "frame": 81,
+    "t": 8.09977711887165,
+    "active": 27976,
+    "nbytes": 3338608,
+    "comp_bytes": 1585958,
+    "checksum": [
+     299582.0625,
+     -207.2917
+    ]
+   },
+   {
+    "frame": 82,
+    "t": 8.199856766505631,
+    "active": 27947,
+    "nbytes": 3338608,
+    "comp_bytes": 1583420,
+    "checksum": [
+     303335.75,
+     -202.8737
+    ]
+   },
+   {
+    "frame": 83,
+    "t": 8.299044353488213,
+    "active": 27904,
+    "nbytes": 3338608,
+    "comp_bytes": 1581882,
+    "checksum": [
+     307067.4375,
+     -198.9271
+    ]
+   },
+   {
+    "frame": 84,
+    "t": 8.399920961353827,
+    "active": 27874,
+    "nbytes": 3338608,
+    "comp_bytes": 1581962,
+    "checksum": [
+     310827.8125,
+     -194.926
+    ]
+   },
+   {
+    "frame": 85,
+    "t": 8.49995662632163,
+    "active": 27847,
+    "nbytes": 3338608,
+    "comp_bytes": 1580868,
+    "checksum": [
+     314564.0938,
+     -191.3544
+    ]
+   },
+   {
+    "frame": 86,
+    "t": 8.599963558314704,
+    "active": 27815,
+    "nbytes": 3338608,
+    "comp_bytes": 1580409,
+    "checksum": [
+     318264.0,
+     -187.2441
+    ]
+   },
+   {
+    "frame": 87,
+    "t": 8.699164062140628,
+    "active": 27773,
+    "nbytes": 3338608,
+    "comp_bytes": 1577978,
+    "checksum": [
+     321940.5312,
+     -181.8317
+    ]
+   },
+   {
+    "frame": 88,
+    "t": 8.799377931891826,
+    "active": 27732,
+    "nbytes": 3338608,
+    "comp_bytes": 1574875,
+    "checksum": [
+     325624.7812,
+     -175.6901
+    ]
+   },
+   {
+    "frame": 89,
+    "t": 8.899436681858685,
+    "active": 27700,
+    "nbytes": 3338608,
+    "comp_bytes": 1573075,
+    "checksum": [
+     329330.4062,
+     -168.6958
+    ]
+   },
+   {
+    "frame": 90,
+    "t": 8.999402911969291,
+    "active": 27662,
+    "nbytes": 3338608,
+    "comp_bytes": 1571472,
+    "checksum": [
+     333033.375,
+     -161.7535
+    ]
+   },
+   {
+    "frame": 91,
+    "t": 9.09957905513909,
+    "active": 27622,
+    "nbytes": 3338608,
+    "comp_bytes": 1571508,
+    "checksum": [
+     336764.8438,
+     -155.6665
+    ]
+   },
+   {
+    "frame": 92,
+    "t": 9.199787863213787,
+    "active": 27599,
+    "nbytes": 3338608,
+    "comp_bytes": 1568267,
+    "checksum": [
+     340472.75,
+     -149.8708
+    ]
+   },
+   {
+    "frame": 93,
+    "t": 9.299453867049616,
+    "active": 27573,
+    "nbytes": 3338608,
+    "comp_bytes": 1566684,
+    "checksum": [
+     344167.8125,
+     -144.6426
+    ]
+   },
+   {
+    "frame": 94,
+    "t": 9.399405068176964,
+    "active": 27538,
+    "nbytes": 3338608,
+    "comp_bytes": 1566269,
+    "checksum": [
+     347847.8125,
+     -139.1275
+    ]
+   },
+   {
+    "frame": 95,
+    "t": 9.499569720700904,
+    "active": 27509,
+    "nbytes": 3338608,
+    "comp_bytes": 1565043,
+    "checksum": [
+     351538.375,
+     -132.4124
+    ]
+   },
+   {
+    "frame": 96,
+    "t": 9.599847303154197,
+    "active": 27476,
+    "nbytes": 3338608,
+    "comp_bytes": 1563309,
+    "checksum": [
+     355212.375,
+     -125.2948
+    ]
+   },
+   {
+    "frame": 97,
+    "t": 9.699577647325814,
+    "active": 27451,
+    "nbytes": 3338608,
+    "comp_bytes": 1563209,
+    "checksum": [
+     358870.8438,
+     -117.6393
+    ]
+   },
+   {
+    "frame": 98,
+    "t": 9.799393679239694,
+    "active": 27415,
+    "nbytes": 3338608,
+    "comp_bytes": 1561397,
+    "checksum": [
+     362514.625,
+     -110.3251
+    ]
+   },
+   {
+    "frame": 99,
+    "t": 9.89923330451598,
+    "active": 27388,
+    "nbytes": 3338608,
+    "comp_bytes": 1560629,
+    "checksum": [
+     366168.25,
+     -104.2543
+    ]
+   },
+   {
+    "frame": 100,
+    "t": 9.99994310440595,
+    "active": 27362,
+    "nbytes": 3338608,
+    "comp_bytes": 1557861,
+    "checksum": [
+     369841.1562,
+     -98.7237
+    ]
+   },
+   {
+    "frame": 101,
+    "t": 10.000927843016777,
+    "active": 27362,
+    "nbytes": 3338608,
+    "comp_bytes": 1557653,
+    "checksum": [
+     369877.4688,
+     -98.6734
+    ]
+   }
+  ],
+  "note": "状态数与 d3plot 一一对应，未抽帧"
+ },
+ "detector": {
+  "version": {
+   "raw": "R12",
+   "normalized": "r12.0",
+   "solver": "smp"
+  },
+  "k_file": "yyy.k",
+  "parts": [
+   {
+    "pid": 1,
+    "mat": "MAT_CONCRETE_DAMAGE_REL3",
+    "roles": [
+     "structure"
+    ],
+    "basis": ".k: pid1 -> MAT_CONCRETE_DAMAGE_REL3(未在映射表, 默认 structure)"
+   },
+   {
+    "pid": 2,
+    "mat": "MAT_JOHNSON_COOK",
+    "roles": [
+     "structure"
+    ],
+    "basis": ".k: pid2 -> MAT_JOHNSON_COOK + section_solid_title"
+   },
+   {
+    "pid": 3,
+    "mat": "MAT_NULL",
+    "roles": [
+     "air"
+    ],
+    "basis": ".k: pid3 -> MAT_NULL + section_solid_title"
+   },
+   {
+    "pid": 4,
+    "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+    "roles": [
+     "explosive"
+    ],
+    "basis": ".k: pid4 -> MAT_HIGH_EXPLOSIVE_BURN + section_solid_title"
+   }
+  ],
+  "span_model_units": 2080.0
+ },
+ "scales": {
+  "u": 136.52212524414062,
+  "damage": 2.0,
+  "eps": 0.0022959003690630198,
+  "pressure": 0.23738457262516022,
+  "stress": 0.3196932375431061,
+  "vel": 10191.615234375,
+  "hist": 4971.70556640625
+ },
+ "elapsed_s": 10.02,
+ "verify": {
+  "key": "tnt_1",
+  "ok": true,
+  "issues": [],
+  "mesh_header": {
+   "units_system": "kg-mm-ms",
+   "counts": {
+    "numnp": 40278,
+    "nel": 30400
+   },
+   "parts": 4,
+   "groups": 4,
+   "particles": []
+  },
+  "frames_header": {
+   "nframes": 102,
+   "frame_bytes": 3338608,
+   "fields": [
+    "u",
+    "damage",
+    "eps",
+    "pressure",
+    "stress",
+    "vel",
+    "hist",
+    "active_mask"
+   ]
+  },
+  "surf_check": [
+   {
+    "partId": 1,
+    "open_edges": 0,
+    "directed_conflicts": 0,
+    "edges": 36568
+   },
+   {
+    "partId": 2,
+    "open_edges": 0,
+    "directed_conflicts": 0,
+    "edges": 24232
+   },
+   {
+    "partId": 3,
+    "open_edges": 0,
+    "directed_conflicts": 0,
+    "edges": 15360
+   },
+   {
+    "partId": 4,
+    "open_edges": 0,
+    "directed_conflicts": 0,
+    "edges": 272
+   }
+  ],
+  "frames_checked": {
+   "0": {
+    "t": 0.0,
+    "ok_u": true,
+    "ok_mask": true,
+    "ok_damage": true,
+    "max_abs_diff_u": 0.00048501434503123164,
+    "active": 30400
+   },
+   "47": {
+    "t": 4.699810393946952,
+    "ok_u": true,
+    "ok_mask": true,
+    "ok_damage": true,
+    "max_abs_diff_u": 0.0018062591552734375,
+    "active": 29174
+   },
+   "68": {
+    "t": 6.7996429262151405,
+    "ok_u": true,
+    "ok_mask": true,
+    "ok_damage": true,
+    "max_abs_diff_u": 0.0018056631088256836,
+    "active": 28476
+   },
+   "101": {
+    "t": 10.000927843016777,
+    "ok_u": true,
+    "ok_mask": true,
+    "ok_damage": true,
+    "max_abs_diff_u": 0.00180816650390625,
+    "active": 27362
+   }
+  },
+  "elapsed_s": 0.12
+ }
+}

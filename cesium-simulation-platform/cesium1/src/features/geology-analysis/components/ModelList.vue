@@ -255,7 +255,7 @@
             <!-- 单个模型透明度（绝对定位浮层, 不产生布局位移） -->
             <div
               v-show="hoveredModelId === model.id || model.opacity > 0"
-              class="absolute left-6 right-2 top-full z-10 mt-0.5 px-2 py-1 bg-[#111a2add] backdrop-blur rounded border border-white/10"
+              class="absolute left-6 right-2 top-full z-10 mt-0.5 px-2 py-1 bg-[#111a2af2] rounded border border-white/10"
               @click.stop
             >
               <input

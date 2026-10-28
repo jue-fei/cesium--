@@ -1,0 +1,1256 @@
+{
+ "key": "fixture_hexa",
+ "label": "fixture_hexa",
+ "dir": "C:\\Users\\allblack\\Desktop\\tnt\\1",
+ "ok": true,
+ "stage": "all",
+ "precision_mode": "auto",
+ "id_source": "k_elem_align",
+ "id_map_note": "k_elem_align",
+ "deck": {
+  "encoding": "utf-8-sig",
+  "include_files": [],
+  "contiguous": false
+ },
+ "container": {
+  "mesh": {
+   "path": "fixture_hexa.mesh.bin",
+   "header_bytes": 8104,
+   "blocks_bytes": 2517072,
+   "file_bytes": 2525184,
+   "header": {
+    "_doc": "自描述容器 v3。块区各块的 offset 是相对\"块区起点\"(=magic4+len4+header_json)的字节偏移，len 为元素个数，dtype: f4=f32, i4=i32, u1=uint8。coords/bbox 为模型单位(×units.length 得 m)；conn 是 i4[nel,8] 六面体连接表。值语义见 frames.bin 的 fields.scale/offset。faces 为四边形顶点索引(每 quad 4 个节点序号)，三角形化顺序固定：quad i → tri 2i(0,1,2) 与 2i+1(0,2,3)。markers/outline 为视觉层参数（起爆点标记样式尺寸、模型描边阈值），前端元数据驱动读取。",
+    "version": "D2W3",
+    "key": "fixture_hexa",
+    "schema_version": 2,
+    "id_base": 1,
+    "id_source": "k_elem_align",
+    "id_map_note": "k_elem_align",
+    "id_note": "编号来源：k_elem_align=连接表(内部)↔.k *ELEMENT_SOLID(用户)逐位对齐反推（双射且全覆盖）；contiguous=.k 编号恰为 1..N（arange 精确）；internal=d3plot 仅存内部编号 1..N（.k 用户编号带空洞、无 narbs 映射可恢复）；fallback=均不成立（按 1..N 假定）",
+    "source": {
+     "dir": "C:\\Users\\allblack\\Desktop\\tnt\\1",
+     "solver": "smp",
+     "version_raw": "R12",
+     "version_norm": "r12.0",
+     "d3plot_files": [
+      "d3plot",
+      "d3plot01",
+      "d3plot02",
+      "d3plot03",
+      "d3plot04",
+      "d3plot05",
+      "d3plot06"
+     ],
+     "stride": 818537,
+     "block_plan": [
+      {
+       "name": "time",
+       "words": 1,
+       "off": 0
+      },
+      {
+       "name": "globals",
+       "words": 34,
+       "off": 1
+      },
+      {
+       "name": "coords",
+       "words": 120834,
+       "off": 35
+      },
+      {
+       "name": "velocity",
+       "words": 120834,
+       "off": 120869
+      },
+      {
+       "name": "acceleration",
+       "words": 120834,
+       "off": 241703
+      },
+      {
+       "name": "solid_hist",
+       "words": 425600,
+       "off": 362537
+      },
+      {
+       "name": "solid_part",
+       "words": 30400,
+       "off": 788137
+      },
+      {
+       "name": "tail",
+       "words": 0,
+       "off": 818537
+      }
+     ],
+     "layout": {
+      "head_name": "blocks=3N(实测通用)",
+      "head": 362537,
+      "n_sph": 0,
+      "rec_sph": 0,
+      "n_pbm": 0,
+      "rec_pbm": 0,
+      "tail": 0,
+      "beam": 0,
+      "shell": 0,
+      "score": 11
+     },
+     "header": {
+      "title": null,
+      "run_time": null,
+      "ndim": 4,
+      "icode": 6,
+      "it": 0,
+      "iu": 1,
+      "iv": 1,
+      "ia": 1,
+      "maxint": -10003,
+      "note": "title 取自 d3plot 头部前 80 字节；run_time 未解析（尾部格式随版本）"
+     }
+    },
+    "units": {
+     "length": 0.001,
+     "time": 0.001,
+     "mass": 1.0,
+     "stress": 1000000000.0,
+     "velocity": 1.0,
+     "density": 1000000000.0,
+     "energy": 1.0,
+     "force": 1000.0,
+     "displacement": 0.001,
+     "acceleration": 1000.0
+    },
+    "units_system": "kg-mm-ms",
+    "units_doc": "length→m, time→s, mass→kg, stress→Pa, velocity→m/s, density→kg/m³, energy→J, force→N, displacement→m",
+    "counts": {
+     "numnp": 40278,
+     "nel": 30400
+    },
+    "bbox": {
+     "min": [
+      -1040.0,
+      0.0,
+      0.0
+     ],
+     "max": [
+      1040.0,
+      300.0,
+      1000.0
+     ],
+     "size": [
+      2080.0,
+      300.0,
+      1000.0
+     ]
+    },
+    "parts": [
+     {
+      "pid": 1,
+      "name": "cement",
+      "mat": "MAT_CONCRETE_DAMAGE_REL3",
+      "sec": "section_solid_title",
+      "roles": [
+       "structure"
+      ],
+      "elform": 1,
+      "thickness": null,
+      "elems": 17100,
+      "basis": ".k: pid1 -> MAT_CONCRETE_DAMAGE_REL3(未在映射表, 默认 structure)"
+     },
+     {
+      "pid": 2,
+      "name": "I beam",
+      "mat": "MAT_JOHNSON_COOK",
+      "sec": "section_solid_title",
+      "roles": [
+       "structure"
+      ],
+      "elform": 1,
+      "thickness": null,
+      "elems": 2900,
+      "basis": ".k: pid2 -> MAT_JOHNSON_COOK + section_solid_title"
+     },
+     {
+      "pid": 3,
+      "name": "air",
+      "mat": "MAT_NULL",
+      "sec": "section_solid_title",
+      "roles": [
+       "air"
+      ],
+      "elform": 11,
+      "thickness": null,
+      "elems": 10376,
+      "basis": ".k: pid3 -> MAT_NULL + section_solid_title"
+     },
+     {
+      "pid": 4,
+      "name": "TNT",
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "sec": "section_solid_title",
+      "roles": [
+       "explosive"
+      ],
+      "elform": 11,
+      "thickness": null,
+      "elems": 24,
+      "basis": ".k: pid4 -> MAT_HIGH_EXPLOSIVE_BURN + section_solid_title"
+     }
+    ],
+    "deto": [
+     {
+      "pid": 4,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 1000.0,
+      "lt": 0.0
+     }
+    ],
+    "markers": {
+     "kind": "point",
+     "dot_ratio": 0.011,
+     "dim_factor": 0.45,
+     "bucket": 100.0,
+     "delay_colors": [
+      [
+       1.0,
+       0.25,
+       0.2
+      ],
+      [
+       1.0,
+       0.62,
+       0.1
+      ],
+      [
+       1.0,
+       0.9,
+       0.3
+      ],
+      [
+       0.5,
+       1.0,
+       0.3
+      ],
+      [
+       0.3,
+       1.0,
+       0.95
+      ]
+     ]
+    },
+    "outline": {
+     "crease_deg": 60.0,
+     "frag_ratio": 0.02,
+     "flat_deg": 1.5,
+     "width_px": 1.9
+    },
+    "fieldmap": [
+     {
+      "pid": 1,
+      "mat": "MAT_CONCRETE_DAMAGE_REL3",
+      "elem_type": "solid",
+      "role": "structure",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_CONCRETE_DAMAGE_REL3); nv3d=14命中; 核对依据: 已核对(2026-10-19)：w6 = 该本构的**比例损伤变量 δ**(Scaled damage factor)，容器直接存 δ(0..2)，不再乘 0.5。证据：① tnt/1 与 re-1 的混凝土(part1) 实测 w6 在 t≈0.1 时全 0、爆心区单调上升到**恒定上限 2.000**（两算例一致）；② LS-DYNA 官方历史变量表：*MAT_072R3 实体的第 6 个历史变量 = lambda（损伤）；③ 工程文献定义 δ=0 弹性 / 0<δ<1 屈服塑性 / 1<δ<2 软化（故上限 2）。**eps 字段已删除**：w7 实测中位数为次正规噪声 1.26e-27、早期峰值 293.7（re-1 为 503.4）、t≈2 出现负值 -11.6，不可能是有效塑性应变；且该 run 的 *DATABASE_EXTENT_BINARY 未请求额外历史变量（d3hsp: number of extra history variables for solids = 0）、w8..w13 恒 0 → 判定 w7 为未填充缓冲区的残留值，不输出。可 --fieldmap 覆盖",
+      "fields": {
+       "stress": [
+        0,
+        6
+       ],
+       "damage": 6,
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     },
+     {
+      "pid": 2,
+      "mat": "MAT_JOHNSON_COOK",
+      "elem_type": "solid",
+      "role": "structure",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_JOHNSON_COOK); nv3d=14命中; 核对依据: tnt/1 的 I 梁(part2)实测：w6 塑性应变仅屈服单元非零(37/2900)，w7 另有小量值，w8 恒 0（该算例未输损伤）",
+      "fields": {
+       "stress": [
+        0,
+        6
+       ],
+       "eps": 6,
+       "damage": 8,
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     },
+     {
+      "pid": 3,
+      "mat": "MAT_NULL",
+      "elem_type": "solid",
+      "role": "air",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_NULL); nv3d=14命中; 核对依据: 空气/ALE 实测：w0=w1=w2=压力(压为负)。w11 不可靠（单材料 ALE 时像密度 5.8e-4~0.84，多材料 ALE(tnt/1) 时是材料分数 1~2），故不输出 density 字段",
+      "fields": {
+       "stress": [
+        0,
+        6
+       ],
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     },
+     {
+      "pid": 4,
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "elem_type": "solid",
+      "role": "explosive",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=14命中; 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+      "fields": {
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     }
+    ],
+    "surf_groups": [
+     {
+      "partId": 1,
+      "role": "structure",
+      "kind": "solid",
+      "quads": 9142,
+      "stat": {
+       "ext_raw": 9142,
+       "quads": 9142,
+       "degenerate": 0,
+       "flipped": 2400,
+       "open_edges": 0,
+       "directed_conflicts": 0,
+       "edges": 36568
+      },
+      "faces": {
+       "len": 36568,
+       "dtype": "i4",
+       "offset": 1982048
+      },
+      "owner_elem": {
+       "len": 9142,
+       "dtype": "i4",
+       "offset": 2128320
+      },
+      "ecent": {
+       "len": 18284,
+       "dtype": "f4",
+       "offset": 2164888
+      }
+     },
+     {
+      "partId": 2,
+      "role": "structure",
+      "kind": "solid",
+      "quads": 6058,
+      "stat": {
+       "ext_raw": 6058,
+       "quads": 6058,
+       "degenerate": 0,
+       "flipped": 1400,
+       "open_edges": 0,
+       "directed_conflicts": 0,
+       "edges": 24232
+      },
+      "faces": {
+       "len": 24232,
+       "dtype": "i4",
+       "offset": 2238024
+      },
+      "owner_elem": {
+       "len": 6058,
+       "dtype": "i4",
+       "offset": 2334952
+      },
+      "ecent": {
+       "len": 12116,
+       "dtype": "f4",
+       "offset": 2359184
+      }
+     },
+     {
+      "partId": 3,
+      "role": "air",
+      "kind": "solid",
+      "quads": 3840,
+      "stat": {
+       "ext_raw": 3840,
+       "quads": 3840,
+       "degenerate": 0,
+       "flipped": 416,
+       "open_edges": 0,
+       "directed_conflicts": 0,
+       "edges": 15360
+      },
+      "faces": {
+       "len": 15360,
+       "dtype": "i4",
+       "offset": 2407648
+      },
+      "owner_elem": {
+       "len": 3840,
+       "dtype": "i4",
+       "offset": 2469088
+      },
+      "ecent": {
+       "len": 7680,
+       "dtype": "f4",
+       "offset": 2484448
+      }
+     },
+     {
+      "partId": 4,
+      "role": "explosive",
+      "kind": "solid",
+      "quads": 68,
+      "stat": {
+       "ext_raw": 68,
+       "quads": 68,
+       "degenerate": 0,
+       "flipped": 24,
+       "open_edges": 0,
+       "directed_conflicts": 0,
+       "edges": 272
+      },
+      "faces": {
+       "len": 272,
+       "dtype": "i4",
+       "offset": 2515168
+      },
+      "owner_elem": {
+       "len": 68,
+       "dtype": "i4",
+       "offset": 2516256
+      },
+      "ecent": {
+       "len": 136,
+       "dtype": "f4",
+       "offset": 2516528
+      }
+     }
+    ],
+    "particles": [],
+    "coords": {
+     "offset": 0,
+     "len": 120834,
+     "dtype": "f4"
+    },
+    "node_ids": {
+     "offset": 483336,
+     "len": 40278,
+     "dtype": "i4"
+    },
+    "elem_ids": {
+     "offset": 644448,
+     "len": 30400,
+     "dtype": "i4"
+    },
+    "conn": {
+     "offset": 766048,
+     "len": 243200,
+     "dtype": "i4",
+     "shape": [
+      30400,
+      8
+     ]
+    },
+    "conn_part": {
+     "offset": 1738848,
+     "len": 30400,
+     "dtype": "i4"
+    },
+    "elem_volume": {
+     "offset": 1860448,
+     "len": 30400,
+     "dtype": "f4"
+    }
+   }
+  },
+  "frames": {
+   "path": "fixture_hexa.frames.bin",
+   "bytes": 1057472,
+   "frame_bytes": 669536,
+   "codec": "zstd",
+   "raw_bytes": 1339072,
+   "ratio": 1.27
+  }
+ },
+ "block_plan": [
+  {
+   "name": "time",
+   "words": 1,
+   "off": 0
+  },
+  {
+   "name": "globals",
+   "words": 34,
+   "off": 1
+  },
+  {
+   "name": "coords",
+   "words": 120834,
+   "off": 35
+  },
+  {
+   "name": "velocity",
+   "words": 120834,
+   "off": 120869
+  },
+  {
+   "name": "acceleration",
+   "words": 120834,
+   "off": 241703
+  },
+  {
+   "name": "solid_hist",
+   "words": 425600,
+   "off": 362537
+  },
+  {
+   "name": "solid_part",
+   "words": 30400,
+   "off": 788137
+  },
+  {
+   "name": "tail",
+   "words": 0,
+   "off": 818537
+  }
+ ],
+ "block_solution": {
+  "head_name": "blocks=3N(实测通用)",
+  "head": 362537,
+  "n_sph": 0,
+  "rec_sph": 0,
+  "n_pbm": 0,
+  "rec_pbm": 0,
+  "tail": 0,
+  "beam": 0,
+  "shell": 0,
+  "score": 11
+ },
+ "block_candidates": [
+  {
+   "head_name": "blocks=3N(实测通用)",
+   "head": 362537,
+   "n_sph": 0,
+   "rec_sph": 0,
+   "n_pbm": 0,
+   "rec_pbm": 0,
+   "tail": 0,
+   "beam": 0,
+   "shell": 0,
+   "score": 11
+  },
+  {
+   "head_name": "blocks=(1+iu+ia)*N",
+   "head": 362537,
+   "n_sph": 0,
+   "rec_sph": 0,
+   "n_pbm": 0,
+   "rec_pbm": 0,
+   "tail": 0,
+   "beam": 0,
+   "shell": 0,
+   "score": 8
+  }
+ ],
+ "particle_slots": null,
+ "part_source": "k_deck",
+ "part_map": null,
+ "part_map_note": "编号本就与 .k *PART 一致（无需重编号）",
+ "layout_probe": {
+  "accepted": "FEM/ALE blocks=3N(实测通用), tail=0, 无粒子",
+  "stride": 818537,
+  "library_entry": "r12.*|smp",
+  "fp_msg": "基文件坐标 @ 字 66（与 d3plot01 状态0 匹配）"
+ },
+ "geometry": {
+  "numnp": 40278,
+  "nel": 30400,
+  "nv3d": 14,
+  "nglbv": 34,
+  "bbox": {
+   "min": [
+    -1040.0,
+    0.0,
+    0.0
+   ],
+   "max": [
+    1040.0,
+    300.0,
+    1000.0
+   ],
+   "size": [
+    2080.0,
+    300.0,
+    1000.0
+   ]
+  },
+  "n_sph": 0,
+  "n_pbm": 0,
+  "node_base": 1,
+  "elem_base": 1,
+  "note": "bbox 与 coords 均为模型单位（×units.length → m）；conn 为 i4[nel,8] 六面体连接表"
+ },
+ "elements_note": null,
+ "elements": {
+  "nel8": 30400,
+  "nel4": 0,
+  "nel2": 0,
+  "source": "header hint（索引未验证，仅提示；nv3d=0 已置 0）",
+  "shell": null,
+  "unhandled": null,
+  "shell_confidence": null,
+  "note": "P2 静态实现：壳按中面四边形尝试提取（d3plot 布局未验证）；梁/2D 未实现"
+ },
+ "surf": [
+  {
+   "partId": 1,
+   "role": "structure",
+   "elems": 17100,
+   "ext_raw": 9142,
+   "quads": 9142,
+   "degenerate": 0,
+   "flipped": 2400,
+   "open_edges": 0,
+   "directed_conflicts": 0,
+   "edges": 36568
+  },
+  {
+   "partId": 2,
+   "role": "structure",
+   "elems": 2900,
+   "ext_raw": 6058,
+   "quads": 6058,
+   "degenerate": 0,
+   "flipped": 1400,
+   "open_edges": 0,
+   "directed_conflicts": 0,
+   "edges": 24232
+  },
+  {
+   "partId": 3,
+   "role": "air",
+   "elems": 10376,
+   "ext_raw": 3840,
+   "quads": 3840,
+   "degenerate": 0,
+   "flipped": 416,
+   "open_edges": 0,
+   "directed_conflicts": 0,
+   "edges": 15360
+  },
+  {
+   "partId": 4,
+   "role": "explosive",
+   "elems": 24,
+   "ext_raw": 68,
+   "quads": 68,
+   "degenerate": 0,
+   "flipped": 24,
+   "open_edges": 0,
+   "directed_conflicts": 0,
+   "edges": 272
+  }
+ ],
+ "surf_note": "各 part 外表面闭合（开边 0 / 退化 0）",
+ "particles": [],
+ "fieldmap": [
+  {
+   "pid": 1,
+   "mat": "MAT_CONCRETE_DAMAGE_REL3",
+   "elem_type": "solid",
+   "role": "structure",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_CONCRETE_DAMAGE_REL3); nv3d=14命中; 核对依据: 已核对(2026-10-19)：w6 = 该本构的**比例损伤变量 δ**(Scaled damage factor)，容器直接存 δ(0..2)，不再乘 0.5。证据：① tnt/1 与 re-1 的混凝土(part1) 实测 w6 在 t≈0.1 时全 0、爆心区单调上升到**恒定上限 2.000**（两算例一致）；② LS-DYNA 官方历史变量表：*MAT_072R3 实体的第 6 个历史变量 = lambda（损伤）；③ 工程文献定义 δ=0 弹性 / 0<δ<1 屈服塑性 / 1<δ<2 软化（故上限 2）。**eps 字段已删除**：w7 实测中位数为次正规噪声 1.26e-27、早期峰值 293.7（re-1 为 503.4）、t≈2 出现负值 -11.6，不可能是有效塑性应变；且该 run 的 *DATABASE_EXTENT_BINARY 未请求额外历史变量（d3hsp: number of extra history variables for solids = 0）、w8..w13 恒 0 → 判定 w7 为未填充缓冲区的残留值，不输出。可 --fieldmap 覆盖",
+   "fields": {
+    "stress": [
+     0,
+     6
+    ],
+    "damage": 6,
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "pid": 2,
+   "mat": "MAT_JOHNSON_COOK",
+   "elem_type": "solid",
+   "role": "structure",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_JOHNSON_COOK); nv3d=14命中; 核对依据: tnt/1 的 I 梁(part2)实测：w6 塑性应变仅屈服单元非零(37/2900)，w7 另有小量值，w8 恒 0（该算例未输损伤）",
+   "fields": {
+    "stress": [
+     0,
+     6
+    ],
+    "eps": 6,
+    "damage": 8,
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "pid": 3,
+   "mat": "MAT_NULL",
+   "elem_type": "solid",
+   "role": "air",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_NULL); nv3d=14命中; 核对依据: 空气/ALE 实测：w0=w1=w2=压力(压为负)。w11 不可靠（单材料 ALE 时像密度 5.8e-4~0.84，多材料 ALE(tnt/1) 时是材料分数 1~2），故不输出 density 字段",
+   "fields": {
+    "stress": [
+     0,
+     6
+    ],
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "pid": 4,
+   "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+   "elem_type": "solid",
+   "role": "explosive",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=14命中; 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+   "fields": {
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  }
+ ],
+ "fields": [
+  {
+   "id": "u",
+   "dtype": "u2",
+   "location": "node",
+   "count": 120834,
+   "scale": 1.0,
+   "offset": 0.0,
+   "role": "field",
+   "unit": "displacement",
+   "comps": 3,
+   "shape": [
+    40278,
+    3
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "damage",
+   "dtype": "u2",
+   "location": "element",
+   "count": 30400,
+   "scale": 1.0,
+   "offset": 0.0,
+   "role": "field",
+   "unit": "-",
+   "comps": 1,
+   "shape": [
+    30400
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "eps",
+   "dtype": "u2",
+   "location": "element",
+   "count": 30400,
+   "scale": 1.0,
+   "offset": 0.0,
+   "role": "field",
+   "unit": "-",
+   "comps": 1,
+   "shape": [
+    30400
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "pressure",
+   "dtype": "u2",
+   "location": "element",
+   "count": 30400,
+   "scale": 3.469292765952652e-07,
+   "offset": -0.01719059608876705,
+   "role": "field",
+   "unit": "stress",
+   "comps": 1,
+   "shape": [
+    30400
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "vel",
+   "dtype": "u2",
+   "location": "node",
+   "count": 120834,
+   "scale": 0.05253414876711872,
+   "offset": -1960.675048828125,
+   "role": "field",
+   "unit": "velocity",
+   "comps": 3,
+   "components": null,
+   "shape": [
+    40278,
+    3
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "active_mask",
+   "dtype": "u1",
+   "location": "element",
+   "count": 3800,
+   "scale": 1.0,
+   "offset": 0.0,
+   "role": "mask",
+   "bits": 30400,
+   "unit": "-",
+   "comps": 1,
+   "shape": [
+    30400
+   ],
+   "_doc": "1 bit/单元, 1=未删除; byte=idx>>3, bit=idx&7(LSB 优先, 与 np.packbits(bitorder=\"little\") 一致)",
+   "confidence": "high"
+  }
+ ],
+ "extract_layers": [
+  "velocity"
+ ],
+ "low_confidence_fields": [],
+ "units": {
+  "pick": "kg-mm-ms",
+  "factors": {
+   "length": 0.001,
+   "time": 0.001,
+   "mass": 1.0,
+   "stress": 1000000000.0,
+   "velocity": 1.0,
+   "density": 1000000000.0,
+   "energy": 1.0,
+   "force": 1000.0,
+   "displacement": 0.001,
+   "acceleration": 1000.0
+  },
+  "source": {
+   "candidates": [
+    {
+     "system": "kg-mm-ms",
+     "model_span_m": 2.08,
+     "total_time_s": 0.010000927843016778,
+     "ppv_m_s": 3609.52,
+     "pressure_pa": 61800000.0,
+     "ok_span": true,
+     "ok_time": true,
+     "ok_ppv": true,
+     "ok_pressure": true,
+     "score": 4,
+     "plausible": true
+    },
+    {
+     "system": "g-cm-µs",
+     "model_span_m": 20.8,
+     "total_time_s": 1.0000927843016776e-05,
+     "ppv_m_s": 36095175.08,
+     "pressure_pa": 6180000000.0,
+     "ok_span": true,
+     "ok_time": true,
+     "ok_ppv": false,
+     "ok_pressure": true,
+     "score": 3,
+     "plausible": true
+    },
+    {
+     "system": "g-mm-ms",
+     "model_span_m": 2.08,
+     "total_time_s": 0.010000927843016778,
+     "ppv_m_s": 3609.52,
+     "pressure_pa": 61800.0,
+     "ok_span": true,
+     "ok_time": true,
+     "ok_ppv": true,
+     "ok_pressure": false,
+     "score": 3,
+     "plausible": true
+    },
+    {
+     "system": "t-mm-s",
+     "model_span_m": 2.08,
+     "total_time_s": 10.000927843016777,
+     "ppv_m_s": 3.61,
+     "pressure_pa": 61800.0,
+     "ok_span": true,
+     "ok_time": false,
+     "ok_ppv": true,
+     "ok_pressure": false,
+     "score": 2,
+     "plausible": false
+    },
+    {
+     "system": "kg-m-s",
+     "model_span_m": 2080.0,
+     "total_time_s": 10.000927843016777,
+     "ppv_m_s": 3609.52,
+     "pressure_pa": 0.0618,
+     "ok_span": false,
+     "ok_time": false,
+     "ok_ppv": true,
+     "ok_pressure": false,
+     "score": 1,
+     "plausible": false
+    }
+   ],
+   "pick": "kg-mm-ms",
+   "ambiguous": false,
+   "basis": [
+    "材料常数锚点定论：kg-mm-ms。该项下 空气密度/kg·m⁻³=1.293、炸药密度/kg·m⁻³=1630.0、爆速/m·s⁻¹=7840.0、PCJ/GPa=26.0；命中 4 项，领先次高 3 项",
+    "场值锚点交叉核对（同一 kg-mm-ms 制下）：模型尺度 2.08 m、总时长 0.01 s、PPV 3609.52 m/s、峰值压力 61800000.0 Pa（场值得分 4/4；时长/压力若越阈值区间，是算例结果量级偏小，不改判据）",
+    "最大节点速度原始值 3609.52（模型单位）→ 各制换算：kg-mm-ms:3609.52 / g-cm-µs:36095175.08 / g-mm-ms:3609.52 / t-mm-s:3.61 / kg-m-s:3609.52",
+    "峰值压力原始值 0.0617963（模型单位）→ 各制换算：kg-mm-ms:61800000.0 / g-cm-µs:6180000000.0 / g-mm-ms:61800.0 / t-mm-s:61800.0 / kg-m-s:0.0618",
+    "d3plot 末帧原始时间 10 与 .k ENDTIM=10.0 相对差 0.01% → 时间单位与 .k 一致"
+   ],
+   "confidence": "high",
+   "endtim_from_k": 10.0,
+   "last_time_raw": 10.000927843016777,
+   "vmax_raw": 3609.5175081009284,
+   "pmax_raw": 0.06179634086950989,
+   "deck_hint": "kg-mm-ms",
+   "endtim_rel_diff": 9.278430167771745e-05
+  },
+  "override": false,
+  "deck_check": {
+   "deck_ro_air": 1.293e-09,
+   "deck_ro_explosive": 1.63e-06,
+   "deck_detonation_d": 7840.0,
+   "deck_rock_shear": null,
+   "deck_pcj": 26.0,
+   "candidates": [
+    {
+     "system": "g-cm-µs",
+     "air_density_kg_m3": 1.293e-06,
+     "explosive_ro_kg_m3": 0.0016300000000000002,
+     "det_velocity_m_s": 78400000.0,
+     "rock_shear_gpa": null,
+     "pcj_gpa": 2600.0,
+     "hits": 0
+    },
+    {
+     "system": "g-mm-ms",
+     "air_density_kg_m3": 0.0012929999999999999,
+     "explosive_ro_kg_m3": 1.6300000000000001,
+     "det_velocity_m_s": 7840.0,
+     "rock_shear_gpa": null,
+     "pcj_gpa": 0.026,
+     "hits": 1
+    },
+    {
+     "system": "kg-mm-ms",
+     "air_density_kg_m3": 1.293,
+     "explosive_ro_kg_m3": 1630.0,
+     "det_velocity_m_s": 7840.0,
+     "rock_shear_gpa": null,
+     "pcj_gpa": 26.0,
+     "hits": 4
+    },
+    {
+     "system": "t-mm-s",
+     "air_density_kg_m3": 1293.0,
+     "explosive_ro_kg_m3": 1630000.0,
+     "det_velocity_m_s": 7.84,
+     "rock_shear_gpa": null,
+     "pcj_gpa": 0.026,
+     "hits": 0
+    },
+    {
+     "system": "kg-m-s",
+     "air_density_kg_m3": 1.293e-09,
+     "explosive_ro_kg_m3": 1.63e-06,
+     "det_velocity_m_s": 7840.0,
+     "rock_shear_gpa": null,
+     "pcj_gpa": 2.6e-08,
+     "hits": 1
+    }
+   ],
+   "stress_hint_system": "kg-mm-ms",
+   "stress_hint_score": 1,
+   "material_hint_system": "kg-mm-ms",
+   "material_hint_score": 4,
+   "material_hint_margin": 3
+  }
+ },
+ "interpolation": {
+  "location": "element",
+  "weight": "单元体积加权（六面体 6 四面体分解）",
+  "peaks_element": {
+   "damage": 0.0,
+   "eps": 0.0,
+   "pressure": 0.01719059608876705
+  },
+  "peaks_node": {
+   "damage": 0.0,
+   "eps": 0.0,
+   "pressure": 0.0
+  },
+  "note": "单元→节点会抹平峰值；两处峰值差即该效应的量化"
+ },
+ "states": {
+  "total": 2,
+  "per_file": [
+   {
+    "file": "d3plot",
+    "kind": "base",
+    "words": 465408,
+    "states": 0,
+    "body": 465408
+   },
+   {
+    "file": "d3plot01",
+    "kind": "seq",
+    "words": 18008064,
+    "states": 22,
+    "body": 18008064
+   },
+   {
+    "file": "d3plot02",
+    "kind": "seq",
+    "words": 18008064,
+    "states": 22,
+    "body": 18008064
+   },
+   {
+    "file": "d3plot03",
+    "kind": "seq",
+    "words": 18008064,
+    "states": 22,
+    "body": 18008064
+   },
+   {
+    "file": "d3plot04",
+    "kind": "seq",
+    "words": 18008064,
+    "states": 22,
+    "body": 18008064
+   },
+   {
+    "file": "d3plot05",
+    "kind": "seq",
+    "words": 10641408,
+    "states": 13,
+    "body": 10641408
+   },
+   {
+    "file": "d3plot06",
+    "kind": "seq",
+    "words": 818688,
+    "states": 1,
+    "body": 818688
+   }
+  ],
+  "times": [
+   0.0,
+   0.09920589897057493
+  ],
+  "active_per_frame": [
+   30400,
+   30400
+  ],
+  "checksum": [
+   [
+    0.0,
+    0.0
+   ],
+   [
+    0.0,
+    0.0
+   ]
+  ],
+  "frames": [
+   {
+    "frame": 0,
+    "t": 0.0,
+    "active": 30400,
+    "nbytes": 669536,
+    "comp_bytes": 119,
+    "checksum": [
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "frame": 1,
+    "t": 0.09920589897057493,
+    "active": 30400,
+    "nbytes": 669536,
+    "comp_bytes": 8224,
+    "checksum": [
+     0.0,
+     0.0
+    ]
+   }
+  ],
+  "note": "状态数与 d3plot 一一对应，未抽帧"
+ },
+ "detector": {
+  "version": {
+   "raw": "R12",
+   "normalized": "r12.0",
+   "solver": "smp"
+  },
+  "k_file": "yyy.k",
+  "parts": [
+   {
+    "pid": 1,
+    "mat": "MAT_CONCRETE_DAMAGE_REL3",
+    "roles": [
+     "structure"
+    ],
+    "basis": ".k: pid1 -> MAT_CONCRETE_DAMAGE_REL3(未在映射表, 默认 structure)"
+   },
+   {
+    "pid": 2,
+    "mat": "MAT_JOHNSON_COOK",
+    "roles": [
+     "structure"
+    ],
+    "basis": ".k: pid2 -> MAT_JOHNSON_COOK + section_solid_title"
+   },
+   {
+    "pid": 3,
+    "mat": "MAT_NULL",
+    "roles": [
+     "air"
+    ],
+    "basis": ".k: pid3 -> MAT_NULL + section_solid_title"
+   },
+   {
+    "pid": 4,
+    "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+    "roles": [
+     "explosive"
+    ],
+    "basis": ".k: pid4 -> MAT_HIGH_EXPLOSIVE_BURN + section_solid_title"
+   }
+  ],
+  "span_model_units": 2080.0
+ },
+ "scales": {
+  "u": 0.0,
+  "damage": 0.0,
+  "eps": 0.0,
+  "pressure": 0.01719059608876705,
+  "vel": 1960.675048828125
+ },
+ "elapsed_s": 0.46,
+ "verify": {
+  "key": "fixture_hexa",
+  "ok": true,
+  "issues": [],
+  "mesh_header": {
+   "units_system": "kg-mm-ms",
+   "counts": {
+    "numnp": 40278,
+    "nel": 30400
+   },
+   "parts": 4,
+   "groups": 4,
+   "particles": []
+  },
+  "frames_header": {
+   "nframes": 2,
+   "frame_bytes": 669536,
+   "fields": [
+    "u",
+    "damage",
+    "eps",
+    "pressure",
+    "vel",
+    "active_mask"
+   ]
+  },
+  "surf_check": [
+   {
+    "partId": 1,
+    "open_edges": 0,
+    "directed_conflicts": 0,
+    "edges": 36568
+   },
+   {
+    "partId": 2,
+    "open_edges": 0,
+    "directed_conflicts": 0,
+    "edges": 24232
+   },
+   {
+    "partId": 3,
+    "open_edges": 0,
+    "directed_conflicts": 0,
+    "edges": 15360
+   },
+   {
+    "partId": 4,
+    "open_edges": 0,
+    "directed_conflicts": 0,
+    "edges": 272
+   }
+  ],
+  "frames_checked": {
+   "0": {
+    "t": 0.0,
+    "ok_u": true,
+    "ok_mask": true,
+    "ok_damage": true,
+    "max_abs_diff_u": 0.0,
+    "active": 30400
+   },
+   "1": {
+    "t": 0.09920589897057493,
+    "ok_u": true,
+    "ok_mask": true,
+    "ok_damage": true,
+    "max_abs_diff_u": 0.0,
+    "active": 30400
+   }
+  },
+  "elapsed_s": 0.07
+ }
+}

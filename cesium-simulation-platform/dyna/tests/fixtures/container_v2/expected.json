@@ -1,0 +1,56 @@
+{
+ "key": "fixture_hexa",
+ "schema_version": 2,
+ "counts": {
+  "numnp": 40278,
+  "nel": 30400
+ },
+ "units_system": "kg-mm-ms",
+ "id_source": "k_elem_align",
+ "nframes": 2,
+ "frame_bytes": 669536,
+ "fields": [
+  {
+   "id": "u",
+   "dtype": "u2",
+   "location": "node",
+   "count": 120834,
+   "comps": 3
+  },
+  {
+   "id": "damage",
+   "dtype": "u2",
+   "location": "element",
+   "count": 30400,
+   "comps": 1
+  },
+  {
+   "id": "eps",
+   "dtype": "u2",
+   "location": "element",
+   "count": 30400,
+   "comps": 1
+  },
+  {
+   "id": "pressure",
+   "dtype": "u2",
+   "location": "element",
+   "count": 30400,
+   "comps": 1
+  },
+  {
+   "id": "vel",
+   "dtype": "u2",
+   "location": "node",
+   "count": 120834,
+   "comps": 3
+  },
+  {
+   "id": "active_mask",
+   "dtype": "u1",
+   "location": "element",
+   "count": 3800,
+   "comps": 1
+  }
+ ]
+}

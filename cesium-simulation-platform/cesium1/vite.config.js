@@ -41,6 +41,11 @@ export default defineConfig({
         target: 'http://localhost:3003',
         changeOrigin: true
       },
+      // LS-DYNA 子系统页面（平台内置，由后端静态挂载）
+      '/dyna': {
+        target: 'http://localhost:3003',
+        changeOrigin: true
+      },
       '/ws': {
         target: 'ws://localhost:3003',
         changeOrigin: true,

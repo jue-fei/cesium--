@@ -1,0 +1,2348 @@
+/* ==========================================================================
+   DYNA TWIN · UI DESIGN SYSTEM  (v2 / 2026-10)
+   --------------------------------------------------------------------------
+   设计原则
+   1. 深色、无圆角、1px 细线、紧凑信息密度 —— 工具感优先于装饰感
+   2. 界面色低饱和；高饱和仅留给数据（云图 / 曲线 / 起爆标记）
+   3. 三层表面：画布 < 面板 < 浮层；用明度与细线划分层级，不用阴影堆叠
+   4. 数值一律等宽字体；标签使用小字距大写的"技术标签"语汇
+   ========================================================================== */
+
+:root {
+    /* 表面 */
+    --bg: #06080b;
+    --bg-1: #090c11;
+    --bg-2: #0d1117;
+    --bg-3: #141a22;
+    --panel: #0b0f15;
+    --panel-float: rgba(10, 13, 18, .88);
+
+    /* 描边 */
+    --line: rgba(255, 255, 255, .065);
+    --line-2: rgba(255, 255, 255, .12);
+    --line-3: rgba(255, 255, 255, .22);
+
+    /* 文字 */
+    --ink: #dfe7ef;
+    --ink-2: #a3b0bd;
+    --ink-3: #8794a1;
+    /* U4-2：小字对比度提升（原 #65717d） */
+    --ink-4: #5a6672;
+
+    /* 字号 token（U2-3）：禁止内联 font-size */
+    --fs-10: 10px;
+    --fs-11: 11px;
+    --fs-12: 12px;
+    --fs-14: 14px;
+    --fs-20: 20px;
+
+    /* 强调（低饱和冷灰蓝，不参与数据可视化） */
+    --accent: #cfdae6;
+    --accent-2: #9fb3c6;
+    --accent-soft: rgba(207, 218, 230, .10);
+    --focus: #7fa6c6;
+
+    /* 语义色 */
+    --warn: #d2a052;
+    --warn-soft: rgba(210, 160, 82, .12);
+    --danger: #d2685f;
+    --ok: #63b287;
+
+    /* 兼容旧内联样式引用（由 JS 动态拼字符串使用） */
+    --text: var(--ink);
+    --text-dim: var(--ink-3);
+    --cyan: var(--accent);
+    --line2: var(--line-2);
+
+    /* 字体 */
+    --sans: "Segoe UI", "Inter", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    --mono: "Cascadia Mono", "JetBrains Mono", Consolas, "SFMono-Regular", monospace;
+
+    /* 尺度 */
+    --hdr: 46px;
+    --bottom: 52px;
+    --side: 286px;
+    --right: clamp(560px, 34vw, 720px);
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden
+}
+
+body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 12px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale
+}
+
+button,
+input,
+select,
+textarea {
+    font: inherit;
+    color: inherit
+}
+
+::selection {
+    background: rgba(207, 218, 230, .22);
+    color: #fff
+}
+
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px
+}
+
+::-webkit-scrollbar-track {
+    background: transparent
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, .14)
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, .24)
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, .14) transparent
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100%
+}
+
+/* ==========================================================================
+   01 · 顶栏
+   ========================================================================== */
+
+#header {
+    height: var(--hdr);
+    flex: 0 0 var(--hdr);
+    display: flex;
+    align-items: stretch;
+    gap: 14px;
+    padding: 0 12px 0 14px;
+    background: linear-gradient(180deg, #0d1117 0%, #090c11 100%);
+    border-bottom: 1px solid var(--line-2);
+    position: relative;
+    z-index: 20
+}
+
+#header::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 1px;
+    background: linear-gradient(90deg, var(--line-2), transparent 42%, transparent 58%, var(--line-2));
+    pointer-events: none
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 430px
+}
+
+.logo {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    color: var(--ink-2)
+}
+
+.brandText {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1px
+}
+
+.title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .10em;
+    color: var(--ink);
+    white-space: nowrap;
+    line-height: 1.2
+}
+
+.titleTag {
+    font: 400 8px/1.5 var(--mono);
+    letter-spacing: .14em;
+    color: var(--ink-3);
+    border: 1px solid var(--line-2);
+    padding: 0 4px;
+    white-space: nowrap
+}
+
+.subtitle {
+    font: 9px/1.4 var(--mono);
+    letter-spacing: .02em;
+    color: var(--ink-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 420px
+}
+
+#tabs {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    border-left: 1px solid var(--line);
+    margin-left: 2px;
+    mask-image: linear-gradient(90deg, transparent 0, #000 8px, #000 calc(100% - 14px), transparent 100%);
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 8px, #000 calc(100% - 14px), transparent 100%)
+}
+
+#tabs::-webkit-scrollbar {
+    display: none
+}
+
+.tab {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    padding: 0 12px;
+    font-size: 11px;
+    letter-spacing: .02em;
+    color: var(--ink-3);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    border-right: 1px solid var(--line);
+    transition: color .12s, background .12s
+}
+
+.tab:hover {
+    color: var(--ink-2);
+    background: rgba(255, 255, 255, .03)
+}
+
+.tab.active {
+    color: var(--ink);
+    background: rgba(255, 255, 255, .055)
+}
+
+.tab.active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: var(--accent)
+}
+
+/* 算例标签上的删除按钮：悬停标签才显形，避免误点 */
+.tab .tabDel {
+    margin-left: 6px;
+    width: 14px;
+    height: 14px;
+    line-height: 12px;
+    text-align: center;
+    border-radius: 50%;
+    font-size: 12px;
+    color: var(--ink-3);
+    opacity: 0;
+    transition: opacity .12s, background .12s, color .12s
+}
+
+.tab:hover .tabDel {
+    opacity: 1
+}
+
+.tab .tabDel:hover {
+    background: #b3261e;
+    color: #fff
+}
+
+.tab.impTab {
+    color: var(--ink-2);
+    border-right: none;
+    border-left: 1px dashed var(--line-2);
+    margin-left: 4px
+}
+
+.headerActions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+    margin-left: auto
+}
+
+.hdrChip {
+    font: 9px/1 var(--mono);
+    letter-spacing: .12em;
+    color: var(--ink-3);
+    border: 1px solid var(--line);
+    padding: 4px 6px;
+    white-space: nowrap
+}
+
+.btnGhost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 11px;
+    background: transparent;
+    border: 1px solid var(--line-2);
+    color: var(--ink);
+    font-size: 11px;
+    letter-spacing: .04em;
+    cursor: pointer;
+    white-space: nowrap
+}
+
+.btnGhost:hover {
+    background: rgba(255, 255, 255, .06);
+    border-color: var(--line-3)
+}
+
+.btnGhost.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0a0d12;
+    font-weight: 600
+}
+
+.btnGhost.primary:hover {
+    background: #e7eff7
+}
+
+/* ==========================================================================
+   02 · 主区骨架
+   ========================================================================== */
+
+#main {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    position: relative
+}
+
+.side {
+    width: var(--side);
+    flex: 0 0 var(--side);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-1)
+}
+
+#left {
+    border-right: 1px solid var(--line)
+}
+
+#center {
+    flex: 1 1 auto;
+    min-width: 0;
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-1)
+}
+
+#gl {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: grab
+}
+
+#gl:active {
+    cursor: grabbing
+}
+
+.panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    background: var(--bg-1)
+}
+
+.ptitle {
+    height: 28px;
+    flex: 0 0 28px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--line);
+    font-size: 11px;
+    letter-spacing: .06em;
+    color: var(--ink-2);
+    background: var(--bg-2)
+}
+
+.pidx {
+    font: 9px/1.4 var(--mono);
+    letter-spacing: .04em;
+    color: var(--ink-4);
+    border: 1px solid var(--line);
+    padding: 0 3px
+}
+
+.ptitleMeta {
+    margin-left: auto;
+    font: 8.5px/1 var(--mono);
+    letter-spacing: .14em;
+    color: var(--ink-4);
+    white-space: nowrap
+}
+
+.pbody {
+    flex: 1 1 auto;
+    min-height: 0;
+    position: relative;
+    overflow: hidden
+}
+
+canvas.fill {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block
+}
+
+/* ==========================================================================
+   03 · 左侧栏：页签 + 四个页面
+   ========================================================================== */
+
+.sideTabs {
+    display: flex;
+    flex: 0 0 32px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-1)
+}
+
+.ltab {
+    position: relative;
+    flex: 1 1 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    letter-spacing: .10em;
+    color: var(--ink-3);
+    cursor: pointer;
+    user-select: none;
+    border-right: 1px solid var(--line)
+}
+
+.ltab:last-child {
+    border-right: none
+}
+
+.ltab:hover {
+    color: var(--ink-2);
+    background: rgba(255, 255, 255, .03)
+}
+
+.ltab.active {
+    color: var(--ink);
+    background: rgba(255, 255, 255, .045)
+}
+
+.ltab.active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 1px;
+    background: var(--accent)
+}
+
+#left>.panel {
+    display: none
+}
+
+#left[data-page="field"] #pField,
+#left[data-page="metric"] #pMetric,
+#left[data-page="model"] #pModel {
+    display: flex;
+    flex: 1 1 auto
+}
+
+#fieldList {
+    height: 100%;
+    overflow: auto;
+    padding: 2px 0 10px
+}
+
+.fgroup {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 12px 5px;
+    font-size: 9.5px;
+    letter-spacing: .12em;
+    color: var(--ink-3);
+    text-transform: uppercase
+}
+
+.fgroup::after {
+    content: "";
+    flex: 1 1 auto;
+    height: 1px;
+    background: var(--line)
+}
+
+.fitem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 27px;
+    padding: 0 12px;
+    font-size: 12px;
+    color: var(--ink-2);
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background .1s, color .1s
+}
+
+.fitem i {
+    width: 5px;
+    height: 5px;
+    flex: 0 0 5px;
+    border: 1px solid var(--ink-3);
+    background: transparent
+}
+
+.fitem:hover {
+    color: var(--ink);
+    background: rgba(255, 255, 255, .035)
+}
+
+.fitem.active {
+    color: var(--ink);
+    background: rgba(255, 255, 255, .06);
+    border-left-color: var(--accent)
+}
+
+.fitem.active i {
+    background: var(--accent);
+    border-color: var(--accent)
+}
+
+.mlist {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 2px 12px 12px;
+    overflow: auto
+}
+
+.metric {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 1px;
+    border-bottom: 1px solid var(--line)
+}
+
+.metric .k {
+    font-size: 11px;
+    color: var(--ink-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis
+}
+
+.metric .v {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap
+}
+
+.metric .v small {
+    font-size: 9px;
+    font-weight: 400;
+    color: var(--ink-3);
+    margin-left: 3px
+}
+
+.metric.hot .v {
+    color: var(--warn)
+}
+
+.mnote {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    font: 9.5px/1.8 var(--mono);
+    color: var(--ink-3)
+}
+
+.mnote b {
+    color: var(--ink-2);
+    font-weight: 600
+}
+
+/* 模型页信息量大：标签/数值上下排，避免长数值被 286px 侧栏挤爆 */
+#pModel .metric {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 10px 1px
+}
+
+#pModel .metric .v {
+    font-size: 13px
+}
+
+/* ==========================================================================
+   04 · 画布浮层：工具条 / 时间 / 图例
+   ========================================================================== */
+
+#toolbar {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    z-index: 8;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    pointer-events: none
+}
+
+.tbGroup {
+    display: flex;
+    align-items: stretch;
+    gap: 1px;
+    padding: 2px;
+    background: var(--panel-float);
+    border: 1px solid var(--line-2);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .35);
+    pointer-events: auto
+}
+
+.tbGroupRight {
+    flex: 0 0 auto
+}
+
+.tbtn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 7px;
+    font-size: 11px;
+    letter-spacing: .02em;
+    color: var(--ink-2);
+    border: 1px solid transparent;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap
+}
+
+.tbtn:hover {
+    color: var(--ink);
+    background: rgba(255, 255, 255, .05)
+}
+
+.tbtn.active {
+    color: #fff;
+    background: rgba(207, 218, 230, .14);
+    border-color: rgba(207, 218, 230, .24);
+    box-shadow: inset 0 -2px 0 var(--accent)
+}
+
+.tbtn .ico {
+    width: 12px;
+    height: 12px;
+    flex: 0 0 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.2;
+    stroke-linecap: square;
+    opacity: .8
+}
+
+.tbtn.active .ico {
+    opacity: 1
+}
+
+.tsep {
+    width: 1px;
+    align-self: stretch;
+    margin: 3px 2px;
+    background: var(--line)
+}
+
+#tBadge {
+    position: absolute;
+    top: 56px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 6;
+    padding: 3px 12px 4px;
+    background: rgba(10, 13, 18, .72);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    font-family: var(--mono);
+    font-size: 17px;
+    line-height: 1.25;
+    letter-spacing: .03em;
+    color: var(--ink);
+    transition: left .22s cubic-bezier(.4, 0, .2, 1)
+}
+
+#tBadge::before {
+    content: "SIMULATION TIME";
+    position: absolute;
+    top: -12px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font: 7.5px/1 var(--mono);
+    letter-spacing: .22em;
+    color: var(--ink-4)
+}
+
+#tBadge small {
+    font-size: 9px;
+    color: var(--ink-3);
+    letter-spacing: .10em;
+    margin-left: 2px
+}
+
+#viewHud {
+    position: absolute;
+    top: 50px;
+    right: 14px;
+    z-index: 5;
+    max-width: 320px;
+    text-align: right;
+    font: 9.5px/1.7 var(--mono);
+    color: var(--ink-3);
+    pointer-events: none;
+    transition: right .22s cubic-bezier(.4, 0, .2, 1)
+}
+
+#hudInfo {
+    color: var(--ink-4)
+}
+
+#stageBadge {
+    position: absolute;
+    left: 14px;
+    bottom: 16px;
+    z-index: 5;
+    padding: 4px 9px;
+    font-size: 10.5px;
+    letter-spacing: .05em;
+    color: var(--warn);
+    background: rgba(24, 18, 8, .72);
+    border: 1px solid rgba(210, 160, 82, .35);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px)
+}
+
+#stageBadge:empty {
+    display: none
+}
+
+#legendName {
+    position: absolute;
+    right: 14px;
+    bottom: 172px;
+    z-index: 5;
+    max-width: 250px;
+    padding: 4px 8px;
+    font-size: 10px;
+    letter-spacing: .05em;
+    color: var(--ink-2);
+    background: rgba(10, 13, 18, .82);
+    border: 1px solid var(--line);
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: right .22s cubic-bezier(.4, 0, .2, 1)
+}
+
+#legend {
+    position: absolute;
+    right: 14px;
+    bottom: 16px;
+    z-index: 5;
+    display: flex;
+    gap: 8px;
+    padding: 8px 10px;
+    background: rgba(10, 13, 18, .84);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .3);
+    transition: right .22s cubic-bezier(.4, 0, .2, 1)
+}
+
+#legendBar {
+    display: block;
+    width: 14px;
+    height: 128px;
+    border: 1px solid var(--line-2)
+}
+
+#legendTicks {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 128px;
+    font: 9px/1 var(--mono);
+    color: var(--ink-2);
+    text-align: left
+}
+
+/* 右侧面板占位后，窄视口隐藏视图提示，工具条自动收成图标 */
+#center {
+    container-type: inline-size
+}
+
+#center.dock-open #viewHud {
+    display: none
+}
+
+#center.dock-open .tbtn .lbl {
+    display: none
+}
+
+#center.dock-open .tbtn {
+    width: 26px;
+    justify-content: center;
+    padding: 0
+}
+
+/* 画布仍有足够宽度时保留文字标签 */
+@container (min-width: 460px) {
+    #center.dock-open .tbtn .lbl {
+        display: inline
+    }
+
+    #center.dock-open .tbtn {
+        width: auto;
+        padding: 0 7px
+    }
+}
+
+/* ==========================================================================
+   05 · 小尺寸按钮（控制抽屉与部件列表共用）
+   ========================================================================== */
+
+.cbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 22px;
+    min-width: 22px;
+    padding: 0 7px;
+    font-size: 10.5px;
+    letter-spacing: .03em;
+    color: var(--ink-2);
+    background: transparent;
+    border: 1px solid var(--line);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap
+}
+
+.cbtn:hover {
+    color: var(--ink);
+    background: rgba(255, 255, 255, .04);
+    border-color: var(--line-2)
+}
+
+.cbtn.active {
+    color: #0a0d12;
+    background: var(--accent);
+    border-color: var(--accent);
+    font-weight: 600
+}
+
+#clipSlider {
+    width: 100%
+}
+
+/* ==========================================================================
+   06 · 取点面板
+   ========================================================================== */
+
+#pickPanel {
+    position: absolute;
+    right: 14px;
+    bottom: 172px;
+    z-index: 7;
+    display: none;
+    width: 332px;
+    padding: 10px;
+    background: rgba(10, 13, 18, .95);
+    border: 1px solid var(--line-2);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
+    transition: right .22s cubic-bezier(.4, 0, .2, 1)
+}
+
+#pickHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 7px;
+    font-size: 10px;
+    letter-spacing: .10em;
+    color: var(--ink-2)
+}
+
+#pickClose {
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink-3);
+    cursor: pointer
+}
+
+#pickClose:hover {
+    color: var(--ink);
+    background: rgba(255, 255, 255, .06)
+}
+
+#pickChart {
+    display: block;
+    border: 1px solid var(--line)
+}
+
+#pickInfo {
+    margin-top: 7px;
+    font: 9.5px/1.65 var(--mono);
+    color: var(--ink-3);
+    white-space: normal;
+    word-break: break-word
+}
+
+#pickTools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px
+}
+
+#pickHint {
+    font: 9px/1.4 var(--mono);
+    color: var(--ink-3);
+    opacity: .85
+}
+
+/* 悬浮探针（U1-4）：Shift+hover 显示最近节点/单元与当前场值 */
+#probeTip {
+    position: fixed;
+    z-index: 60;
+    display: none;
+    padding: 3px 7px;
+    background: rgba(8, 12, 18, .92);
+    border: 1px solid var(--line);
+    color: var(--text);
+    font: 10px/1.5 var(--mono);
+    pointer-events: none;
+    white-space: nowrap
+}
+
+/* 可访问性（U4-3）：键盘焦点可见 */
+.cbtn:focus-visible,
+.tbtn:focus-visible,
+.tab:focus-visible,
+.ltab:focus-visible,
+.ctab:focus-visible,
+.pbtn:focus-visible,
+.fitem:focus-visible,
+.dClose:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px
+}
+
+/* 触屏（U4-5）：加大点击热区 */
+@media (pointer:coarse) {
+
+    .cbtn,
+    .tbtn,
+    .pbtn,
+    .tab,
+    .ltab,
+    .ctab {
+        min-height: 40px;
+        min-width: 40px
+    }
+
+    #bottom input[type=range] {
+        height: 26px
+    }
+}
+
+/* ==========================================================================
+   07 · 右侧图表页（面板内 2×2，单图 16:9）
+   ========================================================================== */
+
+#chartPage {
+    padding: 0;
+    overflow: auto
+}
+
+#chartPage .boardMeta {
+    margin: 0;
+    padding: 8px 12px 2px;
+    font: 9px/1.4 var(--mono);
+    letter-spacing: .02em;
+    color: var(--ink-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis
+}
+
+#chartGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 8px 12px 12px;
+    align-content: start
+}
+
+#chartGrid .chartCell {
+    background: var(--bg-2);
+    border: 1px solid var(--line)
+}
+
+.chartCell {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: var(--bg-1)
+}
+
+.chartCap {
+    height: 24px;
+    flex: 0 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 0 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, .04);
+    font-size: 9.5px;
+    letter-spacing: .04em;
+    color: var(--ink-2);
+    white-space: nowrap;
+    overflow: hidden
+}
+
+.chartMeta {
+    font: 8px/1 var(--mono);
+    letter-spacing: .04em;
+    color: var(--ink-4);
+    overflow: hidden;
+    text-overflow: ellipsis
+}
+
+/* 面板内图表：固定 16:9，避免被面板宽度拉成扁条 */
+#chartGrid canvas {
+    display: block;
+    flex: 0 0 auto;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16/9
+}
+
+/* ==========================================================================
+   08 · 控制抽屉
+   ========================================================================== */
+
+/* ==========================================================================
+   08 · 右侧分析面板（控制 / 图表，占位列，不遮盖模型）
+   ========================================================================== */
+
+#rightDock {
+    position: relative;
+    flex: 0 0 auto;
+    width: var(--right);
+    min-width: 0;
+    display: none;
+    flex-direction: column;
+    background: var(--bg-1);
+    border-left: 1px solid var(--line-2);
+    overflow: hidden
+}
+
+#rightDock.open {
+    display: flex
+}
+
+#dockResize {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    z-index: 3;
+    cursor: col-resize;
+    background: transparent
+}
+
+#dockResize:hover {
+    background: rgba(207, 218, 230, .16)
+}
+
+#dockResize::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 50%;
+    width: 1px;
+    height: 34px;
+    margin-top: -17px;
+    background: rgba(255, 255, 255, .16)
+}
+
+#dockResize:hover::after {
+    background: var(--accent)
+}
+
+#dockHead {
+    flex: 0 0 38px
+}
+
+#ctabs {
+    display: flex;
+    flex: 0 0 30px;
+    border-bottom: 1px solid var(--line)
+}
+
+.ctab {
+    position: relative;
+    flex: 1 1 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    letter-spacing: .04em;
+    color: var(--ink-3);
+    cursor: pointer;
+    user-select: none;
+    border-right: 1px solid var(--line)
+}
+
+.ctab:last-child {
+    border-right: none
+}
+
+.ctab:hover {
+    color: var(--ink-2);
+    background: rgba(255, 255, 255, .03)
+}
+
+.ctab.active {
+    color: var(--ink);
+    background: rgba(255, 255, 255, .04)
+}
+
+.ctab.active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 1px;
+    background: var(--accent)
+}
+
+.cpage {
+    display: none;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    flex-direction: column
+}
+
+.cpage.active {
+    display: flex
+}
+
+.cpage>.srow,
+.cpage>.snote {
+    flex: 0 0 auto
+}
+
+.cpageHead {
+    flex: 0 0 auto;
+    padding: 10px 12px 6px;
+    font-size: 10px;
+    letter-spacing: .1em;
+    color: var(--ink-3)
+}
+
+.rangeFill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-width: 0
+}
+
+.rangeFill input[type=range] {
+    flex: 1 1 auto;
+    min-width: 0
+}
+
+.rangeVal {
+    flex: 0 0 auto;
+    min-width: 38px;
+    text-align: right;
+    font: 11px var(--mono);
+    color: var(--ink-3)
+}
+
+.drawerHead {
+    height: 38px;
+    flex: 0 0 38px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 12px;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--line)
+}
+
+.drawerHead .dTitle {
+    font-size: 11px;
+    letter-spacing: .14em;
+    color: var(--ink)
+}
+
+.drawerHead .dSub {
+    margin-left: 8px;
+    font: 8.5px/1 var(--mono);
+    letter-spacing: .14em;
+    color: var(--ink-4)
+}
+
+.dClose {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    line-height: 1;
+    color: var(--ink-3);
+    border: 1px solid transparent;
+    cursor: pointer
+}
+
+.dClose:hover {
+    color: var(--ink);
+    border-color: var(--line)
+}
+
+/* 控制抽屉内容 */
+.srow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line)
+}
+
+.srow>label:first-child {
+    width: 84px;
+    flex: 0 0 84px;
+    font-size: 10.5px;
+    color: var(--ink-3)
+}
+
+.srow .seg {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px
+}
+
+.snote {
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--line);
+    font: 9.5px/1.8 var(--mono);
+    color: var(--ink-3)
+}
+
+.snote b {
+    color: var(--ink-2);
+    font-weight: 600
+}
+
+#partList {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 0 12px 12px
+}
+
+#partList>div {
+    padding: 4px 0 !important;
+    border-bottom: 1px solid var(--line) !important
+}
+
+.pav {
+    font-family: var(--mono);
+    color: var(--ink-3);
+    font-size: var(--fs-10);
+    width: 30px;
+    text-align: right
+}
+
+/* ==========================================================================
+   08 · 导入弹窗
+   ========================================================================== */
+
+#importMask {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: none;
+    background: rgba(3, 5, 8, .68);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px)
+}
+
+#importPanel {
+    position: fixed;
+    /* 不用 transform 居中：transform 会让后代的 position:fixed（提取层下拉）以本元素为
+       包含块，导致坐标整体偏移；inset+margin:auto 同样居中且不改变包含块 */
+    inset: 0;
+    margin: auto;
+    z-index: 61;
+    display: none;
+    flex-direction: column;
+    width: min(760px, calc(100vw - 32px));
+    height: fit-content;
+    max-height: 86vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: #0b0f14;
+    border: 1px solid var(--line-2);
+    box-shadow: 0 30px 90px rgba(0, 0, 0, .65)
+}
+
+#importHead {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    background: #0b0f14;
+    border-bottom: 1px solid var(--line)
+}
+
+.impKicker {
+    font: 8.5px/1 var(--mono);
+    letter-spacing: .2em;
+    color: var(--ink-4)
+}
+
+.impTitle {
+    margin-top: 4px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    color: var(--ink)
+}
+
+#importBody {
+    padding: 14px 16px 16px;
+    display: grid;
+    /* minmax(0,1fr) 而不是 1fr：网格项默认 min-width:auto，
+       下拉框里长选项的 min-content 宽度会把列撑破，导致整块横向滚动 */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
+    align-content: start
+}
+
+/* 窄屏（或窗口被拖窄）时退化为单列，始终不出横向滚动条 */
+@media (max-width: 820px) {
+    #importBody {
+        grid-template-columns: minmax(0, 1fr)
+    }
+}
+
+#importBody .irow {
+    margin-bottom: 0
+}
+
+#importBody .span2,
+#importBody .snote,
+#impLog {
+    grid-column: 1 / -1
+}
+
+.irow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 9px
+}
+
+.irow>label:first-child {
+    width: 104px;
+    flex: 0 0 104px;
+    font-size: 10.5px;
+    color: var(--ink-3)
+}
+
+.irow input,
+.irow select {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 26px;
+    padding: 0 8px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font: 11px var(--mono);
+    outline: none
+}
+
+.irow input::placeholder {
+    color: var(--ink-4)
+}
+
+.irow input:hover,
+.irow select:hover {
+    border-color: var(--line-2)
+}
+
+.irow input:focus,
+.irow select:focus {
+    border-color: var(--focus);
+    background: #0f141b
+}
+
+#impLayers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    flex: 1 1 auto;
+    min-width: 0
+}
+
+/* ---- 提取层下拉（点击展开，避免把 4 个选项平铺撑破弹窗） ---- */
+.impPopWrap {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0
+}
+
+.impPopBtn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    height: 26px;
+    padding: 0 8px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font: 11px var(--mono);
+    text-align: left;
+    cursor: pointer;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis
+}
+
+.impPopBtn:hover {
+    border-color: var(--line-2)
+}
+
+.impPopBtn[aria-expanded="true"] {
+    border-color: var(--focus);
+    background: #0f141b
+}
+
+.impPopCaret {
+    flex: 0 0 auto;
+    color: var(--ink-3);
+    font-size: 9px
+}
+
+/* 下拉用 position:fixed：弹窗自身是滚动容器（overflow:auto），
+   绝对定位的下拉会被弹窗底边裁掉，fixed 可脱离裁剪并按视口夹取位置 */
+.impPop {
+    position: fixed;
+    z-index: 62;
+    display: none;
+    flex-direction: column;
+    width: 360px;
+    max-height: calc(100vh - 24px);
+    background: #0b0f14;
+    border: 1px solid var(--line-2);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .6)
+}
+
+.impPop.open {
+    display: flex
+}
+
+.impPopHead {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--ink)
+}
+
+.impPopHead .sub {
+    margin-left: 6px;
+    color: var(--ink-4);
+    font-size: 10px
+}
+
+.impPop #impLayers {
+    display: block;
+    max-height: 34vh;
+    overflow: auto;
+    padding: 6px
+}
+
+.lchk {
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr);
+    column-gap: 8px;
+    padding: 6px 8px;
+    cursor: pointer
+}
+
+.lchk:hover {
+    background: rgba(255, 255, 255, .04)
+}
+
+.lchk input {
+    grid-row: 1 / span 2;
+    margin: 2px 0 0
+}
+
+.lchk .lname {
+    font-size: 11.5px;
+    color: var(--ink)
+}
+
+.lchk .ldesc {
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--ink-4)
+}
+
+.impPopNote {
+    padding: 8px 12px;
+    border-top: 1px solid var(--line);
+    font-size: 10px;
+    line-height: 1.6;
+    color: var(--ink-3)
+}
+
+.impPopFoot {
+    display: flex;
+    justify-content: flex-end;
+    padding: 8px 12px;
+    border-top: 1px solid var(--line)
+}
+
+.impPopDone {
+    height: 24px;
+    padding: 0 16px;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color: #0a0d12;
+    font-size: 11px;
+    cursor: pointer
+}
+
+.impPopDone:hover {
+    background: #e7eff7
+}
+
+.ichk {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--ink-2);
+    cursor: pointer;
+    user-select: none
+}
+
+.ichk:hover {
+    color: var(--ink)
+}
+
+#impGo {
+    width: 100%;
+    height: 34px;
+    margin: 8px 0 10px;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color: #0a0d12;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    cursor: pointer
+}
+
+#impGo:hover {
+    background: #e7eff7
+}
+
+#impGo:disabled {
+    opacity: .45;
+    cursor: default
+}
+
+/* 取消任务：与主按钮同高，次级样式（此前没有规则，浏览器默认白底很难看） */
+#impCancel {
+    flex: 0 0 auto;
+    min-width: 92px;
+    height: 34px;
+    margin: 8px 0 10px;
+    background: transparent;
+    border: 1px solid var(--line-2);
+    color: var(--ink-2);
+    font-size: 12px;
+    letter-spacing: .08em;
+    cursor: pointer
+}
+
+#impCancel:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--ink)
+}
+
+#impCancel:disabled {
+    opacity: .35;
+    cursor: default
+}
+
+#impLog {
+    max-height: 170px;
+    margin: 0;
+    padding: 10px;
+    overflow: auto;
+    background: #070a0e;
+    border: 1px solid var(--line);
+    font: 10px/1.65 var(--mono);
+    color: var(--ink-2);
+    white-space: pre-wrap
+}
+
+/* ---- 转换进度条 ---- */
+.impProg {
+    margin: 4px 0 10px
+}
+
+.impProg[hidden] {
+    display: none
+}
+
+.impProgTop {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+    font-size: 11.5px;
+    color: var(--ink-2)
+}
+
+#impProgPct {
+    flex: 0 0 auto;
+    font: 600 13px var(--mono);
+    color: var(--accent);
+    font-variant-numeric: tabular-nums
+}
+
+.impProgTrack {
+    position: relative;
+    height: 6px;
+    background: #1b222c;
+    border: 1px solid var(--line);
+    overflow: hidden
+}
+
+#impProgFill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    background: linear-gradient(90deg, #2b8cff, #38e1ff);
+    transition: width .28s ease
+}
+
+.impProg.is-run #impProgFill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .28), transparent);
+    animation: impSweep 1.2s linear infinite
+}
+
+@keyframes impSweep {
+    from {
+        transform: translateX(-100%)
+    }
+
+    to {
+        transform: translateX(100%)
+    }
+}
+
+.impProg.is-done #impProgFill {
+    background: linear-gradient(90deg, #2f9e5f, #7bd389)
+}
+
+.impProg.is-done #impProgPct {
+    color: var(--good, #7bd389)
+}
+
+.impProg.is-fail #impProgFill {
+    background: linear-gradient(90deg, #a33, #e06c75)
+}
+
+.impProg.is-fail #impProgPct {
+    color: #e06c75
+}
+
+.impProg.is-cancel #impProgFill {
+    background: #5a6675
+}
+
+.impProgMeta {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 5px;
+    font: 10px var(--mono);
+    color: var(--ink-4);
+    font-variant-numeric: tabular-nums
+}
+
+code {
+    padding: 1px 3px;
+    background: rgba(255, 255, 255, .05);
+    font: 10px var(--mono);
+    color: var(--ink-2)
+}
+
+/* ==========================================================================
+   09 · 底部时间轴
+   ========================================================================== */
+
+#bottom {
+    height: var(--bottom);
+    flex: 0 0 var(--bottom);
+    position: relative;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 14px;
+    background: linear-gradient(180deg, #0b0f15, #080b10);
+    border-top: 1px solid var(--line-2)
+}
+
+.transport {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex: 0 0 auto
+}
+
+#playBtn {
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color: #0a0d12;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background .12s, box-shadow .12s
+}
+
+#playBtn:hover {
+    background: #e9f1f8;
+    box-shadow: 0 0 0 3px rgba(207, 218, 230, .12)
+}
+
+.pbtn {
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: var(--ink-3);
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid transparent
+}
+
+.pbtn:hover {
+    color: var(--ink);
+    border-color: var(--line);
+    background: rgba(255, 255, 255, .04)
+}
+
+.timeBlock,
+.frameBlock {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 0 0 auto
+}
+
+.timeBlock {
+    min-width: 116px
+}
+
+.frameBlock {
+    min-width: 62px
+}
+
+.cap {
+    font: 8px/1.2 var(--mono);
+    letter-spacing: .18em;
+    color: var(--ink-4)
+}
+
+#timeText {
+    font: 13px/1.3 var(--mono);
+    color: var(--ink);
+    letter-spacing: .01em;
+    white-space: nowrap
+}
+
+#frameText {
+    font: 11px/1.3 var(--mono);
+    color: var(--ink-2);
+    white-space: nowrap
+}
+
+#sliderWrap {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    position: relative
+}
+
+/* 时间轴起爆/延期标记（U1-3）：绝对定位叠加在 range 轨道上，不阻挡拖拽 */
+#sliderMarks {
+    position: absolute;
+    left: 7px;
+    right: 7px;
+    top: 50%;
+    height: 9px;
+    transform: translateY(-50%);
+    pointer-events: none;
+    z-index: 2
+}
+
+#sliderMarks i {
+    position: absolute;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    margin-left: -1px;
+    border-radius: 1px;
+    opacity: .95;
+    box-shadow: 0 0 2px rgba(0, 0, 0, .35)
+}
+
+#slider {
+    width: 100%
+}
+
+#speedSel {
+    flex: 0 0 auto;
+    width: 62px
+}
+
+/* ==========================================================================
+   10 · 表单控件（滑杆 / 复选 / 下拉）
+   ========================================================================== */
+
+input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 14px;
+    margin: 0;
+    background: transparent;
+    outline: none;
+    cursor: pointer
+}
+
+input[type=range]::-webkit-slider-runnable-track {
+    height: 2px;
+    background: rgba(255, 255, 255, .16)
+}
+
+input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 9px;
+    height: 9px;
+    margin-top: -3.5px;
+    background: var(--accent);
+    border: none;
+    box-shadow: 0 0 0 1px #0a0d12
+}
+
+input[type=range]::-moz-range-track {
+    height: 2px;
+    background: rgba(255, 255, 255, .16)
+}
+
+input[type=range]::-moz-range-thumb {
+    width: 9px;
+    height: 9px;
+    background: var(--accent);
+    border: none
+}
+
+input[type=range]:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 2px var(--focus)
+}
+
+#slider {
+    height: 16px
+}
+
+#slider::-webkit-slider-runnable-track {
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent) var(--sp, 0%), rgba(255, 255, 255, .12) var(--sp, 0%))
+}
+
+#slider::-moz-range-track {
+    height: 3px;
+    background: rgba(255, 255, 255, .12)
+}
+
+#slider::-moz-range-progress {
+    height: 3px;
+    background: var(--accent)
+}
+
+#slider::-webkit-slider-thumb {
+    width: 11px;
+    height: 11px;
+    margin-top: -4px
+}
+
+input[type=checkbox] {
+    -webkit-appearance: none;
+    appearance: none;
+    position: relative;
+    width: 12px;
+    height: 12px;
+    flex: 0 0 12px;
+    margin: 0;
+    background: transparent;
+    border: 1px solid var(--line-3);
+    cursor: pointer
+}
+
+input[type=checkbox]:hover {
+    border-color: var(--ink-3)
+}
+
+input[type=checkbox]:checked {
+    background: var(--accent);
+    border-color: var(--accent)
+}
+
+input[type=checkbox]:checked::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 1px;
+    width: 4px;
+    height: 6.5px;
+    border-right: 1.5px solid #0a0d12;
+    border-bottom: 1.5px solid #0a0d12;
+    transform: rotate(42deg)
+}
+
+input[type=checkbox]:focus-visible {
+    outline: 1px solid var(--focus);
+    outline-offset: 1px
+}
+
+select {
+    height: 24px;
+    padding: 0 4px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    color: var(--ink-2);
+    font: 11px var(--mono);
+    outline: none;
+    cursor: pointer
+}
+
+select:hover {
+    color: var(--ink);
+    border-color: var(--line-2)
+}
+
+select:focus {
+    border-color: var(--focus)
+}
+
+option {
+    background: #0d1117;
+    color: var(--ink)
+}
+
+:focus-visible {
+    outline: 1px solid var(--focus);
+    outline-offset: 1px
+}
+
+/* ==========================================================================
+   11 · 加载层 / 提示条
+   ========================================================================== */
+
+#loader {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    background: var(--bg);
+    transition: opacity .45s
+}
+
+#loader.hide {
+    opacity: 0;
+    pointer-events: none
+}
+
+.loadMark {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    letter-spacing: .22em;
+    color: var(--ink-2)
+}
+
+.loadMark svg {
+    width: 18px;
+    height: 18px;
+    color: var(--ink-2)
+}
+
+.loadBar {
+    position: relative;
+    width: 200px;
+    height: 2px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, .1)
+}
+
+.loadBar::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -40%;
+    width: 40%;
+    height: 100%;
+    background: var(--accent);
+    animation: loadSlide 1.15s cubic-bezier(.6, 0, .4, 1) infinite
+}
+
+@keyframes loadSlide {
+    0% {
+        left: -40%
+    }
+
+    100% {
+        left: 100%
+    }
+}
+
+#loadText {
+    font: 9.5px/1.4 var(--mono);
+    letter-spacing: .16em;
+    color: var(--ink-3)
+}
+
+#errBox {
+    display: none;
+    max-width: 600px;
+    padding: 14px 16px;
+    background: rgba(210, 160, 82, .05);
+    border: 1px solid rgba(210, 160, 82, .4);
+    color: var(--warn);
+    font: 11px/1.9 var(--mono)
+}
+
+#errBox code {
+    color: var(--warn);
+    background: rgba(210, 160, 82, .1)
+}
+
+#toast {
+    position: fixed;
+    bottom: calc(var(--bottom) + 12px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 80;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none
+}
+
+#toast .tmsg {
+    max-width: 70vw;
+    padding: 7px 12px;
+    background: #0e131a;
+    border: 1px solid var(--line-2);
+    border-left: 2px solid var(--accent);
+    box-shadow: 0 8px 26px rgba(0, 0, 0, .5);
+    font-size: 11px;
+    letter-spacing: .02em;
+    color: var(--ink);
+    opacity: 0;
+    transition: opacity .2s
+}
+
+#toast .tmsg.on {
+    opacity: 1
+}
+
+#toast .tmsg.warn {
+    border-left-color: var(--warn)
+}
+
+#toast .tmsg.err {
+    border-left-color: var(--danger)
+}
+
+#toast .tmsg.ok {
+    border-left-color: var(--ok)
+}
+
+/* ==========================================================================
+   12 · 响应式收窄
+   ========================================================================== */
+
+@media (max-width:1280px) {
+    :root {
+        --side: 262px;
+        --right: 520px
+    }
+
+    .subtitle {
+        max-width: 300px
+    }
+
+    .hdrChip {
+        display: none
+    }
+}
+
+@media (max-width:1120px) {
+    :root {
+        --right: 460px
+    }
+
+    .title {
+        font-size: 12px;
+        letter-spacing: .06em
+    }
+
+    .titleTag {
+        display: none
+    }
+
+    .subtitle {
+        max-width: 220px
+    }
+
+    .tbtn .lbl {
+        display: none
+    }
+
+    .tbtn {
+        width: 26px;
+        justify-content: center;
+        padding: 0
+    }
+
+    #legendName {
+        max-width: 180px
+    }
+}
+
+@media (max-width:900px) {
+    :root {
+        --side: 228px;
+        --right: 380px
+    }
+
+    .brand {
+        max-width: 190px
+    }
+
+    .subtitle {
+        display: none
+    }
+
+    .timeBlock {
+        display: none
+    }
+
+    /* 导入面板窄屏回单列（U2-8） */
+    #importBody {
+        grid-template-columns: 1fr
+    }
+}
+
+/* ==========================================================================
+   13 · 字号 token / 小工具类（U2-3：替代内联 font-size）
+   ========================================================================== */
+
+.t10 {
+    font-size: var(--fs-10)
+}
+
+.t11 {
+    font-size: var(--fs-11)
+}
+
+.t12 {
+    font-size: var(--fs-12)
+}
+
+.dim {
+    opacity: .7
+}
+
+.secLabel {
+    font-size: var(--fs-12);
+    color: var(--ink-2);
+    margin: 0 0 5px 2px
+}
+
+.numInput {
+    width: 54px;
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font-size: var(--fs-11);
+    padding: 2px 4px
+}
+
+#clipNum {
+    width: 58px
+}
+
+.emptyHint {
+    font-size: var(--fs-11);
+    color: var(--ink-3)
+}
+
+.lowConf {
+    color: #ff9b6a;
+    font-size: 9px
+}
+
+.v12 {
+    font-size: var(--fs-12)
+}
+
+.aRole {
+    font-size: var(--fs-10);
+    color: var(--ink-3);
+    min-width: 0;
+    width: 86px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap
+}

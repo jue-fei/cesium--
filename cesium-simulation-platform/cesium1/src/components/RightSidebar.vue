@@ -1,6 +1,6 @@
 <template>
   <div
-    class="fixed right-0 top-1/2 -translate-y-1/2 w-[60px] bg-bg-secondary backdrop-blur-md rounded-l-lg border border-r-0 border-border-primary flex flex-col gap-2 py-4 z-[2000] shadow-tech-lg"
+    class="fixed right-0 top-1/2 -translate-y-1/2 w-[60px] bg-bg-secondary rounded-l-lg border border-r-0 border-border-primary flex flex-col gap-2 py-4 z-[2000] shadow-tech-lg"
   >
     <el-tooltip
       v-for="tool in tools"
@@ -38,7 +38,8 @@ import {
   Setting,
   EditPen,
   Histogram,
-  Aim
+  Aim,
+  DataBoard
 } from '@element-plus/icons-vue'
 import useUI from '@/composables/useUI.js'
 import { TOOL_REGISTRY } from '@/features/shared/index.js'
@@ -56,7 +57,8 @@ const iconMap = {
   Mouse,
   Setting,
   Histogram,
-  Aim
+  Aim,
+  DataBoard
 }
 
 const getIcon = name => iconMap[name] || Setting

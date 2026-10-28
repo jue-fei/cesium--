@@ -11,6 +11,7 @@ import {
   DEFAULT_POSITION,
   DEFAULT_MODEL_CONFIG_PATH
 } from '../../../config/constants/modelConfig.js'
+import { isSelectionHighlightExempt } from '../../../config/constants/appConfig.js'
 import { ensureResourceAvailable } from './modelApi.js'
 import useViewer from '@/composables/useViewer.js'
 import useMessage from '@/composables/useMessage.js'
@@ -82,11 +83,14 @@ function createModelServiceContext(storeRefs) {
 
   // 选中持续高亮：任何路径改变选中模型（场景点击/列表属性按钮/信息同步）都生效；
   // 旧选中恢复正常样式，新选中保持高亮直到切换
+  // 豁免模型（如地表 dibiao0615）只展示信息，不叠加半透明高亮响应
   watch(selectedModel, (model, prev) => {
     try {
       const fm = interaction.featureManager
       if (prev) fm.clearSelectedHighlight(prev.featureId || prev.id)
-      if (model) fm.setSelectedHighlight(model.featureId || model.id)
+      if (model && !isSelectionHighlightExempt(model)) {
+        fm.setSelectedHighlight(model.featureId || model.id)
+      }
     } catch (_) {
       /* 高亮失败不影响选择流程 */
     }

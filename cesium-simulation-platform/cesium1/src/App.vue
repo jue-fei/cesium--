@@ -44,7 +44,7 @@
   </transition>
 
   <div
-    class="fixed top-2.5 left-2.5 z-[1000] px-2.5 py-1 bg-black/50 backdrop-blur text-white rounded text-xs font-mono flex gap-2 pointer-events-none select-none"
+    class="fixed top-2.5 left-2.5 z-[1000] px-2.5 py-1 bg-black/65 text-white rounded text-xs font-mono flex gap-2 pointer-events-none select-none"
     :class="fps >= 55 ? 'text-green-400' : fps >= 30 ? 'text-yellow-400' : 'text-red-400'"
   >
     <span class="text-white/70">FPS</span>

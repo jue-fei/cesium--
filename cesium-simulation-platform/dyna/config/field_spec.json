@@ -1,0 +1,479 @@
+{
+  "_doc": "字段注册表（前后端共享）。落盘契约：store 段说明字段如何写进容器（dtype/location/comps），render 段驱动前端着色与面板。后端启动读此文件；前端 bootV3 读 GET /api/field_spec 生成 V3_FIELD_SPEC（失败回退内置子集并记 W005）。store 缺失或 null = 该字段不落盘；派生量的可见性由其 source 决定。render.show=false 表示已登记但当前 UI 不提供选择（如 pbm_pos）。",
+  "spec_version": 1,
+  "fields": {
+    "u": {
+      "store": {
+        "dtype": "u2",
+        "location": "node",
+        "comps": 3
+      },
+      "render": {
+        "name": "位移幅值 |u| · cm",
+        "enc": "lin",
+        "div": 0,
+        "unit": "length",
+        "rock": 1,
+        "group": "kinematics"
+      }
+    },
+    "damage": {
+      "store": {
+        "dtype": "u2",
+        "location": "element",
+        "comps": 1
+      },
+      "render": {
+        "name": "损伤 D",
+        "enc": "unit",
+        "div": 0,
+        "unit": "-",
+        "rock": 1,
+        "group": "damage"
+      }
+    },
+    "eps": {
+      "store": {
+        "dtype": "u2",
+        "location": "element",
+        "comps": 1
+      },
+      "render": {
+        "name": "有效塑性应变",
+        "enc": "lin",
+        "div": 0,
+        "unit": "-",
+        "rock": 1,
+        "group": "damage"
+      }
+    },
+    "pressure": {
+      "store": {
+        "dtype": "u2",
+        "location": "element",
+        "comps": 1
+      },
+      "render": {
+        "name": "压力 · GPa · 压为正",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "stress",
+        "rock": 1,
+        "group": "stress"
+      }
+    },
+    "vel": {
+      "store": {
+        "dtype": "u2",
+        "location": "node",
+        "comps": 3
+      },
+      "render": {
+        "name": "质点速度 |v| · m/s (PPV)",
+        "enc": "asinh_pos",
+        "div": 0,
+        "unit": "velocity",
+        "rock": 1,
+        "group": "kinematics"
+      }
+    },
+    "acc": {
+      "store": {
+        "dtype": "u2",
+        "location": "node",
+        "comps": 3
+      },
+      "render": {
+        "name": "加速度幅值 |a| · m/s²",
+        "enc": "asinh_pos",
+        "div": 0,
+        "unit": "acceleration",
+        "rock": 1,
+        "group": "kinematics"
+      }
+    },
+    "stress": {
+      "store": {
+        "dtype": "f4",
+        "location": "node",
+        "comps": 6
+      },
+      "components": [
+        "sxx",
+        "syy",
+        "szz",
+        "sxy",
+        "syz",
+        "sxz"
+      ],
+      "render": {
+        "name": "应力张量 (由 vm/σ1/σ3 呈现)",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "stress",
+        "rock": 1,
+        "group": "stress",
+        "show": false
+      },
+      "derived": [
+        "vm",
+        "s1",
+        "s3"
+      ]
+    },
+    "vm": {
+      "store": null,
+      "source": "stress",
+      "render": {
+        "name": "von Mises · GPa",
+        "enc": "asinh_pos",
+        "div": 0,
+        "unit": "stress",
+        "rock": 1,
+        "group": "stress"
+      },
+      "formula": "Math.sqrt(0.5*((sxx-syy)**2+(syy-szz)**2+(szz-sxx)**2)+3*(sxy**2+syz**2+sxz**2))"
+    },
+    "s1": {
+      "store": null,
+      "source": "stress",
+      "render": {
+        "name": "最大主应力 σ1 · GPa",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "stress",
+        "rock": 1,
+        "group": "stress"
+      },
+      "formula": "principle"
+    },
+    "s3": {
+      "store": null,
+      "source": "stress",
+      "render": {
+        "name": "最小主应力 σ3 · GPa",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "stress",
+        "rock": 1,
+        "group": "stress"
+      },
+      "formula": "principle"
+    },
+    "density": {
+      "store": {
+        "dtype": "u2",
+        "location": "element",
+        "comps": 1
+      },
+      "render": {
+        "name": "单元密度 · g/cm³",
+        "enc": "asinh_pos",
+        "div": 0,
+        "unit": "density",
+        "rock": 1,
+        "group": "stress",
+        "show": false
+      }
+    },
+    "sph_density": {
+      "store": {
+        "dtype": "u2",
+        "location": "sph",
+        "comps": 1
+      },
+      "render": {
+        "name": "SPH 粒子密度 · g/cm³",
+        "enc": "asinh_pos",
+        "div": 0,
+        "unit": "density",
+        "layer": "sph",
+        "group": "particle"
+      }
+    },
+    "sph_damage": {
+      "store": {
+        "dtype": "u2",
+        "location": "sph",
+        "comps": 1
+      },
+      "render": {
+        "name": "SPH 粒子损伤",
+        "enc": "unit",
+        "div": 0,
+        "unit": "-",
+        "layer": "sph",
+        "group": "particle"
+      }
+    },
+    "pbm_pos": {
+      "store": {
+        "dtype": "f4",
+        "location": "pbm",
+        "comps": 3
+      },
+      "render": {
+        "name": "PBM 粒子位移",
+        "enc": "asinh_pos",
+        "div": 0,
+        "unit": "displacement",
+        "layer": "pbm",
+        "group": "particle",
+        "show": false
+      }
+    },
+    "pbm_pressure": {
+      "store": {
+        "dtype": "u2",
+        "location": "pbm",
+        "comps": 1
+      },
+      "render": {
+        "name": "PBM 爆轰压力 · GPa",
+        "enc": "asinh_pos",
+        "div": 0,
+        "unit": "stress",
+        "layer": "pbm",
+        "group": "particle"
+      }
+    },
+    "hist": {
+      "enabled": false,
+      "store": {
+        "dtype": "f4",
+        "location": "element",
+        "comps": "nv3d"
+      },
+      "render": {
+        "name": "历史变量",
+        "enc": "lin",
+        "div": 0,
+        "unit": "-",
+        "group": "history",
+        "show": false
+      },
+      "words_source": "config/fieldmaps.json#hist_names"
+    },
+    "ux": {
+      "store": null,
+      "source": "u",
+      "comp": 0,
+      "render": {
+        "name": "X 向位移 ux · cm",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "length",
+        "rock": 1,
+        "group": "kinematics"
+      }
+    },
+    "uy": {
+      "store": null,
+      "source": "u",
+      "comp": 1,
+      "render": {
+        "name": "Y 向位移 uy · cm",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "length",
+        "rock": 1,
+        "group": "kinematics"
+      }
+    },
+    "uz": {
+      "store": null,
+      "source": "u",
+      "comp": 2,
+      "render": {
+        "name": "Z 向位移 uz · cm",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "length",
+        "rock": 1,
+        "group": "kinematics"
+      }
+    },
+    "vx": {
+      "store": null,
+      "source": "vel",
+      "comp": 0,
+      "render": {
+        "name": "X 向速度 vx · m/s",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "velocity",
+        "rock": 1,
+        "group": "kinematics"
+      }
+    },
+    "vy": {
+      "store": null,
+      "source": "vel",
+      "comp": 1,
+      "render": {
+        "name": "Y 向速度 vy · m/s",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "velocity",
+        "rock": 1,
+        "group": "kinematics"
+      }
+    },
+    "vz": {
+      "store": null,
+      "source": "vel",
+      "comp": 2,
+      "render": {
+        "name": "Z 向速度 vz · m/s",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "velocity",
+        "rock": 1,
+        "group": "kinematics"
+      }
+    },
+    "ax": {
+      "store": null,
+      "source": "acc",
+      "comp": 0,
+      "render": {
+        "name": "X 向加速度 ax · m/s²",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "acceleration",
+        "rock": 1,
+        "group": "kinematics"
+      }
+    },
+    "ay": {
+      "store": null,
+      "source": "acc",
+      "comp": 1,
+      "render": {
+        "name": "Y 向加速度 ay · m/s²",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "acceleration",
+        "rock": 1,
+        "group": "kinematics"
+      }
+    },
+    "az": {
+      "store": null,
+      "source": "acc",
+      "comp": 2,
+      "render": {
+        "name": "Z 向加速度 az · m/s²",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "acceleration",
+        "rock": 1,
+        "group": "kinematics"
+      }
+    },
+    "sxx": {
+      "store": null,
+      "source": "stress",
+      "comp": 0,
+      "render": {
+        "name": "σxx 正应力 · GPa",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "stress",
+        "group": "stress"
+      }
+    },
+    "syy": {
+      "store": null,
+      "source": "stress",
+      "comp": 1,
+      "render": {
+        "name": "σyy 正应力 · GPa",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "stress",
+        "group": "stress"
+      }
+    },
+    "szz": {
+      "store": null,
+      "source": "stress",
+      "comp": 2,
+      "render": {
+        "name": "σzz 正应力 · GPa",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "stress",
+        "group": "stress"
+      }
+    },
+    "sxy": {
+      "store": null,
+      "source": "stress",
+      "comp": 3,
+      "render": {
+        "name": "σxy 剪应力 · GPa",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "stress",
+        "group": "stress"
+      }
+    },
+    "syz": {
+      "store": null,
+      "source": "stress",
+      "comp": 4,
+      "render": {
+        "name": "σyz 剪应力 · GPa",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "stress",
+        "group": "stress"
+      }
+    },
+    "sxz": {
+      "store": null,
+      "source": "stress",
+      "comp": 5,
+      "render": {
+        "name": "σxz 剪应力 · GPa",
+        "enc": "asinh_sym",
+        "div": 1,
+        "unit": "stress",
+        "group": "stress"
+      }
+    }
+  },
+  "groups": [
+    {
+      "id": "damage",
+      "label": "损伤与应变",
+      "order": 1
+    },
+    {
+      "id": "stress",
+      "label": "应力 / 压力",
+      "order": 2
+    },
+    {
+      "id": "kinematics",
+      "label": "运动学",
+      "order": 3
+    },
+    {
+      "id": "air",
+      "label": "空气",
+      "order": 4
+    },
+    {
+      "id": "particle",
+      "label": "粒子",
+      "order": 5
+    },
+    {
+      "id": "history",
+      "label": "历史变量",
+      "order": 6
+    }
+  ]
+}

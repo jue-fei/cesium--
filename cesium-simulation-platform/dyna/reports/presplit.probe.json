@@ -1,0 +1,1540 @@
+{
+ "key": "presplit",
+ "label": "预裂爆破",
+ "dir": "C:\\Users\\allblack\\Desktop\\tnt\\预裂",
+ "ws": 8,
+ "header": {
+  "ndim": 4,
+  "numnp": 280352,
+  "icode": 6,
+  "nglbv": 55,
+  "it": 0,
+  "iu": 1,
+  "iv": 1,
+  "ia": 1,
+  "nel8": 139026,
+  "nummat8": 7,
+  "nv3d": 31,
+  "neiph": 24,
+  "maxint": -10003,
+  "nmsph": 0
+ },
+ "header_hint": {
+  "nel3": 0,
+  "nel4": 0,
+  "nel2": 26,
+  "nel4s": 0,
+  "nv3d_beam": 0,
+  "nv3d_shell": 45
+ },
+ "version": {
+  "raw": "R12",
+  "normalized": "r12.0",
+  "prefix": "r12",
+  "solver": "smp"
+ },
+ "k_file": "tunnel_presplit_blasting.k",
+ "k_summary": {
+  "parts": 7,
+  "sections": 2,
+  "materials": 4,
+  "deto": 113,
+  "endtim": 1000.0,
+  "counts": {},
+  "addons": {},
+  "material_id_method": "explicit"
+ },
+ "layout_probe": {
+  "hit": "r12.0|smp",
+  "library_entry": "r12.*|smp",
+  "library_match": "wildcard",
+  "library_desc": "本项目 6 个算例实测通过：LS-DYNA R12 / SMP / 8 字节字；块顺序 time -> globals -> coords -> vel -> acc -> solid_hist -> solid_part -> [sph] -> [pbm]",
+  "accepted": "FEM/ALE blocks=3N(实测通用), tail=0, 无粒子",
+  "stride": 6972056,
+  "tail": 0,
+  "n_sph": 0,
+  "n_pbm": 0,
+  "rec_sph": null,
+  "rec_pbm": null,
+  "reasons": [],
+  "remainders": [
+   208,
+   208,
+   208,
+   208,
+   208,
+   208,
+   208,
+   208
+  ],
+  "fp_msg": "基文件坐标 @ 字 70（与 d3plot01 状态0 匹配）",
+  "tried": [
+   {
+    "desc": "FEM/ALE blocks=3N(实测通用), tail=497, 无粒子",
+    "stride": 6972553,
+    "ok_div": false,
+    "ok_time": true,
+    "ok_fp": false,
+    "n_states": 50,
+    "reasons": [
+     "d3plot01: body%stride=6971270",
+     "d3plot02: body%stride=6971270",
+     "d3plot03: body%stride=6971270",
+     "d3plot04: body%stride=6971270",
+     "d3plot05: body%stride=6971270",
+     "d3plot06: body%stride=6971270"
+    ]
+   },
+   {
+    "desc": "FEM/ALE blocks=3N(实测通用), tail=0, 无粒子",
+    "stride": 6972056,
+    "ok_div": true,
+    "ok_time": true,
+    "ok_fp": true,
+    "n_states": 102,
+    "reasons": []
+   }
+  ]
+ },
+ "files": [
+  {
+   "f": "d3plot",
+   "kind": "base"
+  },
+  {
+   "f": "d3plot01",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot02",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot03",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot04",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot05",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot06",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot07",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot08",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot09",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot10",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot11",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot12",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot13",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot14",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot15",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot16",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot17",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot18",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot19",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot20",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot21",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot22",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot23",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot24",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot25",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot26",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot27",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot28",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot29",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot30",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot31",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot32",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot33",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot34",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot35",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot36",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot37",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot38",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot39",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot40",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot41",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot42",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot43",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot44",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot45",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot46",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot47",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot48",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot49",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot50",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot51",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot52",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot53",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot54",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot55",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot56",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot57",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot58",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot59",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot60",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot61",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot62",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot63",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot64",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot65",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot66",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot67",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot68",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot69",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot70",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot71",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot72",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot73",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot74",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot75",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot76",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot77",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot78",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot79",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot80",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot81",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot82",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot83",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot84",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot85",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot86",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot87",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot88",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot89",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot90",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot91",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot92",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot93",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot94",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot95",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot96",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot97",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot98",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot99",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot100",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot101",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot102",
+   "kind": "seq"
+  }
+ ],
+ "states": {
+  "total": 102,
+  "per_file": [
+   {
+    "file": "d3plot",
+    "kind": "base",
+    "words": 2511872,
+    "states": 0,
+    "body": 2511872
+   },
+   {
+    "file": "d3plot01",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot02",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot03",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot04",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot05",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot06",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot07",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot08",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot09",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot10",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot11",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot12",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot13",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot14",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot15",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot16",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot17",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot18",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot19",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot20",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot21",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot22",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot23",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot24",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot25",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot26",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot27",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot28",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot29",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot30",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot31",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot32",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot33",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot34",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot35",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot36",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot37",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot38",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot39",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot40",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot41",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot42",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot43",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot44",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot45",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot46",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot47",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot48",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot49",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot50",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 1,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot51",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot52",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot53",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot54",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot55",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot56",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot57",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot58",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot59",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot60",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot61",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot62",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot63",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot64",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot65",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot66",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot67",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot68",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot69",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot70",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot71",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot72",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot73",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot74",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot75",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot76",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot77",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot78",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot79",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot80",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot81",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot82",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot83",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot84",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot85",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot86",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot87",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot88",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot89",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot90",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot91",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot92",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot93",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot94",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot95",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot96",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot97",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot98",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot99",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot100",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot101",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot102",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   }
+  ],
+  "times": [
+   0.0,
+   9.849182792018755,
+   19.932868762384523,
+   29.782050711792596,
+   39.86571538569036,
+   49.94899538201866,
+   59.79752252085989,
+   69.87911469453476,
+   79.95972694162971,
+   89.80499080025008,
+   99.88486484445366,
+   109.96468583859308,
+   119.97453524440256,
+   129.96136197569612,
+   139.80678791093297,
+   149.88561198179252,
+   159.9643264728084,
+   169.80863876774063,
+   179.88799253212068,
+   189.96616329648043,
+   199.80993956235073,
+   209.88822269418637,
+   219.96563929072525,
+   229.81017404854882,
+   239.89122738551342,
+   249.97282339458732,
+   259.82009414129436,
+   269.90175046823197,
+   279.98322763030956,
+   289.83067760282836,
+   299.91195332150966,
+   309.99275607851376,
+   319.83840150596444,
+   329.91456622747734,
+   339.9919368446531,
+   349.83638214820894,
+   359.9148404081689,
+   369.9936025635407,
+   379.83930023293857,
+   389.9172535384396,
+   399.9941018771343,
+   409.8352308945229,
+   419.8001725687007,
+   429.87290846817564,
+   439.949278275412,
+   449.95944200899993,
+   459.89724039827513,
+   469.7871221461527,
+   479.95980418268937,
+   489.84498864287076,
+   499.9523117475432,
+   509.76357725794816,
+   519.8164892773293,
+   529.7830812551657,
+   539.7691518904493,
+   549.7782600607194,
+   559.825671562347,
+   569.9761727043513,
+   579.7862839088905,
+   589.8269619576675,
+   599.8038255755212,
+   609.8767748096313,
+   619.9222383732039,
+   629.9509268351316,
+   639.9594599142426,
+   649.875234031229,
+   659.9825031788602,
+   669.9874802558093,
+   679.8010663957882,
+   689.924965005866,
+   699.9586926279846,
+   709.8632404404834,
+   719.8414319167719,
+   729.9376681587253,
+   739.8071135193921,
+   749.9935060765299,
+   759.9534396330401,
+   769.9211350903564,
+   779.9486405988223,
+   789.8662191391237,
+   799.832928394526,
+   809.9907009588013,
+   819.9082275684751,
+   829.9591124137039,
+   839.8205984190519,
+   849.8695035443017,
+   859.7985487944802,
+   869.9256978213001,
+   879.9656648731411,
+   889.8177765110883,
+   899.7978134720574,
+   909.7921459981264,
+   919.9604018388403,
+   929.9153081911461,
+   939.9580748818178,
+   949.8010364755255,
+   959.8169926024343,
+   969.9177296618259,
+   979.9345015810371,
+   989.891534847829,
+   999.9693278561308,
+   1000.2101255808528
+  ],
+  "times_sample": [
+   0.0,
+   199.80994,
+   399.994102,
+   599.803826,
+   799.832928,
+   1000.210126
+  ]
+ },
+ "parts": [
+  {
+   "pid": 1,
+   "elems": 64747,
+   "roles": [
+    "structure"
+   ],
+   "basis": ".k: pid1 -> MAT_JOHNSON_HOLMQUIST_CERAMICS + solid",
+   "mat": "MAT_JOHNSON_HOLMQUIST_CERAMICS",
+   "sectype": "solid",
+   "elform": 1,
+   "thickness": null,
+   "title": "Part          1 for Mat         1 and Elem Type         1"
+  },
+  {
+   "pid": 2,
+   "elems": 67047,
+   "roles": [
+    "air"
+   ],
+   "basis": ".k: pid2 -> MAT_NULL + solid",
+   "mat": "MAT_NULL",
+   "sectype": "solid",
+   "elform": 11,
+   "thickness": null,
+   "title": "Part          2 for Mat         2 and Elem Type         2"
+  },
+  {
+   "pid": 3,
+   "elems": 640,
+   "roles": [
+    "explosive"
+   ],
+   "basis": ".k: pid3 -> MAT_HIGH_EXPLOSIVE_BURN + solid",
+   "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+   "sectype": "solid",
+   "elform": 11,
+   "thickness": null,
+   "title": "Part          4 for Mat         4 and Elem Type         2"
+  },
+  {
+   "pid": 4,
+   "elems": 768,
+   "roles": [
+    "explosive"
+   ],
+   "basis": ".k: pid4 -> MAT_HIGH_EXPLOSIVE_BURN + solid",
+   "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+   "sectype": "solid",
+   "elform": 11,
+   "thickness": null,
+   "title": "Part          3 for Mat         3 and Elem Type         2"
+  },
+  {
+   "pid": 5,
+   "elems": 960,
+   "roles": [
+    "explosive"
+   ],
+   "basis": ".k: pid5 -> MAT_HIGH_EXPLOSIVE_BURN + solid",
+   "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+   "sectype": "solid",
+   "elform": 11,
+   "thickness": null,
+   "title": "Part          3 for Mat         3 and Elem Type         2"
+  },
+  {
+   "pid": 6,
+   "elems": 1152,
+   "roles": [
+    "explosive"
+   ],
+   "basis": ".k: pid6 -> MAT_HIGH_EXPLOSIVE_BURN + solid",
+   "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+   "sectype": "solid",
+   "elform": 11,
+   "thickness": null,
+   "title": "Part          3 for Mat         3 and Elem Type         2"
+  },
+  {
+   "pid": 7,
+   "elems": 3712,
+   "roles": [
+    "explosive"
+   ],
+   "basis": ".k: pid7 -> MAT_HIGH_EXPLOSIVE_BURN + solid",
+   "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+   "sectype": "solid",
+   "elform": 11,
+   "thickness": null,
+   "title": "Part          3 for Mat         3 and Elem Type         2"
+  }
+ ],
+ "span_model_units": 2000.0,
+ "units": {
+  "candidates": [
+   {
+    "system": "g-cm-µs",
+    "model_span_m": 20.0,
+    "total_time_s": 0.0010002101255808529,
+    "ppv_m_s": 3478.48,
+    "pressure_pa": 2209000000.0,
+    "ok_span": true,
+    "ok_time": true,
+    "ok_ppv": true,
+    "ok_pressure": true,
+    "score": 4,
+    "plausible": true
+   },
+   {
+    "system": "kg-mm-ms",
+    "model_span_m": 2.0,
+    "total_time_s": 1.0002101255808529,
+    "ppv_m_s": 0.35,
+    "pressure_pa": 22090000.0,
+    "ok_span": true,
+    "ok_time": false,
+    "ok_ppv": true,
+    "ok_pressure": true,
+    "score": 3,
+    "plausible": true
+   },
+   {
+    "system": "g-mm-ms",
+    "model_span_m": 2.0,
+    "total_time_s": 1.0002101255808529,
+    "ppv_m_s": 0.35,
+    "pressure_pa": 22090.0,
+    "ok_span": true,
+    "ok_time": false,
+    "ok_ppv": true,
+    "ok_pressure": false,
+    "score": 2,
+    "plausible": false
+   },
+   {
+    "system": "t-mm-s",
+    "model_span_m": 2.0,
+    "total_time_s": 1000.2101255808528,
+    "ppv_m_s": 0.0,
+    "pressure_pa": 22090.0,
+    "ok_span": true,
+    "ok_time": false,
+    "ok_ppv": false,
+    "ok_pressure": false,
+    "score": 1,
+    "plausible": false
+   },
+   {
+    "system": "kg-m-s",
+    "model_span_m": 2000.0,
+    "total_time_s": 1000.2101255808528,
+    "ppv_m_s": 0.35,
+    "pressure_pa": 0.02209,
+    "ok_span": false,
+    "ok_time": false,
+    "ok_ppv": true,
+    "ok_pressure": false,
+    "score": 1,
+    "plausible": false
+   }
+  ],
+  "pick": "g-cm-µs",
+  "ambiguous": false,
+  "basis": [
+   "材料常数锚点定论：g-cm-µs。该项下 空气密度/kg·m⁻³=1.2、炸药密度/kg·m⁻³=1180.0、爆速/m·s⁻¹=5122.0、岩石剪切模量/GPa=19.06、PCJ/GPa=9.53；命中 5 项，领先次高 5 项",
+   "场值锚点交叉核对（同一 g-cm-µs 制下）：模型尺度 20.0 m、总时长 0.001 s、PPV 3478.48 m/s、峰值压力 2209000000.0 Pa（场值得分 4/4；时长/压力若越阈值区间，是算例结果量级偏小，不改判据）",
+   "最大节点速度原始值 0.347848（模型单位）→ 各制换算：g-cm-µs:3478.48 / kg-mm-ms:0.35 / g-mm-ms:0.35 / t-mm-s:0.0 / kg-m-s:0.35",
+   "峰值压力原始值 0.0220912（模型单位）→ 各制换算：g-cm-µs:2209000000.0 / kg-mm-ms:22090000.0 / g-mm-ms:22090.0 / t-mm-s:22090.0 / kg-m-s:0.02209",
+   "d3plot 末帧原始时间 1000 与 .k ENDTIM=1000.0 相对差 0.02% → 时间单位与 .k 一致"
+  ],
+  "confidence": "high",
+  "endtim_from_k": 1000.0,
+  "last_time_raw": 1000.2101255808528,
+  "vmax_raw": 0.34784759774283436,
+  "pmax_raw": 0.022091179560029237,
+  "deck_hint": "g-cm-µs",
+  "endtim_rel_diff": 0.00021012558085283217
+ },
+ "cross_check": {
+  "old_nframes": 102,
+  "old_NEL": 139026,
+  "probe_states": 102,
+  "probe_nel": 139026,
+  "match_frames": true,
+  "match_nel": true
+ },
+ "ok": true,
+ "elapsed_s": 0.26
+}

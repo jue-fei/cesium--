@@ -24,6 +24,10 @@ class ClippingManager {
     this.activeClippingPlaneIndex = null
     this.clippingEnabled = false
     this.modelBounds = null
+    // 切割基准：刀面零点锚定的包围球（世界坐标）；为空时回退整场景包围球中心
+    this.clipFocus = null
+    // 新瓦片加载时补挂刀面的监听器
+    this.tileLoadClippingListener = null
 
     // 多边形切割相关变量
     this.polygonClippingEnabled = false
@@ -66,13 +70,82 @@ class ClippingManager {
    */
   setTileset(tileset) {
     if (tileset && typeof tileset.isDestroyed === 'function' && tileset.isDestroyed()) {
+      this.detachTileLoadClipping()
       this.tileset = null
       this.modelBounds = null
       return
     }
 
+    this.detachTileLoadClipping()
     this.tileset = tileset || null
     this.modelBounds = tileset?.boundingSphere || null
+    // 换模型后旧的切割基准失效，回退整场景包围球
+    this.clipFocus = null
+    this.bindTileLoadClipping()
+  }
+
+  /**
+   * 当前集合是否生效（启用且有刀面）
+   */
+  hasActiveClipping() {
+    const collection = this.isTilesetAlive() ? this.tileset.clippingPlanes : null
+    return !!(collection && collection.enabled && collection.length > 0)
+  }
+
+  /**
+   * 把 ClippingPlaneCollection 直接挂到瓦片模型上（含子树）。
+   * 为什么需要手动挂：Cesium 只在 clippingPlanesState（=刀面个数）变化时
+   * 才会通过 Model3DTileContent.update 把集合下发到 model；本聚合场景里
+   * 地表这类大瓦片的状态号长期不变 → 模型永远拿不到集合 → 只有“瓦片整块
+   * 剔除”而没有逐像素剖面（地表不随刀面切、成片消失）。
+   * @param {object} tile 起始瓦片
+   * @returns {number} 实际变更的模型数
+   */
+  assignClippingToTile(tile) {
+    if (!tile || !this.isTilesetAlive()) return 0
+    const collection = this.hasActiveClipping() ? this.tileset.clippingPlanes : undefined
+    let changed = 0
+    const walk = node => {
+      if (!node) return
+      try {
+        const model = node.content && node.content._model
+        if (model && model._clippingPlanes !== collection) {
+          model._clippingPlanes = collection
+          changed++
+        }
+      } catch (e) {
+        // 瓦片内容已卸载/不可渲染，忽略
+      }
+      const children = node.children
+      if (children) {
+        for (let i = 0; i < children.length; i++) walk(children[i])
+      }
+    }
+    walk(tile)
+    return changed
+  }
+
+  /** 全量同步：当前集合（或摘除）到所有已加载瓦片模型 */
+  syncClippingToModels() {
+    if (!this.isTilesetAlive() || !this.tileset.root) return 0
+    return this.assignClippingToTile(this.tileset.root)
+  }
+
+  /** 新瓦片加载时补挂切割面（否则新进入视野的地表瓦片不受切割） */
+  bindTileLoadClipping() {
+    this.detachTileLoadClipping()
+    if (!this.isTilesetAlive()) return
+    this.tileLoadClippingListener = tile => {
+      if (this.hasActiveClipping()) this.assignClippingToTile(tile)
+    }
+    this.tileset.tileLoad.addEventListener(this.tileLoadClippingListener)
+  }
+
+  detachTileLoadClipping() {
+    if (this.tileLoadClippingListener && this.isTilesetAlive()) {
+      this.tileset.tileLoad.removeEventListener(this.tileLoadClippingListener)
+    }
+    this.tileLoadClippingListener = null
   }
 
   /**
@@ -99,22 +172,30 @@ class ClippingManager {
    * @private
    */
   addDefaultClippingPlane() {
-    // 与原始项目一致：法线为(1.0, 0.0, 0.0)，距离为0（在模型中间对半分）
-    const normal = DEFAULT_NORMAL
+    // 默认刀面：X 轴正向，偏移 0 = 穿过当前切割基准（选中模型中心 / 整场景中心）
+    const axis = 'X'
+    const direction = '正向'
+    const normal = DEFAULT_NORMAL.clone()
     const distance = 0
+    const focus = this.getFocusLocal()
 
-    // 计算基于模型包围球的最大距离
-    const maxDistance = this.modelBounds
-      ? this.modelBounds.radius * MAX_DISTANCE_MULTIPLIER
-      : DEFAULT_MAX_DISTANCE
+    // 计算基于切割基准的最大距离
+    const maxDistance =
+      focus && focus.radius > 0
+        ? focus.radius * MAX_DISTANCE_MULTIPLIER
+        : this.modelBounds
+          ? this.modelBounds.radius * MAX_DISTANCE_MULTIPLIER
+          : DEFAULT_MAX_DISTANCE
 
     const planeConfig = {
-      plane: new Cesium.ClippingPlane(normal, distance),
+      plane: new Cesium.ClippingPlane(normal, this.distanceForOffset(normal, distance)),
       normal: normal.clone(),
       distance,
       color: '#ffffff',
       opacity: 0.0, // 与原始项目一致：透明度为0
       rotation: { x: 0, y: 0, z: 0 },
+      axis,
+      direction,
       maxDistance // 存储最大距离，用于后续计算
     }
 
@@ -154,8 +235,8 @@ class ClippingManager {
       opacity = 0.3
     } = options
 
-    // 创建切割平面
-    const plane = new Cesium.ClippingPlane(normal, distance)
+    // 创建切割平面（distance 为 UI 偏移，换算成穿过基准中心的实际平面距离）
+    const plane = new Cesium.ClippingPlane(normal, this.distanceForOffset(normal, distance))
 
     // 创建切割平面配置
     const planeConfig = {
@@ -207,31 +288,117 @@ class ClippingManager {
   }
 
   /**
+   * 切割面参考坐标系：Cesium3DTileset 的 clippingPlanesOriginMatrix
+   * （无变换时即为 root.computedTransform，等价于瓦片集根坐标系）。
+   */
+  getClipFrameMatrix() {
+    if (!this.isTilesetAlive()) return Cesium.Matrix4.IDENTITY
+    return this.tileset.clippingPlanesOriginMatrix || Cesium.Matrix4.IDENTITY
+  }
+
+  /** 世界坐标 → 切割面参考坐标系 */
+  worldToClipFrame(point) {
+    if (!point) return null
+    const inverse = Cesium.Matrix4.inverse(this.getClipFrameMatrix(), new Cesium.Matrix4())
+    return Cesium.Matrix4.multiplyByPoint(inverse, point, new Cesium.Cartesian3())
+  }
+
+  /**
+   * 当前切割基准：优先用选中模型的包围球，否则回退整场景包围球。
+   * @returns {{center: Cesium.Cartesian3, radius: number}|null} 切割面坐标系下的中心与半径(米)
+   */
+  getFocusLocal() {
+    if (!this.isTilesetAlive()) return null
+    const sphere = this.clipFocus || this.modelBounds || this.tileset.boundingSphere
+    if (!sphere || !sphere.center) return null
+    return {
+      center: this.worldToClipFrame(sphere.center),
+      radius: Number(sphere.radius) || 0
+    }
+  }
+
+  /**
+   * 设置切割基准（选中模型的包围球）。传入 null 则回退整场景包围球中心。
+   * 基准变了会按各刀面当前法向量重算实际平面距离，并重建可视化面片。
+   * @param {{center: Cesium.Cartesian3, radius: number}|null} focus 世界坐标包围球
+   */
+  setClipFocus(focus) {
+    const center = focus && focus.center
+    this.clipFocus = center
+      ? {
+        center: Cesium.Cartesian3.clone(center, new Cesium.Cartesian3()),
+        radius: Number(focus.radius) || 0
+      }
+      : null
+    if (!this.isTilesetAlive()) return this.createResult(false, '模型未加载')
+
+    this.clippingPlanes.forEach(config => this.applyEffectiveDistance(config))
+    this.refreshAllVisualizations()
+    return this.createResult(true, '切割基准已更新')
+  }
+
+  /**
+   * UI 偏移 → Cesium 平面距离。
+   * ClippingPlane 的 distance 以参考坐标系原点量起；这里把偏移 0 定义为
+   * “刀面穿过基准中心”，UI 正值沿法线正方向平移。
+   * @param {Cesium.Cartesian3} normal 当前法向量（参考坐标系下）
+   * @param {number} offset UI 偏移(米)
+   */
+  distanceForOffset(normal, offset) {
+    const focus = this.getFocusLocal()
+    const base = focus ? -Cesium.Cartesian3.dot(normal, focus.center) : 0
+    return base - (Number(offset) || 0)
+  }
+
+  /**
+   * 面板量程信息：基准半径 / 整场景半径 / 两中心距离。
+   * 量程需同时覆盖“选中模型自身”与“从基准中心扫到整场景边缘”，
+   * 否则地表这种跨千米大面片会出现“滑块到底还没切完”。
+   */
+  getClipRangeInfo() {
+    const focus = this.getFocusLocal()
+    const scene = this.modelBounds || (this.isTilesetAlive() ? this.tileset.boundingSphere : null)
+    const sceneRadius = Number(scene?.radius) || 0
+    let centerOffset = 0
+    if (focus && scene && scene.center) {
+      centerOffset = Cesium.Cartesian3.distance(focus.center, this.worldToClipFrame(scene.center))
+    }
+    return { focusRadius: focus?.radius || 0, sceneRadius, centerOffset }
+  }
+
+  /** 按刀面当前法向量把 UI 偏移换算成实际平面距离 */
+  applyEffectiveDistance(planeConfig) {
+    if (!planeConfig || !planeConfig.plane) return
+    planeConfig.plane.distance = this.distanceForOffset(
+      planeConfig.plane.normal,
+      planeConfig.distance
+    )
+  }
+
+  /**
    * 创建切割面可视化 - 使用CallbackProperty实现动态更新
    */
   createPlaneVisualization(planeConfig, index) {
-    if (!this.isViewerAlive() || !this.isTilesetAlive() || !this.modelBounds) return
+    if (!this.isViewerAlive() || !this.isTilesetAlive()) return
+    if (!this.modelBounds && !this.clipFocus) return
 
-    const center = this.modelBounds.center
-    const radius = this.modelBounds.radius
-    // 位置使用CallbackProperty，跟随模型移动
+    const sceneCenter = this.modelBounds?.center || this.tileset.boundingSphere.center
+    const sceneRadius = this.modelBounds?.radius || this.tileset.boundingSphere.radius
+    // 可视化面片贴合当前切割基准：位置取基准中心，尺寸按基准半径；随瓦片集变换/基准变化重算
     const positionCallback = new Cesium.CallbackProperty(() => {
-      // 获取Tileset的变换信息
-      const transformInfo = this.getTilesetTransformInfo()
-      if (transformInfo) {
-        return transformInfo.position
-      }
-      // 降级方案：使用包围球中心（可能不准确）
-      return this.tileset?.boundingSphere?.center || center
+      const focus = this.getFocusLocal()
+      if (!focus) return this.tileset?.boundingSphere?.center || sceneCenter
+      return Cesium.Matrix4.multiplyByPoint(
+        this.getClipFrameMatrix(),
+        focus.center,
+        new Cesium.Cartesian3()
+      )
     }, false)
 
-    // 方向（旋转）使用CallbackProperty
+    // 方向与切割面参考系一致：保证面片与真实剖面共面
     const orientationCallback = new Cesium.CallbackProperty(() => {
-      const transformInfo = this.getTilesetTransformInfo()
-      if (transformInfo) {
-        return transformInfo.orientation
-      }
-      return Cesium.Quaternion.IDENTITY
+      const rotation = Cesium.Matrix4.getMatrix3(this.getClipFrameMatrix(), new Cesium.Matrix3())
+      return Cesium.Quaternion.fromRotationMatrix(rotation)
     }, false)
 
     // 创建动态更新函数 - 与原始项目一致
@@ -261,25 +428,26 @@ class ClippingManager {
           baseNormal
         )
 
-        // 返回更新后的Plane (本地法向量 + 本地距离)
-        // 因为Entity已经应用了Tileset的变换(Position & Orientation)，
-        // 所以这里的Plane应该是相对于Entity坐标系的（即Tileset本地坐标系）
-        return new Cesium.Plane(rotatedNormal, currentConfig.distance)
+        // 返回更新后的Plane（Entity 位于切割基准中心、朝向与切割面参考系一致，
+        // 因此这里只需把 UI 偏移转换成相对基准中心的平面距离）
+        return new Cesium.Plane(rotatedNormal, -Number(currentConfig.distance || 0))
       }, false)
     }
 
-    // 创建平面实体 - 与原始项目一致的配置
+    // 面片尺寸贴合切割基准半径（无基准时回退整场景半径）
+    const focusRadius =
+      (this.clipFocus && Number(this.clipFocus.radius)) || sceneRadius || DEFAULT_MAX_DISTANCE
+    const planeSize = Math.max(20, focusRadius * 2.2)
+
+    // 创建平面实体
     const planeEntity = this.viewer.entities.add({
       id: `clipping-plane-${index}`,
-      position: positionCallback, // 使用Tileset原点
-      orientation: orientationCallback, // 使用Tileset旋转
-      height: undefined, // 移除height:0，因为我们现在使用Entity的坐标系，设置height可能导致它相对于球体表面定位
-      // 说明：平面几何在数学上为无限平面，渲染时会绘制一个四边形面片
-      // 面片中心取 Entity.position 在平面上的投影点
-      // 当 Entity 使用瓦片集变换时，Entity.position 表示局部原点变换到世界坐标的位置
-      // 因此面片会以局部原点在平面上的投影为中心，满足当前可视化需求
+      position: positionCallback, // 切割基准中心（跟随瓦片集变换）
+      orientation: orientationCallback, // 切割面参考系朝向
+      height: undefined, // 使用 Entity 坐标系，不额外设height
+      // 面片中心取 Entity.position 在平面上的投影点：即刀面穿过基准中心的位置
       plane: {
-        dimensions: new Cesium.Cartesian2(radius * 1.5, radius * 1.5), // 调整为模型半径的1.5倍
+        dimensions: new Cesium.Cartesian2(planeSize, planeSize),
         material: Cesium.Color.WHITE.withAlpha(0.0), // 与原始项目一致：完全透明
         plane: createPlaneUpdateFunction(), // 使用CallbackProperty
         outline: true,
@@ -341,7 +509,6 @@ class ClippingManager {
     if (!this.tileset || !this.modelBounds || index >= this.clippingPlanes.length) {
       return this.createResult(false, '无效的切割面索引')
     }
-
     const planeConfig = this.clippingPlanes[index]
 
     // 更新旋转角度
@@ -362,6 +529,9 @@ class ClippingManager {
     // 这样ClippingPlaneCollection会自动检测到变化
     planeConfig.plane.normal = rotatedNormal
 
+    // 法向量变了 → 以切割基准中心重新换算实际平面距离（UI 偏移保持不变）
+    this.applyEffectiveDistance(planeConfig)
+
     // 注意：不需要重新应用ClippingPlanes，因为我们直接修改了plane对象
     // 回调属性会自动处理可视化更新
 
@@ -380,7 +550,7 @@ class ClippingManager {
     const planeConfig = this.clippingPlanes[index]
     const planeEntity = this.planeEntities[index]
 
-    if (!planeEntity || !this.modelBounds) return
+    if (!planeEntity || (!this.modelBounds && !this.clipFocus)) return
 
     // 转换颜色为Cesium.Color并应用透明度
     const cesiumColor = Cesium.Color.fromCssColorString(planeConfig.color).withAlpha(
@@ -392,44 +562,77 @@ class ClippingManager {
   }
 
   /**
+   * 复用/创建 tileset 的 ClippingPlaneCollection。
+   * 关键：已加载瓦片的 model.clippingPlanes 持有的是**集合对象引用**，而 Cesium 只在
+   * clippingPlanesState（=平面个数）变化时才刷新瓦片引用。若每次应用都新建集合，
+   * 旧瓦片（尤其地表这种一直跟切面相交的大瓦片）会停在旧集合上；而 ClippingPlane 的
+   * onChangeCallback 只能指向一个集合，旧集合的刀面数据不再更新 → 表现为
+   * “地表不随切面切割、只在整块剔除时才成片消失”。因此这里一律复用同一集合。
+   */
+  ensureClippingCollection(planes, options = {}) {
+    if (!this.isTilesetAlive()) return null
+    const { unionClippingRegions = true, edgeWidth = 1.0, edgeColor } = options
+    const existing = this.tileset.clippingPlanes
+    const alive =
+      existing && !(typeof existing.isDestroyed === 'function' && existing.isDestroyed())
+
+    try {
+      if (!alive) {
+        const created = new Cesium.ClippingPlaneCollection({
+          planes,
+          edgeWidth,
+          unionClippingRegions,
+          enabled: this.clippingEnabled
+        })
+        if (edgeColor) created.edgeColor = edgeColor
+        this.tileset.clippingPlanes = created
+        this.syncClippingToModels()
+        return created
+      }
+
+      // 复用同一个集合：清空后重新挂入当前平面（重新绑定 onChangeCallback）
+      existing.removeAll()
+      planes.forEach(plane => existing.add(plane))
+      existing.unionClippingRegions = unionClippingRegions
+      existing.edgeWidth = edgeWidth
+      if (edgeColor) existing.edgeColor = edgeColor
+      existing.enabled = this.clippingEnabled
+      this.syncClippingToModels()
+      return existing
+    } catch (e) {
+      return null
+    }
+  }
+
+  /**
    * 应用切割平面集合到tileset
    */
   applyClippingPlanes() {
     if (!this.isTilesetAlive()) return
 
-    // 使用辅助方法清理切割平面
-    this.clearTilesetClippingPlanes()
-
     if (this.clippingPlanes.length === 0) {
+      this.clearTilesetClippingPlanes()
       return
     }
 
     const planes = this.clippingPlanes.map(config => config.plane)
-
-    try {
-      this.tileset.clippingPlanes = new Cesium.ClippingPlaneCollection({
-        planes,
-        // edgeColor: Cesium.Color.RED,
-        edgeWidth: 1.0,
-        unionClippingRegions: true,
-        enabled: this.clippingEnabled
-      })
-    } catch (e) {
-      return
-    }
+    this.ensureClippingCollection(planes, { unionClippingRegions: true, edgeWidth: 1.0 })
   }
 
   /**
-   * 清理tileset的切割平面
+   * 清理tileset的切割平面（不销毁集合对象：瓦片仍然引用它，销毁会造成
+   * “旧瓦片持有已销毁集合”的诡异渲染）。仅禁用并清空平面。
    */
   clearTilesetClippingPlanes() {
     if (!this.isTilesetAlive()) return
 
+    const collection = this.tileset.clippingPlanes
+    if (!collection) return
     try {
-      if (this.tileset.clippingPlanes) {
-        this.tileset.clippingPlanes.enabled = false
-      }
-      this.tileset.clippingPlanes = undefined
+      collection.enabled = false
+      collection.removeAll()
+      // 已加载瓦片模型也同步摘除，避免残留剖面
+      this.syncClippingToModels()
     } catch (e) {
       // Ignore cleanup failures when tileset clipping state is already invalidated.
       void e
@@ -441,8 +644,9 @@ class ClippingManager {
    */
   updatePlaneDistance(index, planeConfig, distance) {
     if (distance === undefined) return
+    // distance 为 UI 偏移（0 = 刀面穿过切割基准中心）
     planeConfig.distance = Number(distance)
-    planeConfig.plane.distance = Number(distance)
+    this.applyEffectiveDistance(planeConfig)
   }
 
   updatePlaneRotation(index, planeConfig, params) {
@@ -497,6 +701,8 @@ class ClippingManager {
     }
 
     this.updatePlaneVisualization(index)
+    // 刀面参数变了：确保已加载瓦片模型都持有当前集合（地表等大瓦片尤其需要）
+    this.syncClippingToModels()
     return this.createResult(true, `切割面 ${index + 1} 已更新`)
   }
 
@@ -620,10 +826,6 @@ class ClippingManager {
     const planeConfig = this.clippingPlanes[index]
     const { axis, direction, rotation } = planeConfig
 
-    // 保存当前的法向量和距离
-    const currentNormal = planeConfig.normal.clone()
-    const currentDistance = planeConfig.distance
-
     // 使用辅助方法获取基础法向量
     const baseNormal = this.getBaseNormal(axis, direction)
 
@@ -633,19 +835,13 @@ class ClippingManager {
     const rotationZ = rotation?.z || 0
     const rotatedNormal = this.calculateRotatedNormal(rotationX, rotationY, rotationZ, baseNormal)
 
-    // 检查法向量是否反转
-    const dotProduct = Cesium.Cartesian3.dot(currentNormal, rotatedNormal)
-    const isReversed = Math.abs(dotProduct + 1) < 0.0001
-
-    // 如果法向量反转，需要同时反转distance值以保持切割面位置不变
-    if (isReversed) {
-      planeConfig.distance = -currentDistance
-      planeConfig.plane.distance = -currentDistance
-    }
-
     // 更新切割面的法向量
     planeConfig.normal = rotatedNormal
     planeConfig.plane.normal = rotatedNormal
+
+    // 法向量变了 → 重算实际平面距离（偏移 0 始终表示刀面穿过切割基准中心；
+    // 不再像旧逻辑那样翻转 UI 偏移）
+    this.applyEffectiveDistance(planeConfig)
 
     // 重新应用切割平面
     this.applyClippingPlanes()
@@ -985,13 +1181,14 @@ class ClippingManager {
   applyExcavationPlanes(planes, isExcavate) {
     this.clearAllPlanes()
     try {
-      this.tileset.clippingPlanes = new Cesium.ClippingPlaneCollection({
-        planes: planes,
-        edgeWidth: 1.0,
-        edgeColor: Cesium.Color.RED,
+      // 同样复用同一个 ClippingPlaneCollection，避免旧瓦片停在被销毁的集合上
+      const applied = this.ensureClippingCollection(planes, {
         unionClippingRegions: !isExcavate,
-        enabled: true
+        edgeWidth: 1.0,
+        edgeColor: Cesium.Color.RED
       })
+      if (!applied) return this.createResult(false, '创建挖掘面失败')
+      applied.enabled = true
       return this.createResult(true, '')
     } catch (e) {
       console.error('Failed to create excavation planes:', e)
@@ -1360,6 +1557,8 @@ class ClippingManager {
   resetCoreState() {
     this.clippingPlanes = []
     this.planeEntities = []
+    this.clipFocus = null
+    this.tileLoadClippingListener = null
     this.clippingPolygonCollection = null
     this.currentPolygon = []
     this.lastPolygonPositions = []
@@ -1378,6 +1577,7 @@ class ClippingManager {
   destroy() {
     const viewer = this.viewer
     const viewerAlive = viewer && typeof viewer.isDestroyed === 'function' && !viewer.isDestroyed()
+    this.detachTileLoadClipping()
     if (viewerAlive) {
       try {
         this.clearAllPlanes()

@@ -1056,8 +1056,22 @@ function buildEquipReal(i, color) {
   return g
 }
 
+// 静止时限帧（约 15fps）：保留车辆/脉冲动画观感，同时把持续 WebGL 绘制与 CSS2D
+// DOM 更新成本降低约 3/4；相机交互、数据变化、尺寸变化通过 requestSceneRender()
+// 标记，下一帧立即全速渲染。
+let sceneDirty = true
+let lastFrameAt = 0
+const IDLE_FRAME_MS = 66
+
+function requestSceneRender() {
+  sceneDirty = true
+}
+
 function animate(t) {
   renderLoop = requestAnimationFrame(animate)
+  if (!sceneDirty && t - lastFrameAt < IDLE_FRAME_MS) return
+  sceneDirty = false
+  lastFrameAt = t
   const time = t * 0.001
   equipGroups.forEach((g, i) => {
     // 高亮发光脉冲：光晕/光环随正弦起伏，强化"移动中"的指示（每台错相位闪烁）
@@ -1151,6 +1165,8 @@ function init() {
   controls.dampingFactor = 0.08
   controls.target.set(0, -15, 0)
   controls.maxPolarAngle = Math.PI * 0.6
+  // 相机交互（含阻尼余量）立即恢复全速渲染，静止后回到限帧
+  controls.addEventListener('change', requestSceneRender)
   // 交互口径：左键旋转，中键拖拽平移（模型在视野中上下左右移动），右键+滚轮缩放
   controls.mouseButtons = {
     LEFT: THREE.MOUSE.ROTATE,
@@ -1177,8 +1193,10 @@ function init() {
     camera.updateProjectionMatrix()
     renderer.setSize(nw, nh)
     css2d.setSize(nw, nh)
+    requestSceneRender()
   })
   resizeObs.observe(el)
+  requestSceneRender()
 }
 
 function pickPointer(e) {
@@ -1252,7 +1270,10 @@ watch(
     props.equipGlbs
   ],
   () => {
-    if (scene) rebuild()
+    if (scene) {
+      rebuild()
+      requestSceneRender()
+    }
   },
   { deep: true }
 )

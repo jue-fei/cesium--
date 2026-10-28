@@ -50,8 +50,20 @@ export function useScheduling({
     error: '异常'
   }
 
+  // 快照合帧：同一帧内多次推送只应用最后一次，避免重复整树重渲染。
+  // 页面隐藏时 rAF 不执行，但仅保留最新快照，恢复后仍能一次性对齐。
+  let pendingSnapshot = null
+  let snapshotRaf = 0
   function applySnapshot(data) {
-    if (data && data.schema) snapshot.value = data
+    if (!data || !data.schema) return
+    pendingSnapshot = data
+    if (snapshotRaf) return
+    snapshotRaf = requestAnimationFrame(() => {
+      snapshotRaf = 0
+      if (!pendingSnapshot) return
+      snapshot.value = pendingSnapshot
+      pendingSnapshot = null
+    })
   }
 
   function setStatus(s) {
@@ -192,6 +204,11 @@ export function useScheduling({
   function stop() {
     stopWs()
     clearPoll()
+    if (snapshotRaf) {
+      cancelAnimationFrame(snapshotRaf)
+      snapshotRaf = 0
+    }
+    pendingSnapshot = null
     setStatus('idle')
   }
 
@@ -201,7 +218,7 @@ export function useScheduling({
       .then(json => {
         if (json && json.code === 0) applySnapshot(json.data)
       })
-      .catch(() => {})
+      .catch(() => { })
   }
 
   // ---------- NSGA-III 多目标选解提交 ----------

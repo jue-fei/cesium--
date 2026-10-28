@@ -36,6 +36,22 @@ export function useStressPanelController() {
     warningSummary
   } = panel
 
+  // 时间轴拖动节流：滑块 input 事件频率远高于热力图重算能力，
+  // 合并到 80ms 一次，避免拖动期间主线程排队；始终执行最后一次取值。
+  let pendingTime = null
+  let setTimeTimer = 0
+  const flushPendingTime = () => {
+    setTimeTimer = 0
+    if (pendingTime == null) return
+    actions.setTime(pendingTime)
+    pendingTime = null
+  }
+  const scheduleSetTime = time => {
+    pendingTime = time
+    if (setTimeTimer) return
+    setTimeTimer = setTimeout(flushPendingTime, 80)
+  }
+
   const onUndo = async () => {
     if (state.canUndo.value) await actions.undoHistory()
   }
@@ -67,7 +83,13 @@ export function useStressPanelController() {
     actions.initStressManager()
     window.addEventListener('keydown', onWindowKeydown)
   })
-  onUnmounted(() => window.removeEventListener('keydown', onWindowKeydown))
+  onUnmounted(() => {
+    window.removeEventListener('keydown', onWindowKeydown)
+    if (setTimeTimer) {
+      clearTimeout(setTimeTimer)
+      flushPendingTime()
+    }
+  })
 
   return {
     ...state,
@@ -107,7 +129,7 @@ export function useStressPanelController() {
     onExitAnalysis,
     onSliderChange: v => {
       sliderTime.value = Number(v) || 0
-      actions.setTime(sliderTime.value)
+      scheduleSetTime(sliderTime.value)
     },
     onUndo,
     onRedo,

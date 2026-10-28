@@ -1,0 +1,113 @@
+{
+  "_doc": "已知版本布局库：键 = 规范化版本(两级 r11.1) + '|' + solver(smp/mpp)。查找顺序: 精确键 -> 前缀通配(r11*)。未命中则用代码里的通用候选生成器(按头部标志位拼块)，再退到“序列文件尺寸反推”。新增模型类型优先往这里加条目。",
+  "layouts": [
+    {
+      "key": "r12.*|smp",
+      "desc": "本项目 6 个算例实测通过：LS-DYNA R12 / SMP / 8 字节字；块顺序 time -> globals -> coords -> vel -> acc -> solid_hist -> solid_part -> [sph] -> [pbm]",
+      "verified_on": [
+        "光面爆破",
+        "预裂爆破",
+        "blasting in air",
+        "sph-1(PBM)",
+        "tnt/1",
+        "tnt/re-1"
+      ],
+      "verified_examples": {
+        "纯FEM/ALE 280352节点139026单元": "stride = 1 + 55 + 9*280352 + 31*139026 + 139026 = 6972056（状态数 102，与 d3plot/PrePost 一致）",
+        "空气中爆炸 68921节点64000单元": "stride = 1 + 20 + 9*68921 + 19*64000 + 64000 = 1900310（每文件 9~10 状态，合计 222；旧管线误为 101）",
+        "SPH/PBM 674914节点598080单元": "由序列文件尺寸反推 stride = 18934784（单文件恰好 = 1 状态，无需展开粒子记录长度）"
+      },
+      "note": "实测要点：① 基文件含几何区，不参与整除校验；② 序列文件允许 <4096 词的尾部残留（不满一个状态）；③ 文件名进位是 d3plot01..d3plot99 → d3plot100/d3plot101（十进制三位），另有 d3plota0 形式兜底。"
+    },
+    {
+      "key": "*|smp",
+      "desc": "LS-DYNA 标准 SMP 单文件/多文件序列：time -> globals(nglbv) -> coords(3N) -> [vel(3N) if iu] -> [acc(3N) if ia] -> [solid_hist nv3d*nel8] -> [solid_part nel8] -> [beam] -> [shell] -> [sph n*rec] -> [pbm/dem n*rec] -> tail",
+      "blocks": [
+        {
+          "name": "time",
+          "words": 1
+        },
+        {
+          "name": "globals",
+          "words": "@nglbv"
+        },
+        {
+          "name": "coords",
+          "words": "3*@numnp"
+        },
+        {
+          "name": "velocity",
+          "if": "iu",
+          "words": "3*@numnp"
+        },
+        {
+          "name": "acceleration",
+          "if": "ia",
+          "words": "3*@numnp"
+        },
+        {
+          "name": "solid_hist",
+          "if": "nv3d",
+          "words": "@nv3d*@nel8"
+        },
+        {
+          "name": "solid_part",
+          "if": "nel8",
+          "words": "@nel8"
+        },
+        {
+          "name": "beam",
+          "if": "nel2",
+          "words": "@nel2*@nv3d_beam"
+        },
+        {
+          "name": "shell",
+          "if": "nel4",
+          "words": "@nel4*@nv3d_shell"
+        },
+        {
+          "name": "sph",
+          "if": "n_sph",
+          "words": "@n_sph*@rec_sph"
+        },
+        {
+          "name": "pbm",
+          "if": "n_pbm",
+          "words": "@n_pbm*@rec_pbm"
+        }
+      ],
+      "tail_words": "@tail"
+    },
+    {
+      "_note": "已在本项目实测通过的常量：实体历史 9*N 的坐标/速度/加速度三块恒存在(即使 iu/ia 为 0)，SPH 记录 33 词，PBM 记录 14 词，尾部 497 词。",
+      "key_example_presplit": {
+        "raw_stride_expr": "1 + nglbv + 9*numnp + nv3d*nel8 + nel8",
+        "note": "纯 FEM/ALE：1+20+9*210257+13*139026+139026 = 3884785 词 (实测吻合)"
+      },
+      "key_example_sph1": {
+        "raw_stride_expr": "1 + nglbv + 9*numnp + nv3d*nel8 + nel8 + 33*n_sph + 14*n_pbm + 497",
+        "note": "PBM 算例：1+20+9*674914+17*598080+598080+33*48200+14*36000+497 (实测吻合)"
+      }
+    }
+  ],
+  "block_len_candidates": {
+    "rec_sph": [
+      33,
+      32,
+      28,
+      36
+    ],
+    "rec_pbm": [
+      14,
+      12,
+      16,
+      18
+    ],
+    "tail": [
+      497,
+      0,
+      62,
+      116
+    ]
+  }
+}

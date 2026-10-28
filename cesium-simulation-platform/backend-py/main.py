@@ -6,7 +6,8 @@ from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from app.routes import orebodies, models, boreholes, monitoring, geology, blasting, blasting_ws, scheduling, scheduling_ws
+from fastapi.staticfiles import StaticFiles
+from app.routes import orebodies, models, boreholes, monitoring, geology, blasting, blasting_ws, scheduling, scheduling_ws, dyna
 from app.security import API_TOKEN
 
 # ─── 日志配置 ──────────────────────────────────────────
@@ -22,6 +23,8 @@ logger = logging.getLogger("app")
 # 鉴权启用状态提示（方案 B1：默认关闭，配置 BLASTING_API_TOKEN 后开启）
 # 放在 lifespan 而非模块级：Windows 下 uvicorn --reload 用 spawn 多进程，
 # 模块级代码会随重复导入（__main__ / __mp_main__ / main）打印多次，lifespan 每个服务进程只执行一次。
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     if not API_TOKEN:
@@ -41,7 +44,8 @@ def _parse_bool_env(name: str, default: bool) -> bool:
 def _get_cors_origins() -> list[str]:
     raw = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
     if raw:
-        origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+        origins = [origin.strip()
+                   for origin in raw.split(",") if origin.strip()]
     else:
         origins = [
             "http://localhost:3000",
@@ -107,11 +111,26 @@ async def logging_middleware(request: Request, call_next):
     status = response.status_code
     # 按状态码分级日志：2xx→INFO, 4xx→WARNING, 5xx→ERROR
     if status >= 500:
-        logger.error("%s %s %s %d %.1fms", client, method, path, status, elapsed_ms)
+        logger.error("%s %s %s %d %.1fms", client,
+                     method, path, status, elapsed_ms)
     elif status >= 400:
-        logger.warning("%s %s %s %d %.1fms", client, method, path, status, elapsed_ms)
+        logger.warning("%s %s %s %d %.1fms", client,
+                       method, path, status, elapsed_ms)
     else:
-        logger.info("%s %s %s %d %.1fms", client, method, path, status, elapsed_ms)
+        logger.info("%s %s %s %d %.1fms", client,
+                    method, path, status, elapsed_ms)
+    return response
+
+
+# ─── LS-DYNA 子系统静态页禁缓存 ────────────────────────
+# /dyna/ 由 StaticFiles 挂载，默认只发 ETag/Last-Modified，浏览器可能直接复用旧副本
+# （改完前端却"看到的还是老页面"就是它）。开发期统一要求每次重新校验。
+@app.middleware("http")
+async def dyna_no_cache(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/dyna"):
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
     return response
 
 # 注册路由
@@ -124,6 +143,13 @@ app.include_router(blasting.router)
 app.include_router(blasting_ws.router)
 app.include_router(scheduling.router)
 app.include_router(scheduling_ws.router)
+app.include_router(dyna.router)
+
+# LS-DYNA 子系统页面（随平台一起分发）：访问 /dyna/ 即为 d3plot 可视化应用
+_dyna_web = dyna.web_dir()
+if _dyna_web.is_dir():
+    app.mount("/dyna", StaticFiles(directory=str(_dyna_web),
+              html=True), name="dyna")
 
 
 @app.get("/api/health")

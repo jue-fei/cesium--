@@ -37,7 +37,17 @@ export function useClippingPanelController() {
     clipping.updatePolygonVisualizationOpacity(currentPolygonVisualizationOpacity.value / 100)
   }
 
-  const positionRange = ref({ ...DEFAULT_POSITION_RANGE })
+  // 位置偏移量程：偏移 0 = 刀面穿过选中模型中心；量程同时覆盖
+  // “模型自身（±1.5r）”与“从基准中心扫到整场景边缘（中心距+场景半径）”
+  const positionRange = computed(() => {
+    const info = clipping.clipRangeInfo?.value || {}
+    const focusRadius = Number(info.focusRadius) || 0
+    const sceneRadius = Number(info.sceneRadius) || 0
+    const coverAll = (Number(info.centerOffset) || 0) + sceneRadius
+    const span = Math.ceil(Math.max(focusRadius * 1.5, coverAll, 0))
+    if (!(span > 0)) return { ...DEFAULT_POSITION_RANGE }
+    return { min: -span, max: span, step: DEFAULT_POSITION_RANGE.step }
+  })
   const axisArr = ref([...CLIPPING_AXES])
   const directionArr = ref([...CLIPPING_DIRECTIONS])
   const polygonModeOptions = POLYGON_DIRECTION_OPTIONS

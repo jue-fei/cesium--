@@ -460,9 +460,7 @@ function handleReset() {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(20, 23, 30, 0.92);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(20, 23, 30, 0.96);
 }
 .dlg-tabs {
   margin: 0 0 16px;
@@ -569,8 +567,7 @@ function handleReset() {
   z-index: 4;
   padding: 14px 24px;
   margin: 0;
-  background: rgba(18, 21, 27, 0.92);
-  backdrop-filter: blur(8px);
+  background: rgba(18, 21, 27, 0.96);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 .sched-dialog :deep(.el-dialog__body) {

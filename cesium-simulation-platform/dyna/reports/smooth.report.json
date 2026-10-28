@@ -1,0 +1,4445 @@
+{
+ "key": "smooth",
+ "label": "光面爆破",
+ "dir": "C:\\Users\\allblack\\Desktop\\tnt\\光面\\光面爆破",
+ "ok": true,
+ "stage": "all",
+ "precision_mode": "auto",
+ "id_source": "k_elem_align",
+ "id_map_note": "k_elem_align",
+ "deck": {
+  "encoding": "utf-8-sig",
+  "include_files": [],
+  "contiguous": false
+ },
+ "container": {
+  "mesh": {
+   "path": "smooth.mesh.bin",
+   "header_bytes": 18348,
+   "blocks_bytes": 18554664,
+   "file_bytes": 18573020,
+   "header": {
+    "_doc": "自描述容器 v3。块区各块的 offset 是相对\"块区起点\"(=magic4+len4+header_json)的字节偏移，len 为元素个数，dtype: f4=f32, i4=i32, u1=uint8。coords/bbox 为模型单位(×units.length 得 m)；conn 是 i4[nel,8] 六面体连接表。值语义见 frames.bin 的 fields.scale/offset。faces 为四边形顶点索引(每 quad 4 个节点序号)，三角形化顺序固定：quad i → tri 2i(0,1,2) 与 2i+1(0,2,3)。markers/outline 为视觉层参数（起爆点标记样式尺寸、模型描边阈值），前端元数据驱动读取。",
+    "version": "D2W3",
+    "key": "smooth",
+    "schema_version": 2,
+    "id_base": 1,
+    "id_source": "k_elem_align",
+    "id_map_note": "k_elem_align",
+    "id_note": "编号来源：k_elem_align=连接表(内部)↔.k *ELEMENT_SOLID(用户)逐位对齐反推（双射且全覆盖）；contiguous=.k 编号恰为 1..N（arange 精确）；internal=d3plot 仅存内部编号 1..N（.k 用户编号带空洞、无 narbs 映射可恢复）；fallback=均不成立（按 1..N 假定）",
+    "source": {
+     "dir": "C:\\Users\\allblack\\Desktop\\tnt\\光面\\光面爆破",
+     "solver": "smp",
+     "version_raw": "R12",
+     "version_norm": "r12.0",
+     "d3plot_files": [
+      "d3plot",
+      "d3plot01",
+      "d3plot02",
+      "d3plot03",
+      "d3plot04",
+      "d3plot05",
+      "d3plot06",
+      "d3plot07",
+      "d3plot08",
+      "d3plot09",
+      "d3plot10",
+      "d3plot11",
+      "d3plot12",
+      "d3plot13",
+      "d3plot14",
+      "d3plot15",
+      "d3plot16",
+      "d3plot17",
+      "d3plot18",
+      "d3plot19",
+      "d3plot20",
+      "d3plot21",
+      "d3plot22",
+      "d3plot23",
+      "d3plot24",
+      "d3plot25",
+      "d3plot26",
+      "d3plot27",
+      "d3plot28",
+      "d3plot29",
+      "d3plot30",
+      "d3plot31",
+      "d3plot32",
+      "d3plot33",
+      "d3plot34",
+      "d3plot35",
+      "d3plot36",
+      "d3plot37",
+      "d3plot38",
+      "d3plot39",
+      "d3plot40",
+      "d3plot41",
+      "d3plot42",
+      "d3plot43",
+      "d3plot44",
+      "d3plot45",
+      "d3plot46",
+      "d3plot47",
+      "d3plot48",
+      "d3plot49",
+      "d3plot50",
+      "d3plot51",
+      "d3plot52"
+     ],
+     "stride": 6972056,
+     "block_plan": [
+      {
+       "name": "time",
+       "words": 1,
+       "off": 0
+      },
+      {
+       "name": "globals",
+       "words": 55,
+       "off": 1
+      },
+      {
+       "name": "coords",
+       "words": 841056,
+       "off": 56
+      },
+      {
+       "name": "velocity",
+       "words": 841056,
+       "off": 841112
+      },
+      {
+       "name": "acceleration",
+       "words": 841056,
+       "off": 1682168
+      },
+      {
+       "name": "solid_hist",
+       "words": 4309806,
+       "off": 2523224
+      },
+      {
+       "name": "solid_part",
+       "words": 139026,
+       "off": 6833030
+      },
+      {
+       "name": "tail",
+       "words": 0,
+       "off": 6972056
+      }
+     ],
+     "layout": {
+      "head_name": "blocks=3N(实测通用)",
+      "head": 2523224,
+      "n_sph": 0,
+      "rec_sph": 0,
+      "n_pbm": 0,
+      "rec_pbm": 0,
+      "tail": 0,
+      "beam": 0,
+      "shell": 0,
+      "score": 11
+     },
+     "header": {
+      "title": "LS-DYNA user input",
+      "run_time": null,
+      "ndim": 4,
+      "icode": 6,
+      "it": 0,
+      "iu": 1,
+      "iv": 1,
+      "ia": 1,
+      "maxint": -10003,
+      "verified": false,
+      "note": "title 取自 d3plot 头部前 80 字节；ndim/icode/it/iu/iv/ia/maxint 按 HDR_IDX 读取，未经逐版本核对，仅作审计线索；run_time 未解析（尾部格式随版本）"
+     }
+    },
+    "units": {
+     "length": 0.01,
+     "time": 1e-06,
+     "mass": 0.001,
+     "stress": 100000000000.0,
+     "velocity": 10000.0,
+     "density": 1000.0,
+     "energy": 100000.0,
+     "force": 10000000.0,
+     "displacement": 0.01,
+     "acceleration": 10000000000.0
+    },
+    "units_system": "g-cm-µs",
+    "units_doc": "length→m, time→s, mass→kg, stress→Pa, velocity→m/s, density→kg/m³, energy→J, force→N, displacement→m",
+    "counts": {
+     "numnp": 280352,
+     "nel": 139026
+    },
+    "bbox": {
+     "min": [
+      -1000.0,
+      -200.0,
+      -20.0
+     ],
+     "max": [
+      1000.0,
+      950.0,
+      0.0
+     ],
+     "size": [
+      2000.0,
+      1150.0,
+      20.0
+     ]
+    },
+    "parts": [
+     {
+      "pid": 1,
+      "name": "Part          1 for Mat         1 and Elem Type         1",
+      "mat": "MAT_JOHNSON_HOLMQUIST_CERAMICS",
+      "sec": "solid",
+      "roles": [
+       "structure"
+      ],
+      "elform": 1,
+      "thickness": null,
+      "elems": 64747,
+      "basis": ".k: pid1 -> MAT_JOHNSON_HOLMQUIST_CERAMICS + solid"
+     },
+     {
+      "pid": 2,
+      "name": "Part          2 for Mat         2 and Elem Type         2",
+      "mat": "MAT_NULL",
+      "sec": "solid",
+      "roles": [
+       "air"
+      ],
+      "elform": 11,
+      "thickness": null,
+      "elems": 67047,
+      "basis": ".k: pid2 -> MAT_NULL + solid"
+     },
+     {
+      "pid": 3,
+      "name": "Part          4 for Mat         4 and Elem Type         2",
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "sec": "solid",
+      "roles": [
+       "explosive"
+      ],
+      "elform": 11,
+      "thickness": null,
+      "elems": 640,
+      "basis": ".k: pid3 -> MAT_HIGH_EXPLOSIVE_BURN + solid"
+     },
+     {
+      "pid": 4,
+      "name": "Part          3 for Mat         3 and Elem Type         2",
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "sec": "solid",
+      "roles": [
+       "explosive"
+      ],
+      "elform": 11,
+      "thickness": null,
+      "elems": 768,
+      "basis": ".k: pid4 -> MAT_HIGH_EXPLOSIVE_BURN + solid"
+     },
+     {
+      "pid": 5,
+      "name": "Part          3 for Mat         3 and Elem Type         2",
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "sec": "solid",
+      "roles": [
+       "explosive"
+      ],
+      "elform": 11,
+      "thickness": null,
+      "elems": 960,
+      "basis": ".k: pid5 -> MAT_HIGH_EXPLOSIVE_BURN + solid"
+     },
+     {
+      "pid": 6,
+      "name": "Part          3 for Mat         3 and Elem Type         2",
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "sec": "solid",
+      "roles": [
+       "explosive"
+      ],
+      "elform": 11,
+      "thickness": null,
+      "elems": 1152,
+      "basis": ".k: pid6 -> MAT_HIGH_EXPLOSIVE_BURN + solid"
+     },
+     {
+      "pid": 7,
+      "name": "Part          3 for Mat         3 and Elem Type         2",
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "sec": "solid",
+      "roles": [
+       "explosive"
+      ],
+      "elform": 11,
+      "thickness": null,
+      "elems": 3712,
+      "basis": ".k: pid7 -> MAT_HIGH_EXPLOSIVE_BURN + solid"
+     }
+    ],
+    "deto": [
+     {
+      "pid": 3,
+      "x": -100.0,
+      "y": 225.0,
+      "z": 0.0,
+      "lt": 0.0
+     },
+     {
+      "pid": 3,
+      "x": -200.0,
+      "y": 135.0,
+      "z": 0.0,
+      "lt": 0.0
+     },
+     {
+      "pid": 3,
+      "x": 102.0,
+      "y": 153.0,
+      "z": 0.0,
+      "lt": 0.0
+     },
+     {
+      "pid": 3,
+      "x": 100.0,
+      "y": 225.0,
+      "z": 0.0,
+      "lt": 0.0
+     },
+     {
+      "pid": 3,
+      "x": 200.0,
+      "y": 61.0,
+      "z": 0.0,
+      "lt": 0.0
+     },
+     {
+      "pid": 3,
+      "x": 200.0,
+      "y": 135.0,
+      "z": 0.0,
+      "lt": 0.0
+     },
+     {
+      "pid": 3,
+      "x": 100.0,
+      "y": 81.4,
+      "z": 0.0,
+      "lt": 0.0
+     },
+     {
+      "pid": 3,
+      "x": -98.4,
+      "y": 83.0,
+      "z": 0.0,
+      "lt": 0.0
+     },
+     {
+      "pid": 3,
+      "x": -100.0,
+      "y": 151.4,
+      "z": 0.0,
+      "lt": 0.0
+     },
+     {
+      "pid": 3,
+      "x": -200.0,
+      "y": 63.0,
+      "z": 0.0,
+      "lt": 0.0
+     },
+     {
+      "pid": 4,
+      "x": -388.8554,
+      "y": 93.78438,
+      "z": 0.0,
+      "lt": 100.0
+     },
+     {
+      "pid": 4,
+      "x": -298.0781,
+      "y": 266.7461,
+      "z": 0.0,
+      "lt": 100.0
+     },
+     {
+      "pid": 4,
+      "x": -139.9719,
+      "y": 374.7157,
+      "z": 0.0,
+      "lt": 100.0
+     },
+     {
+      "pid": 4,
+      "x": 48.45575,
+      "y": 399.069,
+      "z": 0.0,
+      "lt": 100.0
+     },
+     {
+      "pid": 4,
+      "x": 139.9719,
+      "y": 374.7157,
+      "z": 0.0,
+      "lt": 100.0
+     },
+     {
+      "pid": 4,
+      "x": 228.362,
+      "y": 330.8395,
+      "z": 0.0,
+      "lt": 100.0
+     },
+     {
+      "pid": 4,
+      "x": 298.0781,
+      "y": 266.7461,
+      "z": 0.0,
+      "lt": 100.0
+     },
+     {
+      "pid": 4,
+      "x": 352.4115,
+      "y": 184.9598,
+      "z": 0.0,
+      "lt": 100.0
+     },
+     {
+      "pid": 4,
+      "x": 390.3186,
+      "y": 96.2049,
+      "z": 0.0,
+      "lt": 100.0
+     },
+     {
+      "pid": 4,
+      "x": -353.4389,
+      "y": 187.306,
+      "z": 0.0,
+      "lt": 100.0
+     },
+     {
+      "pid": 4,
+      "x": -226.317,
+      "y": 327.8768,
+      "z": 0.0,
+      "lt": 100.0
+     },
+     {
+      "pid": 4,
+      "x": -48.21467,
+      "y": 397.0835,
+      "z": 0.0,
+      "lt": 100.0
+     },
+     {
+      "pid": 5,
+      "x": -490.0025,
+      "y": 99.50673,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": -414.6237,
+      "y": 279.4481,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": -354.9676,
+      "y": 354.9676,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": -276.1222,
+      "y": 416.8459,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": -189.494,
+      "y": 462.7051,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": -97.93534,
+      "y": 492.3542,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": -2.0,
+      "y": 500.0,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": 97.93534,
+      "y": 492.3542,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": 190.5763,
+      "y": 460.092,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": 276.674,
+      "y": 414.0719,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": 354.9676,
+      "y": 352.1392,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": 417.3977,
+      "y": 278.8963,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": 461.1744,
+      "y": 193.1895,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": 490.0025,
+      "y": 99.50673,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 5,
+      "x": -461.9398,
+      "y": 191.3417,
+      "z": 0.0,
+      "lt": 200.0
+     },
+     {
+      "pid": 6,
+      "x": 593.7895,
+      "y": 99.08594,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": 569.382,
+      "y": 195.4691,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": 526.7324,
+      "y": 287.3274,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": 474.7127,
+      "y": 366.9493,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": 407.8404,
+      "y": 440.0798,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": 240.2139,
+      "y": 547.6324,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": 147.7823,
+      "y": 583.579,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": -47.55444,
+      "y": 598.1159,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": -145.3525,
+      "y": 582.1311,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": -239.1857,
+      "y": 550.2674,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": -472.2559,
+      "y": 370.1059,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": -566.8409,
+      "y": 196.7113,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": -589.8441,
+      "y": 98.42756,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": -527.6843,
+      "y": 285.5684,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": -406.3689,
+      "y": 441.4343,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": -328.1689,
+      "y": 502.2999,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": 49.54761,
+      "y": 597.9507,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 6,
+      "x": 329.044,
+      "y": 503.6394,
+      "z": 0.0,
+      "lt": 300.0
+     },
+     {
+      "pid": 7,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 100.0,
+      "y": -2.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 200.0,
+      "y": -2.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 300.0,
+      "y": -2.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 400.0,
+      "y": 0.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 500.0,
+      "y": -2.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 600.0,
+      "y": 0.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 700.0,
+      "y": -2.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -100.0,
+      "y": 2.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -200.0,
+      "y": -2.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -300.0,
+      "y": -2.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -400.0,
+      "y": 2.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -500.0,
+      "y": -2.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -600.0,
+      "y": -2.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -700.0,
+      "y": -2.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 698.3592,
+      "y": 47.94252,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 694.8547,
+      "y": 99.90502,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 684.4279,
+      "y": 146.8414,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 673.5641,
+      "y": 197.7763,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 657.7387,
+      "y": 245.3239,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 638.5617,
+      "y": 291.6213,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 616.1307,
+      "y": 336.4328,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 590.56,
+      "y": 379.5299,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 559.1803,
+      "y": 421.0954,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 493.5605,
+      "y": 496.389,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 457.0928,
+      "y": 527.5132,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 420.6929,
+      "y": 561.98,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 380.1311,
+      "y": 587.7962,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 333.7189,
+      "y": 615.3338,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 292.6098,
+      "y": 635.9116,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 243.926,
+      "y": 653.9909,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 199.1318,
+      "y": 671.0816,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 146.8414,
+      "y": 684.4279,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 101.6,
+      "y": 692.5904,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 51.93233,
+      "y": 698.0738,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 0.0,
+      "y": 700.0,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -51.93233,
+      "y": 698.0738,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -97.64074,
+      "y": 693.1596,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -146.8414,
+      "y": 684.4279,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -195.2938,
+      "y": 672.2085,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -242.751,
+      "y": 656.5637,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -288.9712,
+      "y": 637.5732,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -336.4328,
+      "y": 616.1307,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -696.6206,
+      "y": 49.82329,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -376.7661,
+      "y": 589.9588,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -417.8933,
+      "y": 561.5774,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -457.0928,
+      "y": 527.5132,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -694.4587,
+      "y": 99.84809,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -527.715,
+      "y": 459.914,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -684.4279,
+      "y": 146.8414,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -558.7778,
+      "y": 418.2958,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -671.1943,
+      "y": 198.748,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -590.56,
+      "y": 379.5299,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -613.4168,
+      "y": 337.2296,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -635.9116,
+      "y": 292.6098,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -657.7387,
+      "y": 245.3239,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": -494.9747,
+      "y": 494.9747,
+      "z": 0.0,
+      "lt": 400.0
+     },
+     {
+      "pid": 7,
+      "x": 530.0725,
+      "y": 457.1933,
+      "z": 0.0,
+      "lt": 400.0
+     }
+    ],
+    "markers": {
+     "kind": "point",
+     "dot_ratio": 0.011,
+     "dim_factor": 0.45,
+     "bucket": 100.0,
+     "delay_colors": [
+      [
+       1.0,
+       0.25,
+       0.2
+      ],
+      [
+       1.0,
+       0.62,
+       0.1
+      ],
+      [
+       1.0,
+       0.9,
+       0.3
+      ],
+      [
+       0.5,
+       1.0,
+       0.3
+      ],
+      [
+       0.3,
+       1.0,
+       0.95
+      ]
+     ]
+    },
+    "outline": {
+     "crease_deg": 60.0,
+     "frag_ratio": 0.02,
+     "flat_deg": 1.5,
+     "width_px": 1.9
+    },
+    "fieldmap": [
+     {
+      "pid": 1,
+      "mat": "MAT_JOHNSON_HOLMQUIST_CERAMICS",
+      "elem_type": "solid",
+      "role": "structure",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_JOHNSON_HOLMQUIST_CERAMICS); nv3d=31命中; 核对依据: 项目内 JH-2 花岗岩实测（光面/预裂 nv3d=31）：w0..5 应力、w6 有效塑性应变、w8 损伤 D∈[0,1]（含 0 与 1 饱和）",
+      "fields": {
+       "stress": [
+        0,
+        6
+       ],
+       "eps": 6,
+       "damage": 8,
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     },
+     {
+      "pid": 2,
+      "mat": "MAT_NULL",
+      "elem_type": "solid",
+      "role": "air",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_NULL); nv3d=31未登记(按同本构偏移); 核对依据: 空气/ALE 实测：w0=w1=w2=压力(压为负)。w11 不可靠（单材料 ALE 时像密度 5.8e-4~0.84，多材料 ALE(tnt/1) 时是材料分数 1~2），故不输出 density 字段",
+      "fields": {
+       "stress": [
+        0,
+        6
+       ],
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     },
+     {
+      "pid": 3,
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "elem_type": "solid",
+      "role": "explosive",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=31未登记(按同本构偏移); 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+      "fields": {
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     },
+     {
+      "pid": 4,
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "elem_type": "solid",
+      "role": "explosive",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=31未登记(按同本构偏移); 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+      "fields": {
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     },
+     {
+      "pid": 5,
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "elem_type": "solid",
+      "role": "explosive",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=31未登记(按同本构偏移); 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+      "fields": {
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     },
+     {
+      "pid": 6,
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "elem_type": "solid",
+      "role": "explosive",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=31未登记(按同本构偏移); 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+      "fields": {
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     },
+     {
+      "pid": 7,
+      "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+      "elem_type": "solid",
+      "role": "explosive",
+      "damage_scale": 1.0,
+      "low_fields": [],
+      "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=31未登记(按同本构偏移); 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+      "fields": {
+       "pressure": [
+        0,
+        1,
+        2
+       ]
+      }
+     }
+    ],
+    "surf_groups": [
+     {
+      "partId": 1,
+      "role": "structure",
+      "kind": "solid",
+      "quads": 131572,
+      "stat": {
+       "ext_raw": 131844,
+       "quads": 131572,
+       "degenerate": 272,
+       "flipped": 64659,
+       "open_edges": 528,
+       "directed_conflicts": 0,
+       "edges": 526288
+      },
+      "faces": {
+       "len": 526288,
+       "dtype": "i4",
+       "offset": 10602776
+      },
+      "owner_elem": {
+       "len": 131572,
+       "dtype": "i4",
+       "offset": 12707928
+      },
+      "ecent": {
+       "len": 263144,
+       "dtype": "f4",
+       "offset": 13234216
+      }
+     },
+     {
+      "partId": 2,
+      "role": "air",
+      "kind": "solid",
+      "quads": 136152,
+      "stat": {
+       "ext_raw": 136458,
+       "quads": 136152,
+       "degenerate": 306,
+       "flipped": 66895,
+       "open_edges": 604,
+       "directed_conflicts": 0,
+       "edges": 544608
+      },
+      "faces": {
+       "len": 544608,
+       "dtype": "i4",
+       "offset": 14286792
+      },
+      "owner_elem": {
+       "len": 136152,
+       "dtype": "i4",
+       "offset": 16465224
+      },
+      "ecent": {
+       "len": 272304,
+       "dtype": "f4",
+       "offset": 17009832
+      }
+     },
+     {
+      "partId": 3,
+      "role": "explosive",
+      "kind": "solid",
+      "quads": 1440,
+      "stat": {
+       "ext_raw": 1440,
+       "quads": 1440,
+       "degenerate": 0,
+       "flipped": 480,
+       "open_edges": 0,
+       "directed_conflicts": 0,
+       "edges": 5760
+      },
+      "faces": {
+       "len": 5760,
+       "dtype": "i4",
+       "offset": 18099048
+      },
+      "owner_elem": {
+       "len": 1440,
+       "dtype": "i4",
+       "offset": 18122088
+      },
+      "ecent": {
+       "len": 2880,
+       "dtype": "f4",
+       "offset": 18127848
+      }
+     },
+     {
+      "partId": 4,
+      "role": "explosive",
+      "kind": "solid",
+      "quads": 1728,
+      "stat": {
+       "ext_raw": 1728,
+       "quads": 1728,
+       "degenerate": 0,
+       "flipped": 576,
+       "open_edges": 0,
+       "directed_conflicts": 0,
+       "edges": 6912
+      },
+      "faces": {
+       "len": 6912,
+       "dtype": "i4",
+       "offset": 18139368
+      },
+      "owner_elem": {
+       "len": 1728,
+       "dtype": "i4",
+       "offset": 18167016
+      },
+      "ecent": {
+       "len": 3456,
+       "dtype": "f4",
+       "offset": 18173928
+      }
+     },
+     {
+      "partId": 5,
+      "role": "explosive",
+      "kind": "solid",
+      "quads": 2160,
+      "stat": {
+       "ext_raw": 2160,
+       "quads": 2160,
+       "degenerate": 0,
+       "flipped": 720,
+       "open_edges": 0,
+       "directed_conflicts": 0,
+       "edges": 8640
+      },
+      "faces": {
+       "len": 8640,
+       "dtype": "i4",
+       "offset": 18187752
+      },
+      "owner_elem": {
+       "len": 2160,
+       "dtype": "i4",
+       "offset": 18222312
+      },
+      "ecent": {
+       "len": 4320,
+       "dtype": "f4",
+       "offset": 18230952
+      }
+     },
+     {
+      "partId": 6,
+      "role": "explosive",
+      "kind": "solid",
+      "quads": 2592,
+      "stat": {
+       "ext_raw": 2592,
+       "quads": 2592,
+       "degenerate": 0,
+       "flipped": 864,
+       "open_edges": 0,
+       "directed_conflicts": 0,
+       "edges": 10368
+      },
+      "faces": {
+       "len": 10368,
+       "dtype": "i4",
+       "offset": 18248232
+      },
+      "owner_elem": {
+       "len": 2592,
+       "dtype": "i4",
+       "offset": 18289704
+      },
+      "ecent": {
+       "len": 5184,
+       "dtype": "f4",
+       "offset": 18300072
+      }
+     },
+     {
+      "partId": 7,
+      "role": "explosive",
+      "kind": "solid",
+      "quads": 8352,
+      "stat": {
+       "ext_raw": 8352,
+       "quads": 8352,
+       "degenerate": 0,
+       "flipped": 2784,
+       "open_edges": 0,
+       "directed_conflicts": 0,
+       "edges": 33408
+      },
+      "faces": {
+       "len": 33408,
+       "dtype": "i4",
+       "offset": 18320808
+      },
+      "owner_elem": {
+       "len": 8352,
+       "dtype": "i4",
+       "offset": 18454440
+      },
+      "ecent": {
+       "len": 16704,
+       "dtype": "f4",
+       "offset": 18487848
+      }
+     }
+    ],
+    "particles": [],
+    "coords": {
+     "offset": 0,
+     "len": 841056,
+     "dtype": "f4"
+    },
+    "node_ids": {
+     "offset": 3364224,
+     "len": 280352,
+     "dtype": "i4"
+    },
+    "elem_ids": {
+     "offset": 4485632,
+     "len": 139026,
+     "dtype": "i4"
+    },
+    "conn": {
+     "offset": 5041736,
+     "len": 1112208,
+     "dtype": "i4",
+     "shape": [
+      139026,
+      8
+     ]
+    },
+    "conn_part": {
+     "offset": 9490568,
+     "len": 139026,
+     "dtype": "i4"
+    },
+    "elem_volume": {
+     "offset": 10046672,
+     "len": 139026,
+     "dtype": "f4"
+    }
+   }
+  },
+  "frames": {
+   "path": "smooth.frames.bin",
+   "bytes": 400128760,
+   "frame_bytes": 10944207,
+   "codec": "zstd",
+   "raw_bytes": 1116309114,
+   "ratio": 2.79
+  }
+ },
+ "block_plan": [
+  {
+   "name": "time",
+   "words": 1,
+   "off": 0
+  },
+  {
+   "name": "globals",
+   "words": 55,
+   "off": 1
+  },
+  {
+   "name": "coords",
+   "words": 841056,
+   "off": 56
+  },
+  {
+   "name": "velocity",
+   "words": 841056,
+   "off": 841112
+  },
+  {
+   "name": "acceleration",
+   "words": 841056,
+   "off": 1682168
+  },
+  {
+   "name": "solid_hist",
+   "words": 4309806,
+   "off": 2523224
+  },
+  {
+   "name": "solid_part",
+   "words": 139026,
+   "off": 6833030
+  },
+  {
+   "name": "tail",
+   "words": 0,
+   "off": 6972056
+  }
+ ],
+ "block_solution": {
+  "head_name": "blocks=3N(实测通用)",
+  "head": 2523224,
+  "n_sph": 0,
+  "rec_sph": 0,
+  "n_pbm": 0,
+  "rec_pbm": 0,
+  "tail": 0,
+  "beam": 0,
+  "shell": 0,
+  "score": 11
+ },
+ "block_candidates": [
+  {
+   "head_name": "blocks=3N(实测通用)",
+   "head": 2523224,
+   "n_sph": 0,
+   "rec_sph": 0,
+   "n_pbm": 0,
+   "rec_pbm": 0,
+   "tail": 0,
+   "beam": 0,
+   "shell": 0,
+   "score": 11
+  },
+  {
+   "head_name": "blocks=(1+iu+ia)*N",
+   "head": 2523224,
+   "n_sph": 0,
+   "rec_sph": 0,
+   "n_pbm": 0,
+   "rec_pbm": 0,
+   "tail": 0,
+   "beam": 0,
+   "shell": 0,
+   "score": 8
+  }
+ ],
+ "particle_slots": null,
+ "part_source": "k_deck",
+ "part_map": null,
+ "part_map_note": "编号本就与 .k *PART 一致（无需重编号）",
+ "layout_probe": {
+  "accepted": "FEM/ALE blocks=3N(实测通用), tail=0, 无粒子",
+  "stride": 6972056,
+  "library_entry": "r12.*|smp",
+  "fp_msg": "基文件坐标 @ 字 70（与 d3plot01 状态0 匹配）"
+ },
+ "geometry": {
+  "numnp": 280352,
+  "nel": 139026,
+  "nv3d": 31,
+  "nglbv": 55,
+  "bbox": {
+   "min": [
+    -1000.0,
+    -200.0,
+    -20.0
+   ],
+   "max": [
+    1000.0,
+    950.0,
+    0.0
+   ],
+   "size": [
+    2000.0,
+    1150.0,
+    20.0
+   ]
+  },
+  "n_sph": 0,
+  "n_pbm": 0,
+  "node_base": 1,
+  "elem_base": 1,
+  "note": "bbox 与 coords 均为模型单位（×units.length → m）；conn 为 i4[nel,8] 六面体连接表"
+ },
+ "elements_note": null,
+ "elements": {
+  "nel8": 139026,
+  "nel4": 0,
+  "nel2": 0,
+  "source": "header hint（索引未验证，仅提示；nv3d=0 已置 0）",
+  "shell": null,
+  "unhandled": null,
+  "shell_confidence": null,
+  "note": "P2 静态实现：壳按中面四边形尝试提取（d3plot 布局未验证）；梁/2D 未实现"
+ },
+ "surf": [
+  {
+   "partId": 1,
+   "role": "structure",
+   "elems": 64747,
+   "ext_raw": 131844,
+   "quads": 131572,
+   "degenerate": 272,
+   "flipped": 64659,
+   "open_edges": 528,
+   "directed_conflicts": 0,
+   "edges": 526288
+  },
+  {
+   "partId": 2,
+   "role": "air",
+   "elems": 67047,
+   "ext_raw": 136458,
+   "quads": 136152,
+   "degenerate": 306,
+   "flipped": 66895,
+   "open_edges": 604,
+   "directed_conflicts": 0,
+   "edges": 544608
+  },
+  {
+   "partId": 3,
+   "role": "explosive",
+   "elems": 640,
+   "ext_raw": 1440,
+   "quads": 1440,
+   "degenerate": 0,
+   "flipped": 480,
+   "open_edges": 0,
+   "directed_conflicts": 0,
+   "edges": 5760
+  },
+  {
+   "partId": 4,
+   "role": "explosive",
+   "elems": 768,
+   "ext_raw": 1728,
+   "quads": 1728,
+   "degenerate": 0,
+   "flipped": 576,
+   "open_edges": 0,
+   "directed_conflicts": 0,
+   "edges": 6912
+  },
+  {
+   "partId": 5,
+   "role": "explosive",
+   "elems": 960,
+   "ext_raw": 2160,
+   "quads": 2160,
+   "degenerate": 0,
+   "flipped": 720,
+   "open_edges": 0,
+   "directed_conflicts": 0,
+   "edges": 8640
+  },
+  {
+   "partId": 6,
+   "role": "explosive",
+   "elems": 1152,
+   "ext_raw": 2592,
+   "quads": 2592,
+   "degenerate": 0,
+   "flipped": 864,
+   "open_edges": 0,
+   "directed_conflicts": 0,
+   "edges": 10368
+  },
+  {
+   "partId": 7,
+   "role": "explosive",
+   "elems": 3712,
+   "ext_raw": 8352,
+   "quads": 8352,
+   "degenerate": 0,
+   "flipped": 2784,
+   "open_edges": 0,
+   "directed_conflicts": 0,
+   "edges": 33408
+  }
+ ],
+ "surf_note": "开边 1132 / 退化四边形 578：开边主要来自退化(塌陷)单元的剔除，属模型固有的 void/空腔建模（常见于炮孔与空腔区）；非三角化或索引错误。逐 part 统计见 surf。",
+ "particles": [],
+ "fieldmap": [
+  {
+   "pid": 1,
+   "mat": "MAT_JOHNSON_HOLMQUIST_CERAMICS",
+   "elem_type": "solid",
+   "role": "structure",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_JOHNSON_HOLMQUIST_CERAMICS); nv3d=31命中; 核对依据: 项目内 JH-2 花岗岩实测（光面/预裂 nv3d=31）：w0..5 应力、w6 有效塑性应变、w8 损伤 D∈[0,1]（含 0 与 1 饱和）",
+   "fields": {
+    "stress": [
+     0,
+     6
+    ],
+    "eps": 6,
+    "damage": 8,
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "pid": 2,
+   "mat": "MAT_NULL",
+   "elem_type": "solid",
+   "role": "air",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_NULL); nv3d=31未登记(按同本构偏移); 核对依据: 空气/ALE 实测：w0=w1=w2=压力(压为负)。w11 不可靠（单材料 ALE 时像密度 5.8e-4~0.84，多材料 ALE(tnt/1) 时是材料分数 1~2），故不输出 density 字段",
+   "fields": {
+    "stress": [
+     0,
+     6
+    ],
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "pid": 3,
+   "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+   "elem_type": "solid",
+   "role": "explosive",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=31未登记(按同本构偏移); 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+   "fields": {
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "pid": 4,
+   "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+   "elem_type": "solid",
+   "role": "explosive",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=31未登记(按同本构偏移); 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+   "fields": {
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "pid": 5,
+   "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+   "elem_type": "solid",
+   "role": "explosive",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=31未登记(按同本构偏移); 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+   "fields": {
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "pid": 6,
+   "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+   "elem_type": "solid",
+   "role": "explosive",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=31未登记(按同本构偏移); 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+   "fields": {
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  },
+  {
+   "pid": 7,
+   "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+   "elem_type": "solid",
+   "role": "explosive",
+   "damage_scale": 1.0,
+   "low_fields": [],
+   "pick": "材料精确命中(MAT_HIGH_EXPLOSIVE_BURN); nv3d=31未登记(按同本构偏移); 核对依据: 炸药(JWL)实测：w0=w1=w2=爆压；w11 同 MAT_NULL 不可靠，不输出",
+   "fields": {
+    "pressure": [
+     0,
+     1,
+     2
+    ]
+   }
+  }
+ ],
+ "fields": [
+  {
+   "id": "u",
+   "dtype": "u2",
+   "location": "node",
+   "count": 841056,
+   "scale": 0.00015327130264790968,
+   "offset": -5.407561302185059,
+   "role": "field",
+   "unit": "displacement",
+   "comps": 3,
+   "shape": [
+    280352,
+    3
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "damage",
+   "dtype": "u2",
+   "location": "element",
+   "count": 139026,
+   "scale": 1.5259021896696422e-05,
+   "offset": 0.0,
+   "role": "field",
+   "unit": "-",
+   "comps": 1,
+   "shape": [
+    139026
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "eps",
+   "dtype": "u2",
+   "location": "element",
+   "count": 139026,
+   "scale": 2.2183954738466475e-05,
+   "offset": 0.0,
+   "role": "field",
+   "unit": "-",
+   "comps": 1,
+   "shape": [
+    139026
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "pressure",
+   "dtype": "u2",
+   "location": "element",
+   "count": 139026,
+   "scale": 1.7493031874592934e-06,
+   "offset": -0.00029189715860411525,
+   "role": "field",
+   "unit": "stress",
+   "comps": 1,
+   "shape": [
+    139026
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "stress",
+   "dtype": "f4",
+   "location": "node",
+   "count": 1682112,
+   "scale": 1.0,
+   "offset": 0.0,
+   "role": "field",
+   "unit": "stress",
+   "comps": 6,
+   "components": [
+    "sxx",
+    "syy",
+    "szz",
+    "sxy",
+    "syz",
+    "sxz"
+   ],
+   "shape": [
+    280352,
+    6
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "vel",
+   "dtype": "u2",
+   "location": "node",
+   "count": 841056,
+   "scale": 1.0632206684775253e-05,
+   "offset": -0.33024802803993225,
+   "role": "field",
+   "unit": "velocity",
+   "comps": 3,
+   "components": null,
+   "shape": [
+    280352,
+    3
+   ],
+   "confidence": "high"
+  },
+  {
+   "id": "active_mask",
+   "dtype": "u1",
+   "location": "element",
+   "count": 17379,
+   "scale": 1.0,
+   "offset": 0.0,
+   "role": "mask",
+   "bits": 139026,
+   "unit": "-",
+   "comps": 1,
+   "shape": [
+    139026
+   ],
+   "_doc": "1 bit/单元, 1=未删除; byte=idx>>3, bit=idx&7(LSB 优先, 与 np.packbits(bitorder=\"little\") 一致)",
+   "confidence": "high"
+  }
+ ],
+ "extract_layers": [
+  "stress",
+  "velocity"
+ ],
+ "low_confidence_fields": [],
+ "units": {
+  "pick": "g-cm-µs",
+  "factors": {
+   "length": 0.01,
+   "time": 1e-06,
+   "mass": 0.001,
+   "stress": 100000000000.0,
+   "velocity": 10000.0,
+   "density": 1000.0,
+   "energy": 100000.0,
+   "force": 10000000.0,
+   "displacement": 0.01,
+   "acceleration": 10000000000.0
+  },
+  "source": {
+   "candidates": [
+    {
+     "system": "g-cm-µs",
+     "model_span_m": 20.0,
+     "total_time_s": 0.0010001514579626538,
+     "ppv_m_s": 3165.67,
+     "pressure_pa": 2128000000.0,
+     "ok_span": true,
+     "ok_time": true,
+     "ok_ppv": true,
+     "ok_pressure": true,
+     "score": 4,
+     "plausible": true
+    },
+    {
+     "system": "kg-mm-ms",
+     "model_span_m": 2.0,
+     "total_time_s": 1.0001514579626538,
+     "ppv_m_s": 0.32,
+     "pressure_pa": 21280000.0,
+     "ok_span": true,
+     "ok_time": false,
+     "ok_ppv": true,
+     "ok_pressure": true,
+     "score": 3,
+     "plausible": true
+    },
+    {
+     "system": "g-mm-ms",
+     "model_span_m": 2.0,
+     "total_time_s": 1.0001514579626538,
+     "ppv_m_s": 0.32,
+     "pressure_pa": 21280.0,
+     "ok_span": true,
+     "ok_time": false,
+     "ok_ppv": true,
+     "ok_pressure": false,
+     "score": 2,
+     "plausible": false
+    },
+    {
+     "system": "t-mm-s",
+     "model_span_m": 2.0,
+     "total_time_s": 1000.1514579626538,
+     "ppv_m_s": 0.0,
+     "pressure_pa": 21280.0,
+     "ok_span": true,
+     "ok_time": false,
+     "ok_ppv": false,
+     "ok_pressure": false,
+     "score": 1,
+     "plausible": false
+    },
+    {
+     "system": "kg-m-s",
+     "model_span_m": 2000.0,
+     "total_time_s": 1000.1514579626538,
+     "ppv_m_s": 0.32,
+     "pressure_pa": 0.02128,
+     "ok_span": false,
+     "ok_time": false,
+     "ok_ppv": true,
+     "ok_pressure": false,
+     "score": 1,
+     "plausible": false
+    }
+   ],
+   "pick": "g-cm-µs",
+   "ambiguous": false,
+   "basis": [
+    "材料常数锚点定论：g-cm-µs。该项下 空气密度/kg·m⁻³=1.2、炸药密度/kg·m⁻³=1500.0、爆速/m·s⁻¹=7450.0、岩石剪切模量/GPa=19.06、PCJ/GPa=22.0；命中 5 项，领先次高 5 项",
+    "场值锚点交叉核对（同一 g-cm-µs 制下）：模型尺度 20.0 m、总时长 0.001 s、PPV 3165.67 m/s、峰值压力 2128000000.0 Pa（场值得分 4/4；时长/压力若越阈值区间，是算例结果量级偏小，不改判据）",
+    "最大节点速度原始值 0.316567（模型单位）→ 各制换算：g-cm-µs:3165.67 / kg-mm-ms:0.32 / g-mm-ms:0.32 / t-mm-s:0.0 / kg-m-s:0.32",
+    "峰值压力原始值 0.0212769（模型单位）→ 各制换算：g-cm-µs:2128000000.0 / kg-mm-ms:21280000.0 / g-mm-ms:21280.0 / t-mm-s:21280.0 / kg-m-s:0.02128",
+    "d3plot 末帧原始时间 1000 与 .k ENDTIM=1000.0 相对差 0.02% → 时间单位与 .k 一致"
+   ],
+   "confidence": "high",
+   "endtim_from_k": 1000.0,
+   "last_time_raw": 1000.1514579626538,
+   "vmax_raw": 0.3165672087817755,
+   "pmax_raw": 0.02127689873873286,
+   "deck_hint": "g-cm-µs",
+   "endtim_rel_diff": 0.00015145796265380796
+  },
+  "override": false,
+  "deck_check": {
+   "deck_ro_air": 0.0012,
+   "deck_ro_explosive": 1.5,
+   "deck_detonation_d": 0.745,
+   "deck_rock_shear": 0.1906,
+   "deck_pcj": 0.22,
+   "candidates": [
+    {
+     "system": "g-cm-µs",
+     "air_density_kg_m3": 1.2,
+     "explosive_ro_kg_m3": 1500.0,
+     "det_velocity_m_s": 7450.0,
+     "rock_shear_gpa": 19.06,
+     "pcj_gpa": 22.0,
+     "hits": 5
+    },
+    {
+     "system": "g-mm-ms",
+     "air_density_kg_m3": 1200.0,
+     "explosive_ro_kg_m3": 1500000.0,
+     "det_velocity_m_s": 0.745,
+     "rock_shear_gpa": 0.0001906,
+     "pcj_gpa": 0.00022,
+     "hits": 0
+    },
+    {
+     "system": "kg-mm-ms",
+     "air_density_kg_m3": 1200000.0,
+     "explosive_ro_kg_m3": 1500000000.0,
+     "det_velocity_m_s": 0.745,
+     "rock_shear_gpa": 0.1906,
+     "pcj_gpa": 0.22,
+     "hits": 0
+    },
+    {
+     "system": "t-mm-s",
+     "air_density_kg_m3": 1200000000.0,
+     "explosive_ro_kg_m3": 1500000000000.0,
+     "det_velocity_m_s": 0.000745,
+     "rock_shear_gpa": 0.0001906,
+     "pcj_gpa": 0.00022,
+     "hits": 0
+    },
+    {
+     "system": "kg-m-s",
+     "air_density_kg_m3": 0.0012,
+     "explosive_ro_kg_m3": 1.5,
+     "det_velocity_m_s": 0.745,
+     "rock_shear_gpa": 1.906e-10,
+     "pcj_gpa": 2.2e-10,
+     "hits": 0
+    }
+   ],
+   "stress_hint_system": "g-cm-µs",
+   "stress_hint_score": 2,
+   "material_hint_system": "g-cm-µs",
+   "material_hint_score": 5,
+   "material_hint_margin": 5
+  }
+ },
+ "interpolation": {
+  "location": "element",
+  "weight": "单元体积加权（六面体 6 四面体分解）",
+  "peaks_element": {
+   "damage": 1.0,
+   "eps": 1.4538254737854004,
+   "pressure": 0.11434868723154068
+  },
+  "peaks_node": {
+   "damage": 0.0,
+   "eps": 0.0,
+   "pressure": 0.0
+  },
+  "note": "单元→节点会抹平峰值；两处峰值差即该效应的量化"
+ },
+ "states": {
+  "total": 102,
+  "per_file": [
+   {
+    "file": "d3plot",
+    "kind": "base",
+    "words": 2511872,
+    "states": 0,
+    "body": 2511872
+   },
+   {
+    "file": "d3plot01",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot02",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot03",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot04",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot05",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot06",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot07",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot08",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot09",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot10",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot11",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot12",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot13",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot14",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot15",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot16",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot17",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot18",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot19",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot20",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot21",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot22",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot23",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot24",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot25",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot26",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot27",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot28",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot29",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot30",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot31",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot32",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot33",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot34",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot35",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot36",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot37",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot38",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot39",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot40",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot41",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot42",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot43",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot44",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot45",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot46",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot47",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot48",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot49",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot50",
+    "kind": "seq",
+    "words": 13944320,
+    "states": 2,
+    "body": 13944320
+   },
+   {
+    "file": "d3plot51",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   },
+   {
+    "file": "d3plot52",
+    "kind": "seq",
+    "words": 6972416,
+    "states": 1,
+    "body": 6972416
+   }
+  ],
+  "times": [
+   0.0,
+   9.849182792018755,
+   19.782141663370986,
+   29.97656189140385,
+   39.82574433655265,
+   49.90943133372973,
+   59.99311858575647,
+   69.84230102064423,
+   79.92596946887102,
+   89.77515374203573,
+   99.85717686982724,
+   109.93990596616383,
+   119.78907733756222,
+   129.87274744438128,
+   139.9563797973748,
+   149.80546763647712,
+   159.8890458253059,
+   169.97246501611085,
+   179.82116847848053,
+   189.90431219157813,
+   199.98649859449299,
+   209.83433443748228,
+   219.91585187393557,
+   229.99858817734312,
+   239.84709867266488,
+   249.92882798431367,
+   259.7765829053791,
+   269.85900120721624,
+   279.941113801962,
+   289.78846976922404,
+   299.8701291788096,
+   309.95083781087806,
+   319.7978692142442,
+   329.88078356488563,
+   339.9628253738638,
+   349.8091479045918,
+   359.8892700145774,
+   369.97040141522626,
+   379.8176141888448,
+   389.8959043058255,
+   399.97654376853774,
+   409.8232739305383,
+   419.84687360366036,
+   429.88196073192495,
+   439.8336971446452,
+   449.82075924223994,
+   459.9120350972815,
+   469.85752578192853,
+   479.84489514287026,
+   489.9751825677544,
+   499.9403908798985,
+   509.9596439653504,
+   519.9169913216787,
+   529.9767426139193,
+   539.8390468366202,
+   549.948816576541,
+   559.966060619478,
+   569.8297251694468,
+   579.9359533194801,
+   589.9522304325369,
+   599.965920251797,
+   609.8905617901958,
+   619.9812735533332,
+   629.9534302850269,
+   639.9202197713189,
+   649.9473923019705,
+   659.8426381959442,
+   669.8779629637686,
+   679.9401411601488,
+   689.9981870787899,
+   699.958860402835,
+   709.8355223747612,
+   719.9697174141454,
+   729.8780536017268,
+   739.8483373488003,
+   749.895255093874,
+   759.8501204148524,
+   769.9159470750355,
+   779.909224540249,
+   789.8951802101889,
+   799.8682090648317,
+   809.9283457163775,
+   819.9571034628652,
+   829.9518829154684,
+   839.8908386511459,
+   849.9267573774226,
+   859.996519647976,
+   869.9887175602088,
+   879.9975321895723,
+   889.8536534506372,
+   899.893252914697,
+   909.9457364686584,
+   919.9147099203107,
+   929.9855687094981,
+   939.9072948384782,
+   949.9466181524301,
+   959.874873143535,
+   969.9125617434904,
+   979.936721992532,
+   989.8894950230509,
+   999.9975737979514,
+   1000.1514579626538
+  ],
+  "active_per_frame": [
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026,
+   139026
+  ],
+  "checksum": [
+   [
+    2.415,
+    -1050809.2929
+   ],
+   [
+    2.4238,
+    -1050809.2927
+   ],
+   [
+    204.6505,
+    -1050806.2255
+   ],
+   [
+    1244.0548,
+    -1050801.3012
+   ],
+   [
+    2802.4932,
+    -1050811.5639
+   ],
+   [
+    4759.3726,
+    -1050828.7727
+   ],
+   [
+    6928.124,
+    -1050833.2536
+   ],
+   [
+    9165.0088,
+    -1050827.5681
+   ],
+   [
+    11507.8174,
+    -1050822.9957
+   ],
+   [
+    13706.9131,
+    -1050831.4299
+   ],
+   [
+    15620.7607,
+    -1050833.4925
+   ],
+   [
+    17160.2246,
+    -1050817.5962
+   ],
+   [
+    18466.3496,
+    -1050786.0638
+   ],
+   [
+    19822.2168,
+    -1050756.7808
+   ],
+   [
+    20846.1113,
+    -1050741.1817
+   ],
+   [
+    21574.2773,
+    -1050741.4582
+   ],
+   [
+    22110.498,
+    -1050753.3131
+   ],
+   [
+    22632.9238,
+    -1050766.6866
+   ],
+   [
+    23285.1016,
+    -1050779.5403
+   ],
+   [
+    24038.2871,
+    -1050792.491
+   ],
+   [
+    24778.6582,
+    -1050811.8739
+   ],
+   [
+    25464.2031,
+    -1050839.9203
+   ],
+   [
+    26254.8613,
+    -1050877.2209
+   ],
+   [
+    27344.2402,
+    -1050921.242
+   ],
+   [
+    28442.1387,
+    -1050955.972
+   ],
+   [
+    29499.9004,
+    -1050988.6495
+   ],
+   [
+    30431.4727,
+    -1051015.2933
+   ],
+   [
+    31252.9746,
+    -1051034.542
+   ],
+   [
+    31945.9551,
+    -1051042.9474
+   ],
+   [
+    32509.0,
+    -1051034.287
+   ],
+   [
+    32990.7266,
+    -1051016.6053
+   ],
+   [
+    33421.543,
+    -1050996.5193
+   ],
+   [
+    33926.7227,
+    -1050979.0538
+   ],
+   [
+    34738.7227,
+    -1050963.305
+   ],
+   [
+    35622.4766,
+    -1050954.3437
+   ],
+   [
+    36443.6875,
+    -1050956.9324
+   ],
+   [
+    37219.3828,
+    -1050967.7694
+   ],
+   [
+    37926.2266,
+    -1050974.5246
+   ],
+   [
+    38557.1523,
+    -1050976.3179
+   ],
+   [
+    39124.2422,
+    -1050984.0992
+   ],
+   [
+    39620.2578,
+    -1051001.756
+   ],
+   [
+    40032.1953,
+    -1051026.321
+   ],
+   [
+    40807.4727,
+    -1051045.6603
+   ],
+   [
+    42816.1406,
+    -1051073.5582
+   ],
+   [
+    44976.5781,
+    -1051097.692
+   ],
+   [
+    46952.0469,
+    -1051115.4644
+   ],
+   [
+    48717.6953,
+    -1051128.2843
+   ],
+   [
+    50235.8984,
+    -1051142.9253
+   ],
+   [
+    51539.9141,
+    -1051153.4324
+   ],
+   [
+    52632.1094,
+    -1051160.9287
+   ],
+   [
+    53445.6719,
+    -1051163.0741
+   ],
+   [
+    53971.2812,
+    -1051165.7586
+   ],
+   [
+    54214.6523,
+    -1051170.8947
+   ],
+   [
+    54241.6953,
+    -1051175.9681
+   ],
+   [
+    54165.8477,
+    -1051177.9064
+   ],
+   [
+    54088.4375,
+    -1051175.5697
+   ],
+   [
+    54072.6875,
+    -1051169.6154
+   ],
+   [
+    54147.6914,
+    -1051155.2394
+   ],
+   [
+    54321.1133,
+    -1051133.3805
+   ],
+   [
+    54557.2578,
+    -1051110.8529
+   ],
+   [
+    54765.6953,
+    -1051092.0986
+   ],
+   [
+    54880.9648,
+    -1051078.5633
+   ],
+   [
+    54884.3281,
+    -1051072.6717
+   ],
+   [
+    54774.4727,
+    -1051074.7221
+   ],
+   [
+    54583.8906,
+    -1051082.0836
+   ],
+   [
+    54385.1602,
+    -1051091.8219
+   ],
+   [
+    54245.3047,
+    -1051103.7768
+   ],
+   [
+    54191.6562,
+    -1051118.7878
+   ],
+   [
+    54247.1055,
+    -1051134.7923
+   ],
+   [
+    54411.3281,
+    -1051147.8902
+   ],
+   [
+    54652.7539,
+    -1051160.0043
+   ],
+   [
+    54938.9219,
+    -1051171.4059
+   ],
+   [
+    55246.5625,
+    -1051184.0204
+   ],
+   [
+    55534.5078,
+    -1051200.0521
+   ],
+   [
+    55800.5312,
+    -1051219.7637
+   ],
+   [
+    56063.3359,
+    -1051242.8377
+   ],
+   [
+    56343.3945,
+    -1051269.985
+   ],
+   [
+    56667.2227,
+    -1051300.4005
+   ],
+   [
+    57043.4102,
+    -1051328.1426
+   ],
+   [
+    57467.4531,
+    -1051349.5295
+   ],
+   [
+    57931.8281,
+    -1051364.2188
+   ],
+   [
+    58430.3047,
+    -1051376.0486
+   ],
+   [
+    58941.8008,
+    -1051388.2374
+   ],
+   [
+    59449.7734,
+    -1051400.0223
+   ],
+   [
+    59939.8047,
+    -1051409.8218
+   ],
+   [
+    60402.375,
+    -1051415.7651
+   ],
+   [
+    60813.5234,
+    -1051417.3398
+   ],
+   [
+    61164.75,
+    -1051417.4473
+   ],
+   [
+    61469.1797,
+    -1051417.7105
+   ],
+   [
+    61751.0234,
+    -1051418.2698
+   ],
+   [
+    62060.2734,
+    -1051419.3471
+   ],
+   [
+    62421.2148,
+    -1051420.0763
+   ],
+   [
+    62840.5938,
+    -1051423.211
+   ],
+   [
+    63321.2852,
+    -1051430.5849
+   ],
+   [
+    63844.1367,
+    -1051440.7232
+   ],
+   [
+    64415.1602,
+    -1051451.2726
+   ],
+   [
+    65009.75,
+    -1051459.3564
+   ],
+   [
+    65636.375,
+    -1051465.5048
+   ],
+   [
+    66282.3047,
+    -1051471.7752
+   ],
+   [
+    66931.6641,
+    -1051477.445
+   ],
+   [
+    67587.4844,
+    -1051481.5988
+   ],
+   [
+    67597.3828,
+    -1051481.6388
+   ]
+  ],
+  "frames": [
+   {
+    "frame": 0,
+    "t": 0.0,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 11760,
+    "checksum": [
+     2.415,
+     -1050809.2929
+    ]
+   },
+   {
+    "frame": 1,
+    "t": 9.849182792018755,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 2795084,
+    "checksum": [
+     2.4238,
+     -1050809.2927
+    ]
+   },
+   {
+    "frame": 2,
+    "t": 19.782141663370986,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 2900914,
+    "checksum": [
+     204.6505,
+     -1050806.2255
+    ]
+   },
+   {
+    "frame": 3,
+    "t": 29.97656189140385,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3090905,
+    "checksum": [
+     1244.0548,
+     -1050801.3012
+    ]
+   },
+   {
+    "frame": 4,
+    "t": 39.82574433655265,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3236114,
+    "checksum": [
+     2802.4932,
+     -1050811.5639
+    ]
+   },
+   {
+    "frame": 5,
+    "t": 49.90943133372973,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3395624,
+    "checksum": [
+     4759.3726,
+     -1050828.7727
+    ]
+   },
+   {
+    "frame": 6,
+    "t": 59.99311858575647,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3534734,
+    "checksum": [
+     6928.124,
+     -1050833.2536
+    ]
+   },
+   {
+    "frame": 7,
+    "t": 69.84230102064423,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3676257,
+    "checksum": [
+     9165.0088,
+     -1050827.5681
+    ]
+   },
+   {
+    "frame": 8,
+    "t": 79.92596946887102,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3790776,
+    "checksum": [
+     11507.8174,
+     -1050822.9957
+    ]
+   },
+   {
+    "frame": 9,
+    "t": 89.77515374203573,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3881253,
+    "checksum": [
+     13706.9131,
+     -1050831.4299
+    ]
+   },
+   {
+    "frame": 10,
+    "t": 99.85717686982724,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3945462,
+    "checksum": [
+     15620.7607,
+     -1050833.4925
+    ]
+   },
+   {
+    "frame": 11,
+    "t": 109.93990596616383,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4001958,
+    "checksum": [
+     17160.2246,
+     -1050817.5962
+    ]
+   },
+   {
+    "frame": 12,
+    "t": 119.78907733756222,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3862341,
+    "checksum": [
+     18466.3496,
+     -1050786.0638
+    ]
+   },
+   {
+    "frame": 13,
+    "t": 129.87274744438128,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3774913,
+    "checksum": [
+     19822.2168,
+     -1050756.7808
+    ]
+   },
+   {
+    "frame": 14,
+    "t": 139.9563797973748,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3679692,
+    "checksum": [
+     20846.1113,
+     -1050741.1817
+    ]
+   },
+   {
+    "frame": 15,
+    "t": 149.80546763647712,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3631198,
+    "checksum": [
+     21574.2773,
+     -1050741.4582
+    ]
+   },
+   {
+    "frame": 16,
+    "t": 159.8890458253059,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3601302,
+    "checksum": [
+     22110.498,
+     -1050753.3131
+    ]
+   },
+   {
+    "frame": 17,
+    "t": 169.97246501611085,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3556226,
+    "checksum": [
+     22632.9238,
+     -1050766.6866
+    ]
+   },
+   {
+    "frame": 18,
+    "t": 179.82116847848053,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3586117,
+    "checksum": [
+     23285.1016,
+     -1050779.5403
+    ]
+   },
+   {
+    "frame": 19,
+    "t": 189.90431219157813,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3597174,
+    "checksum": [
+     24038.2871,
+     -1050792.491
+    ]
+   },
+   {
+    "frame": 20,
+    "t": 199.98649859449299,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3652780,
+    "checksum": [
+     24778.6582,
+     -1050811.8739
+    ]
+   },
+   {
+    "frame": 21,
+    "t": 209.83433443748228,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3705359,
+    "checksum": [
+     25464.2031,
+     -1050839.9203
+    ]
+   },
+   {
+    "frame": 22,
+    "t": 219.91585187393557,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3685976,
+    "checksum": [
+     26254.8613,
+     -1050877.2209
+    ]
+   },
+   {
+    "frame": 23,
+    "t": 229.99858817734312,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3674786,
+    "checksum": [
+     27344.2402,
+     -1050921.242
+    ]
+   },
+   {
+    "frame": 24,
+    "t": 239.84709867266488,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3716283,
+    "checksum": [
+     28442.1387,
+     -1050955.972
+    ]
+   },
+   {
+    "frame": 25,
+    "t": 249.92882798431367,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3692571,
+    "checksum": [
+     29499.9004,
+     -1050988.6495
+    ]
+   },
+   {
+    "frame": 26,
+    "t": 259.7765829053791,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3684543,
+    "checksum": [
+     30431.4727,
+     -1051015.2933
+    ]
+   },
+   {
+    "frame": 27,
+    "t": 269.85900120721624,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3671656,
+    "checksum": [
+     31252.9746,
+     -1051034.542
+    ]
+   },
+   {
+    "frame": 28,
+    "t": 279.941113801962,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3715874,
+    "checksum": [
+     31945.9551,
+     -1051042.9474
+    ]
+   },
+   {
+    "frame": 29,
+    "t": 289.78846976922404,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3680777,
+    "checksum": [
+     32509.0,
+     -1051034.287
+    ]
+   },
+   {
+    "frame": 30,
+    "t": 299.8701291788096,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3701552,
+    "checksum": [
+     32990.7266,
+     -1051016.6053
+    ]
+   },
+   {
+    "frame": 31,
+    "t": 309.95083781087806,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3695451,
+    "checksum": [
+     33421.543,
+     -1050996.5193
+    ]
+   },
+   {
+    "frame": 32,
+    "t": 319.7978692142442,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3715622,
+    "checksum": [
+     33926.7227,
+     -1050979.0538
+    ]
+   },
+   {
+    "frame": 33,
+    "t": 329.88078356488563,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3696440,
+    "checksum": [
+     34738.7227,
+     -1050963.305
+    ]
+   },
+   {
+    "frame": 34,
+    "t": 339.9628253738638,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3701187,
+    "checksum": [
+     35622.4766,
+     -1050954.3437
+    ]
+   },
+   {
+    "frame": 35,
+    "t": 349.8091479045918,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3674118,
+    "checksum": [
+     36443.6875,
+     -1050956.9324
+    ]
+   },
+   {
+    "frame": 36,
+    "t": 359.8892700145774,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3720434,
+    "checksum": [
+     37219.3828,
+     -1050967.7694
+    ]
+   },
+   {
+    "frame": 37,
+    "t": 369.97040141522626,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3755412,
+    "checksum": [
+     37926.2266,
+     -1050974.5246
+    ]
+   },
+   {
+    "frame": 38,
+    "t": 379.8176141888448,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3791301,
+    "checksum": [
+     38557.1523,
+     -1050976.3179
+    ]
+   },
+   {
+    "frame": 39,
+    "t": 389.8959043058255,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3788128,
+    "checksum": [
+     39124.2422,
+     -1050984.0992
+    ]
+   },
+   {
+    "frame": 40,
+    "t": 399.97654376853774,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3821575,
+    "checksum": [
+     39620.2578,
+     -1051001.756
+    ]
+   },
+   {
+    "frame": 41,
+    "t": 409.8232739305383,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3817542,
+    "checksum": [
+     40032.1953,
+     -1051026.321
+    ]
+   },
+   {
+    "frame": 42,
+    "t": 419.84687360366036,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3925752,
+    "checksum": [
+     40807.4727,
+     -1051045.6603
+    ]
+   },
+   {
+    "frame": 43,
+    "t": 429.88196073192495,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3974805,
+    "checksum": [
+     42816.1406,
+     -1051073.5582
+    ]
+   },
+   {
+    "frame": 44,
+    "t": 439.8336971446452,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3998197,
+    "checksum": [
+     44976.5781,
+     -1051097.692
+    ]
+   },
+   {
+    "frame": 45,
+    "t": 449.82075924223994,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4036497,
+    "checksum": [
+     46952.0469,
+     -1051115.4644
+    ]
+   },
+   {
+    "frame": 46,
+    "t": 459.9120350972815,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4040981,
+    "checksum": [
+     48717.6953,
+     -1051128.2843
+    ]
+   },
+   {
+    "frame": 47,
+    "t": 469.85752578192853,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3973459,
+    "checksum": [
+     50235.8984,
+     -1051142.9253
+    ]
+   },
+   {
+    "frame": 48,
+    "t": 479.84489514287026,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3971367,
+    "checksum": [
+     51539.9141,
+     -1051153.4324
+    ]
+   },
+   {
+    "frame": 49,
+    "t": 489.9751825677544,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3969915,
+    "checksum": [
+     52632.1094,
+     -1051160.9287
+    ]
+   },
+   {
+    "frame": 50,
+    "t": 499.9403908798985,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4012636,
+    "checksum": [
+     53445.6719,
+     -1051163.0741
+    ]
+   },
+   {
+    "frame": 51,
+    "t": 509.9596439653504,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4078787,
+    "checksum": [
+     53971.2812,
+     -1051165.7586
+    ]
+   },
+   {
+    "frame": 52,
+    "t": 519.9169913216787,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4070766,
+    "checksum": [
+     54214.6523,
+     -1051170.8947
+    ]
+   },
+   {
+    "frame": 53,
+    "t": 529.9767426139193,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4097876,
+    "checksum": [
+     54241.6953,
+     -1051175.9681
+    ]
+   },
+   {
+    "frame": 54,
+    "t": 539.8390468366202,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4089069,
+    "checksum": [
+     54165.8477,
+     -1051177.9064
+    ]
+   },
+   {
+    "frame": 55,
+    "t": 549.948816576541,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4004744,
+    "checksum": [
+     54088.4375,
+     -1051175.5697
+    ]
+   },
+   {
+    "frame": 56,
+    "t": 559.966060619478,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3960108,
+    "checksum": [
+     54072.6875,
+     -1051169.6154
+    ]
+   },
+   {
+    "frame": 57,
+    "t": 569.8297251694468,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3963477,
+    "checksum": [
+     54147.6914,
+     -1051155.2394
+    ]
+   },
+   {
+    "frame": 58,
+    "t": 579.9359533194801,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 3964746,
+    "checksum": [
+     54321.1133,
+     -1051133.3805
+    ]
+   },
+   {
+    "frame": 59,
+    "t": 589.9522304325369,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4006458,
+    "checksum": [
+     54557.2578,
+     -1051110.8529
+    ]
+   },
+   {
+    "frame": 60,
+    "t": 599.965920251797,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4016323,
+    "checksum": [
+     54765.6953,
+     -1051092.0986
+    ]
+   },
+   {
+    "frame": 61,
+    "t": 609.8905617901958,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4144472,
+    "checksum": [
+     54880.9648,
+     -1051078.5633
+    ]
+   },
+   {
+    "frame": 62,
+    "t": 619.9812735533332,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4199127,
+    "checksum": [
+     54884.3281,
+     -1051072.6717
+    ]
+   },
+   {
+    "frame": 63,
+    "t": 629.9534302850269,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4243263,
+    "checksum": [
+     54774.4727,
+     -1051074.7221
+    ]
+   },
+   {
+    "frame": 64,
+    "t": 639.9202197713189,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4245532,
+    "checksum": [
+     54583.8906,
+     -1051082.0836
+    ]
+   },
+   {
+    "frame": 65,
+    "t": 649.9473923019705,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4131001,
+    "checksum": [
+     54385.1602,
+     -1051091.8219
+    ]
+   },
+   {
+    "frame": 66,
+    "t": 659.8426381959442,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4212804,
+    "checksum": [
+     54245.3047,
+     -1051103.7768
+    ]
+   },
+   {
+    "frame": 67,
+    "t": 669.8779629637686,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4309455,
+    "checksum": [
+     54191.6562,
+     -1051118.7878
+    ]
+   },
+   {
+    "frame": 68,
+    "t": 679.9401411601488,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4372639,
+    "checksum": [
+     54247.1055,
+     -1051134.7923
+    ]
+   },
+   {
+    "frame": 69,
+    "t": 689.9981870787899,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4410628,
+    "checksum": [
+     54411.3281,
+     -1051147.8902
+    ]
+   },
+   {
+    "frame": 70,
+    "t": 699.958860402835,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4369791,
+    "checksum": [
+     54652.7539,
+     -1051160.0043
+    ]
+   },
+   {
+    "frame": 71,
+    "t": 709.8355223747612,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4276360,
+    "checksum": [
+     54938.9219,
+     -1051171.4059
+    ]
+   },
+   {
+    "frame": 72,
+    "t": 719.9697174141454,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4398542,
+    "checksum": [
+     55246.5625,
+     -1051184.0204
+    ]
+   },
+   {
+    "frame": 73,
+    "t": 729.8780536017268,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4501544,
+    "checksum": [
+     55534.5078,
+     -1051200.0521
+    ]
+   },
+   {
+    "frame": 74,
+    "t": 739.8483373488003,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4408057,
+    "checksum": [
+     55800.5312,
+     -1051219.7637
+    ]
+   },
+   {
+    "frame": 75,
+    "t": 749.895255093874,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4432379,
+    "checksum": [
+     56063.3359,
+     -1051242.8377
+    ]
+   },
+   {
+    "frame": 76,
+    "t": 759.8501204148524,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4430248,
+    "checksum": [
+     56343.3945,
+     -1051269.985
+    ]
+   },
+   {
+    "frame": 77,
+    "t": 769.9159470750355,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4224355,
+    "checksum": [
+     56667.2227,
+     -1051300.4005
+    ]
+   },
+   {
+    "frame": 78,
+    "t": 779.909224540249,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4263512,
+    "checksum": [
+     57043.4102,
+     -1051328.1426
+    ]
+   },
+   {
+    "frame": 79,
+    "t": 789.8951802101889,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4220580,
+    "checksum": [
+     57467.4531,
+     -1051349.5295
+    ]
+   },
+   {
+    "frame": 80,
+    "t": 799.8682090648317,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4184401,
+    "checksum": [
+     57931.8281,
+     -1051364.2188
+    ]
+   },
+   {
+    "frame": 81,
+    "t": 809.9283457163775,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4124746,
+    "checksum": [
+     58430.3047,
+     -1051376.0486
+    ]
+   },
+   {
+    "frame": 82,
+    "t": 819.9571034628652,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4135623,
+    "checksum": [
+     58941.8008,
+     -1051388.2374
+    ]
+   },
+   {
+    "frame": 83,
+    "t": 829.9518829154684,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4177191,
+    "checksum": [
+     59449.7734,
+     -1051400.0223
+    ]
+   },
+   {
+    "frame": 84,
+    "t": 839.8908386511459,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4195808,
+    "checksum": [
+     59939.8047,
+     -1051409.8218
+    ]
+   },
+   {
+    "frame": 85,
+    "t": 849.9267573774226,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4235070,
+    "checksum": [
+     60402.375,
+     -1051415.7651
+    ]
+   },
+   {
+    "frame": 86,
+    "t": 859.996519647976,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4285492,
+    "checksum": [
+     60813.5234,
+     -1051417.3398
+    ]
+   },
+   {
+    "frame": 87,
+    "t": 869.9887175602088,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4309016,
+    "checksum": [
+     61164.75,
+     -1051417.4473
+    ]
+   },
+   {
+    "frame": 88,
+    "t": 879.9975321895723,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4292829,
+    "checksum": [
+     61469.1797,
+     -1051417.7105
+    ]
+   },
+   {
+    "frame": 89,
+    "t": 889.8536534506372,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4253067,
+    "checksum": [
+     61751.0234,
+     -1051418.2698
+    ]
+   },
+   {
+    "frame": 90,
+    "t": 899.893252914697,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4237325,
+    "checksum": [
+     62060.2734,
+     -1051419.3471
+    ]
+   },
+   {
+    "frame": 91,
+    "t": 909.9457364686584,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4220512,
+    "checksum": [
+     62421.2148,
+     -1051420.0763
+    ]
+   },
+   {
+    "frame": 92,
+    "t": 919.9147099203107,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4243028,
+    "checksum": [
+     62840.5938,
+     -1051423.211
+    ]
+   },
+   {
+    "frame": 93,
+    "t": 929.9855687094981,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4198575,
+    "checksum": [
+     63321.2852,
+     -1051430.5849
+    ]
+   },
+   {
+    "frame": 94,
+    "t": 939.9072948384782,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4210169,
+    "checksum": [
+     63844.1367,
+     -1051440.7232
+    ]
+   },
+   {
+    "frame": 95,
+    "t": 949.9466181524301,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4111414,
+    "checksum": [
+     64415.1602,
+     -1051451.2726
+    ]
+   },
+   {
+    "frame": 96,
+    "t": 959.874873143535,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4094028,
+    "checksum": [
+     65009.75,
+     -1051459.3564
+    ]
+   },
+   {
+    "frame": 97,
+    "t": 969.9125617434904,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4075343,
+    "checksum": [
+     65636.375,
+     -1051465.5048
+    ]
+   },
+   {
+    "frame": 98,
+    "t": 979.936721992532,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4057574,
+    "checksum": [
+     66282.3047,
+     -1051471.7752
+    ]
+   },
+   {
+    "frame": 99,
+    "t": 989.8894950230509,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4041679,
+    "checksum": [
+     66931.6641,
+     -1051477.445
+    ]
+   },
+   {
+    "frame": 100,
+    "t": 999.9975737979514,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4046208,
+    "checksum": [
+     67587.4844,
+     -1051481.5988
+    ]
+   },
+   {
+    "frame": 101,
+    "t": 1000.1514579626538,
+    "active": 139026,
+    "nbytes": 10944207,
+    "comp_bytes": 4046773,
+    "checksum": [
+     67597.3828,
+     -1051481.6388
+    ]
+   }
+  ],
+  "note": "状态数与 d3plot 一一对应，未抽帧"
+ },
+ "detector": {
+  "version": {
+   "raw": "R12",
+   "normalized": "r12.0",
+   "solver": "smp"
+  },
+  "k_file": "tunnel_smooth_blasting.k",
+  "parts": [
+   {
+    "pid": 1,
+    "mat": "MAT_JOHNSON_HOLMQUIST_CERAMICS",
+    "roles": [
+     "structure"
+    ],
+    "basis": ".k: pid1 -> MAT_JOHNSON_HOLMQUIST_CERAMICS + solid"
+   },
+   {
+    "pid": 2,
+    "mat": "MAT_NULL",
+    "roles": [
+     "air"
+    ],
+    "basis": ".k: pid2 -> MAT_NULL + solid"
+   },
+   {
+    "pid": 3,
+    "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+    "roles": [
+     "explosive"
+    ],
+    "basis": ".k: pid3 -> MAT_HIGH_EXPLOSIVE_BURN + solid"
+   },
+   {
+    "pid": 4,
+    "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+    "roles": [
+     "explosive"
+    ],
+    "basis": ".k: pid4 -> MAT_HIGH_EXPLOSIVE_BURN + solid"
+   },
+   {
+    "pid": 5,
+    "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+    "roles": [
+     "explosive"
+    ],
+    "basis": ".k: pid5 -> MAT_HIGH_EXPLOSIVE_BURN + solid"
+   },
+   {
+    "pid": 6,
+    "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+    "roles": [
+     "explosive"
+    ],
+    "basis": ".k: pid6 -> MAT_HIGH_EXPLOSIVE_BURN + solid"
+   },
+   {
+    "pid": 7,
+    "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+    "roles": [
+     "explosive"
+    ],
+    "basis": ".k: pid7 -> MAT_HIGH_EXPLOSIVE_BURN + solid"
+   }
+  ],
+  "span_model_units": 2000.0
+ },
+ "scales": {
+  "u": 5.407561302185059,
+  "damage": 1.0,
+  "eps": 1.4538254737854004,
+  "pressure": 0.11434868723154068,
+  "stress": 0.11340208351612091,
+  "vel": 0.36653363704681396
+ },
+ "elapsed_s": 59.13,
+ "verify": {
+  "key": "smooth",
+  "ok": true,
+  "issues": [],
+  "mesh_header": {
+   "units_system": "g-cm-µs",
+   "counts": {
+    "numnp": 280352,
+    "nel": 139026
+   },
+   "parts": 7,
+   "groups": 7,
+   "particles": []
+  },
+  "frames_header": {
+   "nframes": 102,
+   "frame_bytes": 10944207,
+   "fields": [
+    "u",
+    "damage",
+    "eps",
+    "pressure",
+    "stress",
+    "vel",
+    "active_mask"
+   ]
+  },
+  "surf_check": [
+   {
+    "partId": 1,
+    "open_edges": 528,
+    "directed_conflicts": 0,
+    "edges": 526288
+   },
+   {
+    "partId": 2,
+    "open_edges": 604,
+    "directed_conflicts": 0,
+    "edges": 544608
+   },
+   {
+    "partId": 3,
+    "open_edges": 0,
+    "directed_conflicts": 0,
+    "edges": 5760
+   },
+   {
+    "partId": 4,
+    "open_edges": 0,
+    "directed_conflicts": 0,
+    "edges": 6912
+   },
+   {
+    "partId": 5,
+    "open_edges": 0,
+    "directed_conflicts": 0,
+    "edges": 8640
+   },
+   {
+    "partId": 6,
+    "open_edges": 0,
+    "directed_conflicts": 0,
+    "edges": 10368
+   },
+   {
+    "partId": 7,
+    "open_edges": 0,
+    "directed_conflicts": 0,
+    "edges": 33408
+   }
+  ],
+  "frames_checked": {
+   "0": {
+    "t": 0.0,
+    "ok_u": true,
+    "ok_mask": true,
+    "ok_damage": true,
+    "max_abs_diff_u": 3.399528577574529e-05,
+    "active": 139026
+   },
+   "47": {
+    "t": 469.85752578192853,
+    "ok_u": true,
+    "ok_mask": true,
+    "ok_damage": true,
+    "max_abs_diff_u": 7.729604840278625e-05,
+    "active": 139026
+   },
+   "68": {
+    "t": 679.9401411601488,
+    "ok_u": true,
+    "ok_mask": true,
+    "ok_damage": true,
+    "max_abs_diff_u": 7.72625207901001e-05,
+    "active": 139026
+   },
+   "101": {
+    "t": 1000.1514579626538,
+    "ok_u": true,
+    "ok_mask": true,
+    "ok_damage": true,
+    "max_abs_diff_u": 7.730722427368164e-05,
+    "active": 139026
+   }
+  },
+  "elapsed_s": 0.62
+ }
+}

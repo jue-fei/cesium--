@@ -260,6 +260,17 @@ export function createStressCoreActions({
       if (viewer.value?.scene?.requestRender) viewer.value.scene.requestRender()
       return
     }
+    // 没有任何可渲染数据时（刚点开面板、未导入/未生成场），不要给模型套热力图 shader，
+    // 否则模型基础色会被叠加/压低，表现为“一点开板块模型颜色就变淡”。
+    const hasRenderableData = Boolean(
+      (config.value?.sources?.length || 0) > 0 ||
+      config.value?.field?.enabled ||
+      config.value?.field?.texture
+    )
+    if (!hasRenderableData) {
+      updateKnownPointStressOverlay()
+      return
+    }
     applyToModel()
     updateKnownPointStressOverlay()
   }

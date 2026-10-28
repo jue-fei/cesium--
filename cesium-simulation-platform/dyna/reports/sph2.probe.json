@@ -1,0 +1,861 @@
+{
+ "key": "sph2",
+ "label": "SPH 粒子爆破-算例2",
+ "dir": "C:\\Users\\allblack\\Desktop\\tnt\\sph-2",
+ "ws": 8,
+ "header": {
+  "ndim": 4,
+  "numnp": 154421,
+  "icode": 6,
+  "nglbv": 55,
+  "it": 0,
+  "iu": 1,
+  "iv": 1,
+  "ia": 1,
+  "nel8": 94423,
+  "nummat8": 7,
+  "nv3d": 17,
+  "neiph": 10,
+  "maxint": -10003,
+  "nmsph": 47641
+ },
+ "header_hint": {
+  "nel3": 0,
+  "nel4": 0,
+  "nel2": 26,
+  "nel4s": 0,
+  "nv3d_beam": 0,
+  "nv3d_shell": 45
+ },
+ "version": {
+  "raw": "R12",
+  "normalized": "r12.0",
+  "prefix": "r12",
+  "solver": "smp"
+ },
+ "k_file": "计算k.k",
+ "k_summary": {
+  "parts": 6,
+  "sections": 2,
+  "materials": 6,
+  "deto": 0,
+  "endtim": 500000.0,
+  "counts": {
+   "sph": 47641
+  },
+  "addons": {},
+  "material_id_method": "order-fill"
+ },
+ "deck": {
+  "encoding": "utf-8-sig",
+  "include_files": [],
+  "contiguous": false
+ },
+ "layout_probe": {
+  "hit": "r12.0|smp",
+  "library_entry": "r12.*|smp",
+  "library_match": "wildcard",
+  "library_desc": "本项目 6 个算例实测通过：LS-DYNA R12 / SMP / 8 字节字；块顺序 time -> globals -> coords -> vel -> acc -> solid_hist -> solid_part -> [sph] -> [pbm]",
+  "accepted": "blocks=3N(实测通用), tail=0, SPH rec=33",
+  "stride": 4661612,
+  "tail": 0,
+  "n_sph": 47641,
+  "n_pbm": 0,
+  "rec_sph": 33,
+  "rec_pbm": null,
+  "reasons": [],
+  "remainders": [
+   444,
+   444,
+   444,
+   444,
+   444,
+   444,
+   444,
+   444
+  ],
+  "fp_msg": "基文件坐标 @ 字 75（与 d3plot01 状态0 匹配）",
+  "tried": [
+   {
+    "desc": "FEM/ALE blocks=3N(实测通用), tail=497, 无粒子",
+    "stride": 3089956,
+    "ok_div": false,
+    "ok_time": true,
+    "ok_fp": false,
+    "n_states": 37,
+    "reasons": [
+     "d3plot01: body%stride=1624959",
+     "d3plot02: body%stride=1624959",
+     "d3plot03: body%stride=1624959",
+     "d3plot04: body%stride=1624959",
+     "d3plot05: body%stride=1624959",
+     "d3plot06: body%stride=1624959"
+    ]
+   },
+   {
+    "desc": "blocks=3N(实测通用), tail=497, SPH rec=33",
+    "stride": 4662109,
+    "ok_div": false,
+    "ok_time": true,
+    "ok_fp": false,
+    "n_states": 37,
+    "reasons": [
+     "d3plot01: body%stride=4660565",
+     "d3plot02: body%stride=4660565",
+     "d3plot03: body%stride=4660565",
+     "d3plot04: body%stride=4660565",
+     "d3plot05: body%stride=4660565",
+     "d3plot06: body%stride=4660565"
+    ]
+   },
+   {
+    "desc": "blocks=3N(实测通用), tail=497, SPH rec=32",
+    "stride": 4614468,
+    "ok_div": false,
+    "ok_time": true,
+    "ok_fp": false,
+    "n_states": 37,
+    "reasons": [
+     "d3plot01: body%stride=141379",
+     "d3plot02: body%stride=141379",
+     "d3plot03: body%stride=141379",
+     "d3plot04: body%stride=141379",
+     "d3plot05: body%stride=141379",
+     "d3plot06: body%stride=141379"
+    ]
+   },
+   {
+    "desc": "blocks=3N(实测通用), tail=497, SPH rec=28",
+    "stride": 4423904,
+    "ok_div": false,
+    "ok_time": true,
+    "ok_fp": false,
+    "n_states": 37,
+    "reasons": [
+     "d3plot01: body%stride=713071",
+     "d3plot02: body%stride=713071",
+     "d3plot03: body%stride=713071",
+     "d3plot04: body%stride=713071",
+     "d3plot05: body%stride=713071",
+     "d3plot06: body%stride=713071"
+    ]
+   },
+   {
+    "desc": "blocks=3N(实测通用), tail=497, SPH rec=36",
+    "stride": 4805032,
+    "ok_div": false,
+    "ok_time": true,
+    "ok_fp": false,
+    "n_states": 37,
+    "reasons": [
+     "d3plot01: body%stride=4374719",
+     "d3plot02: body%stride=4374719",
+     "d3plot03: body%stride=4374719",
+     "d3plot04: body%stride=4374719",
+     "d3plot05: body%stride=4374719",
+     "d3plot06: body%stride=4374719"
+    ]
+   },
+   {
+    "desc": "FEM/ALE blocks=3N(实测通用), tail=0, 无粒子",
+    "stride": 3089459,
+    "ok_div": false,
+    "ok_time": true,
+    "ok_fp": false,
+    "n_states": 38,
+    "reasons": [
+     "d3plot01: body%stride=1627444",
+     "d3plot02: body%stride=1627444",
+     "d3plot03: body%stride=1627444",
+     "d3plot04: body%stride=1627444",
+     "d3plot05: body%stride=1627444",
+     "d3plot06: body%stride=1627444"
+    ]
+   },
+   {
+    "desc": "blocks=3N(实测通用), tail=0, SPH rec=33",
+    "stride": 4661612,
+    "ok_div": true,
+    "ok_time": true,
+    "ok_fp": true,
+    "n_states": 108,
+    "reasons": []
+   }
+  ]
+ },
+ "files": [
+  {
+   "f": "d3plot",
+   "kind": "base"
+  },
+  {
+   "f": "d3plot01",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot02",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot03",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot04",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot05",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot06",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot07",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot08",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot09",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot10",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot11",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot12",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot13",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot14",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot15",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot16",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot17",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot18",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot19",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot20",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot21",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot22",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot23",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot24",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot25",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot26",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot27",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot28",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot29",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot30",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot31",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot32",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot33",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot34",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot35",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot36",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot37",
+   "kind": "seq"
+  }
+ ],
+ "states": {
+  "total": 108,
+  "per_file": [
+   {
+    "file": "d3plot",
+    "kind": "base",
+    "words": 1657856,
+    "states": 0,
+    "body": 1657856
+   },
+   {
+    "file": "d3plot01",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot02",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot03",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot04",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot05",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot06",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot07",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot08",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot09",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot10",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot11",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot12",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot13",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot14",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot15",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot16",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot17",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot18",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot19",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot20",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot21",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot22",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot23",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot24",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot25",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot26",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot27",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot28",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot29",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot30",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot31",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot32",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot33",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot34",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot35",
+    "kind": "seq",
+    "words": 13985280,
+    "states": 3,
+    "body": 13985280
+   },
+   {
+    "file": "d3plot36",
+    "kind": "seq",
+    "words": 9323520,
+    "states": 2,
+    "body": 9323520
+   },
+   {
+    "file": "d3plot37",
+    "kind": "seq",
+    "words": 4661760,
+    "states": 1,
+    "body": 4661760
+   }
+  ],
+  "times": [
+   0.0,
+   2993.937097519586,
+   5994.408638864484,
+   8993.086718083103,
+   11999.323291251716,
+   14999.231319043685,
+   17998.104300236042,
+   20997.40598295901,
+   23996.777650594016,
+   26996.654695738474,
+   29996.210961889872,
+   32996.16579524558,
+   35995.74737430259,
+   38995.21112590542,
+   41995.63512827258,
+   44995.21047449181,
+   47993.92543688545,
+   50999.89641214433,
+   53998.43568561282,
+   56996.23887821928,
+   59993.19106468661,
+   62996.17812104403,
+   65998.45368894181,
+   68999.53437052619,
+   71993.15773219487,
+   74999.61904974647,
+   77999.19808647184,
+   80997.57775309753,
+   83995.00509228339,
+   86993.79992661803,
+   89998.85491520139,
+   92997.3200390383,
+   95995.3809567634,
+   98993.67822087892,
+   101999.69493474327,
+   104998.62428329168,
+   107997.56136678942,
+   110995.24031104243,
+   113998.9990438439,
+   116993.25097928157,
+   119995.82192320621,
+   122995.56962958579,
+   125997.18633420525,
+   128998.07053990914,
+   131997.68430690526,
+   134997.84914030915,
+   137994.2821199785,
+   140998.36442293302,
+   143995.55173012463,
+   146999.75129498847,
+   149996.02367158915,
+   152996.5034680131,
+   155996.32250927496,
+   158995.45454953492,
+   161996.97598661578,
+   164994.77499869117,
+   167993.10470248404,
+   170994.44469994045,
+   173997.91798672688,
+   176993.15726554146,
+   179994.36812517233,
+   182993.1231570205,
+   185997.57552855695,
+   188994.7705834016,
+   191999.69541308875,
+   194999.33209666074,
+   197993.19019793882,
+   200993.427464575,
+   203998.8938299395,
+   206993.5163402497,
+   209996.57971097695,
+   212994.1759494079,
+   215993.50421683348,
+   218995.4746939748,
+   221994.37632225052,
+   224998.84535508117,
+   227997.59206396723,
+   230993.86953579786,
+   233998.66516489052,
+   236996.5913431017,
+   239998.25441304588,
+   242996.45794545356,
+   245994.60480192726,
+   248998.7295924976,
+   251994.03817954566,
+   254999.14534037808,
+   257994.2846061499,
+   260994.341909471,
+   263998.0997056317,
+   266999.31361113134,
+   269998.4924566415,
+   272996.0836078074,
+   275999.103255368,
+   278995.40016122354,
+   281997.52041276684,
+   284996.02416665305,
+   287993.83402723615,
+   290995.45862590696,
+   293997.9898431082,
+   296997.02013663296,
+   299999.1760873127,
+   302999.05452035443,
+   305998.1646979146,
+   308999.0718695997,
+   311994.70762100886,
+   314999.9006427696,
+   315043.4095136487,
+   315049.6230528245
+  ],
+  "times_sample": [
+   0.0,
+   62996.178121,
+   125997.186334,
+   191999.695413,
+   254999.14534,
+   315049.623053
+  ]
+ },
+ "parts": [
+  {
+   "pid": 1,
+   "elems": 73319,
+   "roles": [
+    "structure"
+   ],
+   "basis": "无 .k 记录, 启发式"
+  },
+  {
+   "pid": 5,
+   "elems": 20800,
+   "roles": [
+    "structure"
+   ],
+   "basis": "无 .k 记录, 启发式"
+  },
+  {
+   "pid": 6,
+   "elems": 152,
+   "roles": [
+    "structure"
+   ],
+   "basis": ".k: pid6 -> MAT_RIGID + solid",
+   "mat": "MAT_RIGID",
+   "sectype": "solid",
+   "elform": 1,
+   "thickness": null,
+   "title": "Copied from part 5"
+  },
+  {
+   "pid": 7,
+   "elems": 152,
+   "roles": [
+    "structure"
+   ],
+   "basis": ".k: pid7 -> MAT_RIGID + solid",
+   "mat": "MAT_RIGID",
+   "sectype": "solid",
+   "elform": 1,
+   "thickness": null,
+   "title": "boxsolid"
+  }
+ ],
+ "span_model_units": 3800.0,
+ "units": {
+  "candidates": [
+   {
+    "system": "g-cm-µs",
+    "model_span_m": 38.0,
+    "total_time_s": 0.3150496230528245,
+    "ppv_m_s": 9457.42,
+    "pressure_pa": 33050000.0,
+    "ok_span": true,
+    "ok_time": false,
+    "ok_ppv": true,
+    "ok_pressure": true,
+    "score": 3,
+    "plausible": true
+   },
+   {
+    "system": "g-mm-ms",
+    "model_span_m": 3.8,
+    "total_time_s": 315.04962305282453,
+    "ppv_m_s": 0.95,
+    "pressure_pa": 330.5,
+    "ok_span": true,
+    "ok_time": false,
+    "ok_ppv": true,
+    "ok_pressure": false,
+    "score": 2,
+    "plausible": false
+   },
+   {
+    "system": "kg-mm-ms",
+    "model_span_m": 3.8,
+    "total_time_s": 315.04962305282453,
+    "ppv_m_s": 0.95,
+    "pressure_pa": 330500.0,
+    "ok_span": true,
+    "ok_time": false,
+    "ok_ppv": true,
+    "ok_pressure": false,
+    "score": 2,
+    "plausible": false
+   },
+   {
+    "system": "t-mm-s",
+    "model_span_m": 3.8,
+    "total_time_s": 315049.6230528245,
+    "ppv_m_s": 0.0,
+    "pressure_pa": 330.5,
+    "ok_span": true,
+    "ok_time": false,
+    "ok_ppv": false,
+    "ok_pressure": false,
+    "score": 1,
+    "plausible": false
+   },
+   {
+    "system": "kg-m-s",
+    "model_span_m": 3800.0,
+    "total_time_s": 315049.6230528245,
+    "ppv_m_s": 0.95,
+    "pressure_pa": 0.0003305,
+    "ok_span": false,
+    "ok_time": false,
+    "ok_ppv": true,
+    "ok_pressure": false,
+    "score": 1,
+    "plausible": false
+   }
+  ],
+  "pick": "g-cm-µs",
+  "ambiguous": false,
+  "basis": [
+   "材料常数锚点定论：g-cm-µs。该项下 炸药密度/kg·m⁻³=1500.0、爆速/m·s⁻¹=7450.0、岩石剪切模量/GPa=16.700000000000003、PCJ/GPa=22.0；命中 4 项，领先次高 4 项",
+   "场值锚点交叉核对（同一 g-cm-µs 制下）：模型尺度 38.0 m、总时长 0.315 s、PPV 9457.42 m/s、峰值压力 33050000.0 Pa（场值得分 3/4；时长/压力若越阈值区间，是算例结果量级偏小，不改判据）",
+   "最大节点速度原始值 0.945742（模型单位）→ 各制换算：g-cm-µs:9457.42 / g-mm-ms:0.95 / kg-mm-ms:0.95 / t-mm-s:0.0 / kg-m-s:0.95",
+   "峰值压力原始值 0.00033048（模型单位）→ 各制换算：g-cm-µs:33050000.0 / g-mm-ms:330.5 / kg-mm-ms:330500.0 / t-mm-s:330.5 / kg-m-s:0.0003305",
+   "末帧原始时间 3.15e+05 与 ENDTIM=500000.0 相差 37.0% → 可能是截断运行（只影响时长判据，不改单位制）"
+  ],
+  "confidence": "high",
+  "endtim_from_k": 500000.0,
+  "last_time_raw": 315049.6230528245,
+  "vmax_raw": 0.9457417399436738,
+  "pmax_raw": 0.0003304798202873658,
+  "deck_hint": "g-cm-µs",
+  "endtim_rel_diff": 0.36990075389435095
+ },
+ "ok": true,
+ "elapsed_s": 0.81
+}

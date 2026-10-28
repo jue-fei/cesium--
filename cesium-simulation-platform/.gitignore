@@ -1,0 +1,23 @@
+# 项目级忽略规则（父级仓库根另有通用规则）
+# 说明：本文件位于 cesium-simulation-platform/，路径均相对本目录
+
+# 时间戳备份（如 App.vue.bak-20261022-perf）
+*.bak-*
+
+# 本地开发运行日志与 pid
+backend-py/_backend.out
+backend-py/_backend.err
+backend-py/_backend.pid
+backend-py/_mm_tmp.py
+backend-py/_mm_weikuang.txt
+cesium1/_vite.out
+cesium1/_vite.err
+cesium1/_vite.pid
+
+# PDF/DOCX 临时提取文本
+_txt_*.txt
+
+# LS-DYNA 二进制容器（单文件可达 GB 级，仅保留本地）
+dyna/**/*.bin
+dyna/**/*.ppm
+dyna/incoming/

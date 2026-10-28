@@ -1,4 +1,4 @@
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { createClippingManagerRuntime } from './clippingManagerRuntime.js'
 import { createPolygonHandlerController } from './clippingPolygonHandler.js'
@@ -11,14 +11,19 @@ import {
   updatePlaneStoreState
 } from './clippingStateSync.js'
 import useViewer from '@/composables/useViewer.js'
-import { useModelState } from '@/features/model-control/services/useModel.js'
+import useModel, { useModelState } from '@/features/model-control/services/useModel.js'
 import useMessage from '@/composables/useMessage.js'
 import { useClippingStore } from '../../../stores/clippingStore.js'
+
+// 切割基准半径（选中模型包围球半径，米）与面板量程信息：0 = 回退整场景。
+// 模块级共享：useClipping 在 App / 系统工具 / 面板多处实例化，基准必须全局一致。
+const clipRangeInfo = ref({ focusRadius: 0, sceneRadius: 0, centerOffset: 0 })
 
 export default function useClipping() {
   const { showOperationMessage } = useMessage()
   const { viewer: globalViewer, getViewer } = useViewer()
-  const { tileset: tilesetRef } = useModelState()
+  const { tileset: tilesetRef, selectedModel } = useModelState()
+  const model = useModel()
 
   const store = useClippingStore()
   const { setupPolygonHandler, removePolygonHandler } = createPolygonHandlerController()
@@ -52,6 +57,25 @@ export default function useClipping() {
 
   const initClippingManager = () => {
     ensureClippingManager()
+    syncClipFocus()
+  }
+
+  /**
+   * 切割基准跟随选中模型：偏移 0 = 刀面穿过该模型包围球中心，
+   * 量程按模型半径缩放（见 useClippingPanelController.positionRange）。
+   * 未选中/要素未加载时回退整场景包围球中心。
+   */
+  function syncClipFocus() {
+    const manager = ensureClippingManager()
+    if (!manager) return
+    let bounds = null
+    try {
+      bounds = selectedModel.value ? model.getModelBounds?.(selectedModel.value) : null
+    } catch (_) {
+      bounds = null
+    }
+    manager.setClipFocus(bounds || null)
+    clipRangeInfo.value = manager.getClipRangeInfo()
   }
 
   // 监听查看器变化
@@ -64,12 +88,17 @@ export default function useClipping() {
     }
 
     ensureClippingManager()
+    syncClipFocus()
   })
 
-  // 监听瓦片集变化
+  // 监听瓦片集变化（换模型后重建切割基准）
   watch(tilesetRef, () => {
     syncManagerTileset()
+    syncClipFocus()
   })
+
+  // 监听选中模型（场景点击/列表选中）→ 切换切割基准
+  watch(selectedModel, () => syncClipFocus())
 
   const syncPolygonState = manager => {
     syncPolygonStateToStore(store, manager)
@@ -146,6 +175,7 @@ export default function useClipping() {
     polygonDepth,
     polygonDirection,
     polygonVisualizationOpacity,
+    clipRangeInfo,
 
     initClippingManager,
     ...planeActions,

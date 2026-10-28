@@ -48,6 +48,12 @@ export const TOOL_REGISTRY_META = [
     componentPath: '@/features/stress-analysis/components/StressPanel.vue'
   },
   {
+    id: 'dyna_twin',
+    name: 'LS-DYNA 数字孪生',
+    icon: 'DataBoard',
+    componentPath: '@/features/dyna-twin/components/DynaTwinPanel.vue'
+  },
+  {
     id: 'system',
     name: '系统工具',
     icon: 'Setting',
@@ -73,6 +79,8 @@ export function resolveToolLoader(id) {
       return () => import('@/features/lod-optimization/components/LodPanel.vue')
     case 'stress':
       return () => import('@/features/stress-analysis/components/StressPanel.vue')
+    case 'dyna_twin':
+      return () => import('@/features/dyna-twin/components/DynaTwinPanel.vue')
     case 'system':
       return () => import('@/features/system-tools/components/SystemTools.vue')
     default:

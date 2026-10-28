@@ -14,6 +14,24 @@ export const HIGHLIGHT_CONFIG = {
   ALPHA: 0.5,
   DURATION: 1000
 }
+// 点击选中高亮豁免：命中的模型被选中时只展示信息，不叠加半透明高亮响应
+// 目前仅地表模型 dibiao0615（地表0615）豁免
+export const SELECTION_HIGHLIGHT_EXEMPT_MODEL_IDS = ['dibiao0615']
+
+export function isSelectionHighlightExempt(model) {
+  if (!model) return false
+  const keys = [model.id, model.featureId, model.feature_id, model.name]
+    .map(value =>
+      String(value ?? '')
+        .trim()
+        .toLowerCase()
+    )
+    .filter(Boolean)
+  return keys.some(key =>
+    SELECTION_HIGHLIGHT_EXEMPT_MODEL_IDS.some(exemptId => key === exemptId.toLowerCase())
+  )
+}
+
 export const SECTION_CONFIG = {
   COLOR: Cesium.Color.fromCssColorString('#0000ff'),
   ALPHA: 0.7,

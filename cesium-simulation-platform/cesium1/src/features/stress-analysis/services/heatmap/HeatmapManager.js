@@ -373,7 +373,9 @@ const STRESS_FRAGMENT_SHADER_BODY = `
           vec3 heatColor = mapColor(colorW);
           // 低值基底：displayW 趋近 0 时也保留 lowRangeOpacity 比例的热力低端色，
           // 避免低值区退化为模型原色，同时保持半透明叠加不掩盖岩石细节。
-          float lowFloor = u_lowRangeOpacity * u_diffuseMix;
+          // 无任何数据源/场时不叠底，否则空面板也会整体染色（表现为“点开面板模型变淡”）。
+          float hasData = max(u_fieldEnabled, step(0.5, u_sourceCount));
+          float lowFloor = u_lowRangeOpacity * u_diffuseMix * hasData;
           float diffW = clamp(max(displayW * u_diffuseMix, lowFloor), 0.0, 1.0);
           material.diffuse = mix(material.diffuse, heatColor, diffW);
 

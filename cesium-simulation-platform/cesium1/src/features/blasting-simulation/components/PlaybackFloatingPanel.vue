@@ -329,7 +329,6 @@ function onDragEnd() {
   padding: 5px 6px;
   border-radius: 999px;
   background: var(--bg-primary);
-  backdrop-filter: blur(10px);
   border: 1px solid var(--border-primary);
   box-shadow: var(--shadow-lg);
   cursor: grab;
@@ -437,7 +436,6 @@ function onDragEnd() {
   border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--bg-primary);
-  backdrop-filter: blur(10px);
   border: 1px solid var(--border-primary);
   box-shadow: var(--shadow-lg);
   user-select: none;

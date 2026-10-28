@@ -1,0 +1,437 @@
+{
+ "key": "tnt_1",
+ "label": "混凝土-算例1",
+ "dir": "C:\\Users\\allblack\\Desktop\\tnt\\1",
+ "ws": 8,
+ "header": {
+  "ndim": 4,
+  "numnp": 40278,
+  "icode": 6,
+  "nglbv": 34,
+  "it": 0,
+  "iu": 1,
+  "iv": 1,
+  "ia": 1,
+  "nel8": 30400,
+  "nummat8": 4,
+  "nv3d": 14,
+  "neiph": 7,
+  "maxint": -10003,
+  "nmsph": 0
+ },
+ "header_hint": {
+  "nel3": 0,
+  "nel4": 0,
+  "nel2": 6,
+  "nel4s": 0,
+  "nv3d_beam": 0,
+  "nv3d_shell": 33
+ },
+ "version": {
+  "raw": "R12",
+  "normalized": "r12.0",
+  "prefix": "r12",
+  "solver": "smp"
+ },
+ "k_file": "yyy.k",
+ "k_summary": {
+  "parts": 4,
+  "sections": 2,
+  "materials": 4,
+  "deto": 1,
+  "endtim": 10.0,
+  "counts": {},
+  "addons": {
+   "MAT_ADD_EROSION": 4
+  },
+  "material_id_method": "order-only"
+ },
+ "layout_probe": {
+  "hit": "r12.0|smp",
+  "library_entry": "r12.*|smp",
+  "library_match": "wildcard",
+  "library_desc": "本项目 6 个算例实测通过：LS-DYNA R12 / SMP / 8 字节字；块顺序 time -> globals -> coords -> vel -> acc -> solid_hist -> solid_part -> [sph] -> [pbm]",
+  "accepted": "FEM/ALE blocks=3N(实测通用), tail=0, 无粒子",
+  "stride": 818537,
+  "tail": 0,
+  "n_sph": 0,
+  "n_pbm": 0,
+  "rec_sph": null,
+  "rec_pbm": null,
+  "reasons": [],
+  "remainders": [
+   250,
+   250,
+   250,
+   250,
+   427,
+   151
+  ],
+  "fp_msg": "基文件坐标 @ 字 66（与 d3plot01 状态0 匹配）",
+  "tried": [
+   {
+    "desc": "FEM/ALE blocks=3N(实测通用), tail=497, 无粒子",
+    "stride": 819034,
+    "ok_div": false,
+    "ok_time": true,
+    "ok_fp": false,
+    "n_states": 2,
+    "reasons": [
+     "d3plot01: body%stride=807853",
+     "d3plot02: body%stride=807853",
+     "d3plot03: body%stride=807853",
+     "d3plot04: body%stride=807853",
+     "d3plot05: body%stride=812503",
+     "d3plot06: body%stride=818191"
+    ]
+   },
+   {
+    "desc": "FEM/ALE blocks=3N(实测通用), tail=0, 无粒子",
+    "stride": 818537,
+    "ok_div": true,
+    "ok_time": true,
+    "ok_fp": true,
+    "n_states": 102,
+    "reasons": []
+   }
+  ]
+ },
+ "files": [
+  {
+   "f": "d3plot",
+   "kind": "base"
+  },
+  {
+   "f": "d3plot01",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot02",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot03",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot04",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot05",
+   "kind": "seq"
+  },
+  {
+   "f": "d3plot06",
+   "kind": "seq"
+  }
+ ],
+ "states": {
+  "total": 102,
+  "per_file": [
+   {
+    "file": "d3plot",
+    "kind": "base",
+    "words": 465408,
+    "states": 0,
+    "body": 465408
+   },
+   {
+    "file": "d3plot01",
+    "kind": "seq",
+    "words": 18008064,
+    "states": 22,
+    "body": 18008064
+   },
+   {
+    "file": "d3plot02",
+    "kind": "seq",
+    "words": 18008064,
+    "states": 22,
+    "body": 18008064
+   },
+   {
+    "file": "d3plot03",
+    "kind": "seq",
+    "words": 18008064,
+    "states": 22,
+    "body": 18008064
+   },
+   {
+    "file": "d3plot04",
+    "kind": "seq",
+    "words": 18008064,
+    "states": 22,
+    "body": 18008064
+   },
+   {
+    "file": "d3plot05",
+    "kind": "seq",
+    "words": 10641408,
+    "states": 13,
+    "body": 10641408
+   },
+   {
+    "file": "d3plot06",
+    "kind": "seq",
+    "words": 818688,
+    "states": 1,
+    "body": 818688
+   }
+  ],
+  "times": [
+   0.0,
+   0.09920589897057493,
+   0.19957764913513046,
+   0.29994939929968695,
+   0.3989922778032113,
+   0.49946933220913825,
+   0.599994980232306,
+   0.6996614293976676,
+   0.7990314235442828,
+   0.8995646253705288,
+   0.9998219503753295,
+   1.0990463724566657,
+   1.1993224420150452,
+   1.2994720439645904,
+   1.3993833936840758,
+   1.4991228444037998,
+   1.5998595522704784,
+   1.699522881126028,
+   1.799889601171012,
+   1.8991476952502009,
+   1.999301382014247,
+   2.0993617866628878,
+   2.1992931123445163,
+   2.299030209856405,
+   2.399862184658483,
+   2.499525789547395,
+   2.5989745277393994,
+   2.6994538710897045,
+   2.7998566044622537,
+   2.8996986713317376,
+   2.999501277047654,
+   3.0997694151307407,
+   3.1994917023146208,
+   3.2997864090728903,
+   3.399677595955117,
+   3.4998453947508428,
+   3.5997950225674344,
+   3.6999849189423877,
+   3.799826027944866,
+   3.8996793780097043,
+   3.9999310958145853,
+   4.099701270164535,
+   4.199829837330432,
+   4.299702012761642,
+   4.39971719580317,
+   4.499537262012284,
+   4.5995220963513885,
+   4.699810393946952,
+   4.799679113832075,
+   4.899391715309919,
+   4.999373910951704,
+   5.099512127447809,
+   5.199400652993785,
+   5.299591163064468,
+   5.399564135335893,
+   5.499126554199576,
+   5.599551105568935,
+   5.699415831442836,
+   5.799708111521131,
+   5.899544579602428,
+   5.999496297744304,
+   6.099779209820504,
+   6.199709932932666,
+   6.299692462467025,
+   6.399683935914386,
+   6.4992809849522954,
+   6.599908377205293,
+   6.6993750810794905,
+   6.7996429262151405,
+   6.899791621327795,
+   6.9999857899680205,
+   7.099454850500773,
+   7.199451649705459,
+   7.299555620300188,
+   7.399624093330152,
+   7.499377942267694,
+   7.59916860270978,
+   7.699790058580735,
+   7.7998508308085315,
+   7.899431624484152,
+   7.999999744410817,
+   8.09977711887165,
+   8.199856766505631,
+   8.299044353488213,
+   8.399920961353827,
+   8.49995662632163,
+   8.599963558314704,
+   8.699164062140628,
+   8.799377931891826,
+   8.899436681858685,
+   8.999402911969291,
+   9.09957905513909,
+   9.199787863213787,
+   9.299453867049616,
+   9.399405068176964,
+   9.499569720700904,
+   9.599847303154197,
+   9.699577647325814,
+   9.799393679239694,
+   9.89923330451598,
+   9.99994310440595,
+   10.000927843016777
+  ],
+  "times_sample": [
+   0.0,
+   1.999301,
+   3.999931,
+   5.999496,
+   8.0,
+   10.000928
+  ]
+ },
+ "parts": [
+  {
+   "pid": 1,
+   "elems": 17100,
+   "roles": [
+    "structure"
+   ],
+   "basis": ".k: pid1 -> MAT_CONCRETE_DAMAGE_REL3(未在映射表, 默认 structure)",
+   "mat": "MAT_CONCRETE_DAMAGE_REL3",
+   "sectype": "section_solid_title",
+   "elform": 1,
+   "thickness": null,
+   "title": "cement"
+  },
+  {
+   "pid": 2,
+   "elems": 2900,
+   "roles": [
+    "structure"
+   ],
+   "basis": ".k: pid2 -> MAT_JOHNSON_COOK + section_solid_title",
+   "mat": "MAT_JOHNSON_COOK",
+   "sectype": "section_solid_title",
+   "elform": 1,
+   "thickness": null,
+   "title": "I beam"
+  },
+  {
+   "pid": 3,
+   "elems": 10376,
+   "roles": [
+    "air"
+   ],
+   "basis": ".k: pid3 -> MAT_NULL + section_solid_title",
+   "mat": "MAT_NULL",
+   "sectype": "section_solid_title",
+   "elform": 11,
+   "thickness": null,
+   "title": "air"
+  },
+  {
+   "pid": 4,
+   "elems": 24,
+   "roles": [
+    "explosive"
+   ],
+   "basis": ".k: pid4 -> MAT_HIGH_EXPLOSIVE_BURN + section_solid_title",
+   "mat": "MAT_HIGH_EXPLOSIVE_BURN",
+   "sectype": "section_solid_title",
+   "elform": 11,
+   "thickness": null,
+   "title": "TNT"
+  }
+ ],
+ "span_model_units": 2080.0,
+ "units": {
+  "candidates": [
+   {
+    "system": "kg-mm-ms",
+    "model_span_m": 2.08,
+    "total_time_s": 0.010000927843016778,
+    "ppv_m_s": 3609.52,
+    "pressure_pa": 61800000.0,
+    "ok_span": true,
+    "ok_time": true,
+    "ok_ppv": true,
+    "ok_pressure": true,
+    "score": 4,
+    "plausible": true
+   },
+   {
+    "system": "g-cm-µs",
+    "model_span_m": 20.8,
+    "total_time_s": 1.0000927843016776e-05,
+    "ppv_m_s": 36095175.08,
+    "pressure_pa": 6180000000.0,
+    "ok_span": true,
+    "ok_time": true,
+    "ok_ppv": false,
+    "ok_pressure": true,
+    "score": 3,
+    "plausible": true
+   },
+   {
+    "system": "g-mm-ms",
+    "model_span_m": 2.08,
+    "total_time_s": 0.010000927843016778,
+    "ppv_m_s": 3609.52,
+    "pressure_pa": 61800.0,
+    "ok_span": true,
+    "ok_time": true,
+    "ok_ppv": true,
+    "ok_pressure": false,
+    "score": 3,
+    "plausible": true
+   },
+   {
+    "system": "t-mm-s",
+    "model_span_m": 2.08,
+    "total_time_s": 10.000927843016777,
+    "ppv_m_s": 3.61,
+    "pressure_pa": 61800.0,
+    "ok_span": true,
+    "ok_time": false,
+    "ok_ppv": true,
+    "ok_pressure": false,
+    "score": 2,
+    "plausible": false
+   },
+   {
+    "system": "kg-m-s",
+    "model_span_m": 2080.0,
+    "total_time_s": 10.000927843016777,
+    "ppv_m_s": 3609.52,
+    "pressure_pa": 0.0618,
+    "ok_span": false,
+    "ok_time": false,
+    "ok_ppv": true,
+    "ok_pressure": false,
+    "score": 1,
+    "plausible": false
+   }
+  ],
+  "pick": "kg-mm-ms",
+  "ambiguous": false,
+  "basis": [
+   "材料常数锚点定论：kg-mm-ms。该项下 空气密度/kg·m⁻³=1.293、炸药密度/kg·m⁻³=1630.0、爆速/m·s⁻¹=7840.0、PCJ/GPa=26.0；命中 4 项，领先次高 3 项",
+   "场值锚点交叉核对（同一 kg-mm-ms 制下）：模型尺度 2.08 m、总时长 0.01 s、PPV 3609.52 m/s、峰值压力 61800000.0 Pa（场值得分 4/4；时长/压力若越阈值区间，是算例结果量级偏小，不改判据）",
+   "最大节点速度原始值 3609.52（模型单位）→ 各制换算：kg-mm-ms:3609.52 / g-cm-µs:36095175.08 / g-mm-ms:3609.52 / t-mm-s:3.61 / kg-m-s:3609.52",
+   "峰值压力原始值 0.0617963（模型单位）→ 各制换算：kg-mm-ms:61800000.0 / g-cm-µs:6180000000.0 / g-mm-ms:61800.0 / t-mm-s:61800.0 / kg-m-s:0.0618",
+   "d3plot 末帧原始时间 10 与 .k ENDTIM=10.0 相对差 0.01% → 时间单位与 .k 一致"
+  ],
+  "confidence": "high",
+  "endtim_from_k": 10.0,
+  "last_time_raw": 10.000927843016777,
+  "vmax_raw": 3609.5175081009284,
+  "pmax_raw": 0.06179634086950989,
+  "deck_hint": "kg-mm-ms",
+  "endtim_rel_diff": 9.278430167771745e-05
+ },
+ "ok": true,
+ "elapsed_s": 0.04
+}

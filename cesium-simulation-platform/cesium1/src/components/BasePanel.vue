@@ -3,7 +3,7 @@
     class="fixed top-5 right-[70px] bottom-5 z-10 w-panel flex flex-col animate-[slideLeft_0.3s_cubic-bezier(0.4,0,0.2,1)]"
   >
     <el-card
-      class="flex-1 !bg-bg-primary backdrop-blur-md !border-border-primary !rounded-lg shadow-tech-lg overflow-hidden flex flex-col"
+      class="flex-1 !bg-bg-primary !border-border-primary !rounded-lg shadow-tech-lg overflow-hidden flex flex-col"
       :body-style="{ padding: '0', display: 'flex', flexDirection: 'column', height: '100%' }"
     >
       <template #header>
@@ -23,7 +23,8 @@
         </div>
       </template>
 
-      <div class="flex-1 overflow-y-auto p-0">
+      <!-- contain 只作用在滚动内容层：隔离面板内部的布局/绘制，又不裁剪外层阴影 -->
+      <div class="flex-1 overflow-y-auto p-0" style="contain: layout paint">
         <slot></slot>
       </div>
     </el-card>
