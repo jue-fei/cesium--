@@ -1,6 +1,30 @@
 # 项目级忽略规则（父级仓库根另有通用规则）
 # 说明：本文件位于 cesium-simulation-platform/，路径均相对本目录
 
+# ── 内部课题材料（含考核指标、承担单位分工、经费与人员信息）──
+# 仅本地留存，禁止入库
+项目任务书*.pdf
+课题实施方案*.pdf
+课题*实施方案*.pdf
+/基于多工序集成与多要素协同的数智一体化模型构建技术.docx
+/基于*.docx
+
+# ── 凭据与隐私 ──
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# 个人/内部数据导出（现场实测、人员名单等）
+*_人员名单*
+*_联系方式*
+*_现场实测*.csv
+
 # 时间戳备份（如 App.vue.bak-20261022-perf）
 *.bak-*
 
@@ -16,6 +40,7 @@ cesium1/_vite.pid
 
 # PDF/DOCX 临时提取文本
 _txt_*.txt
+*.tmp
 
 # LS-DYNA 二进制容器（单文件可达 GB 级，仅保留本地）
 dyna/**/*.bin
