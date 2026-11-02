@@ -37,6 +37,7 @@ import { FragmentRenderer } from './fragmentRenderer.js'
 import { BlastVibrationFieldRenderer } from './blastVibrationFieldRenderer.js'
 import { VibrationParticleRenderer } from './vibrationParticleRenderer.js'
 import { MuckPileOutlineRenderer } from './muckPileOutlineRenderer.js'
+import { computeMuckPileMetrics } from './muckPileMetrics.js'
 import {
   DEFAULT_TUNNEL_WIDTH,
   DEFAULT_TUNNEL_WALL_HEIGHT,
@@ -654,6 +655,15 @@ export class ThreeBlastingRenderer {
   /** 回放总时长（全部落地 + 保持 3s，秒）；回放未就绪返回 null */
   getReplayDurationS() {
     return this._physicsEngine?.getReplayDurationS?.() ?? null
+  }
+
+  /**
+   * 当前爆堆形态指标（堆高/安息角/抛距/落差/横向展布/粒度偏析）。
+   * 复用 muckPileMetrics 的文献口径，供 UI 面板与验收脚本读取。
+   */
+  getMuckPileMetrics() {
+    const states = this._physicsEngine?.getBodyStates?.() || []
+    return computeMuckPileMetrics(states, this._lastPhysicsBounds)
   }
 
   /**

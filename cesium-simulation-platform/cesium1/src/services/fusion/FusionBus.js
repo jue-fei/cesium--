@@ -76,7 +76,9 @@ class FusionBus {
       if (history) {
         try {
           handler(history.payload)
-        } catch (_) { /* 回放失败不影响订阅 */ }
+        } catch (_) {
+          /* 回放失败不影响订阅 */
+        }
       }
     }
 

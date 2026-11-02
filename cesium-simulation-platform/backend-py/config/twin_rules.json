@@ -1,0 +1,95 @@
+{
+    "_说明": "孪生联动规则表（方案 WP2 T2.4）。规则只在后端求值，前端仅执行 fusion:action 指令。修改后 2 秒内自动热加载，无需重启。",
+    "_状态": "R3/R4/R5/R6 已接线；R1/R2 为占位规则（enabled=false），待场适配器与阈值服务完成后开启。",
+    "version": 1,
+    "rules": [
+        {
+            "id": "R1",
+            "name": "爆破振动→应力叠加",
+            "enabled": false,
+            "note": "待 T2.5a 场适配器完成后开启；动作由前端应力模块执行（切片/等值面叠加）",
+            "when": {
+                "type": "blasting:vibration:updated"
+            },
+            "then": {
+                "action": "twin.noop",
+                "params": {
+                    "target": "stress:overlay-vibration"
+                }
+            },
+            "throttleMs": 500
+        },
+        {
+            "id": "R2",
+            "name": "钻孔岩性→安全阈值重算",
+            "enabled": false,
+            "note": "待后端阈值服务完成后开启；前端只读，不持有第二份阈值",
+            "when": {
+                "type": "geology:boreholes:loaded"
+            },
+            "then": {
+                "action": "twin.noop",
+                "params": {
+                    "target": "safety:threshold-refresh"
+                }
+            },
+            "throttleMs": 2000
+        },
+        {
+            "id": "R3",
+            "name": "爆破危险区→巷道禁行",
+            "enabled": true,
+            "note": "危险区多边形×巷道中线相交（XZ 投影+标高区间），写入外部封锁台账；到期自动解除",
+            "when": {
+                "type": "blasting:zone:changed"
+            },
+            "then": {
+                "action": "scheduling.block_from_zone",
+                "params": {}
+            },
+            "throttleMs": 1000
+        },
+        {
+            "id": "R4",
+            "name": "爆堆→装载点",
+            "enabled": true,
+            "note": "当前最大断点：前端爆破事件完成时上报，后端直接注入调度仿真器",
+            "when": {
+                "type": "blasting:event:completed"
+            },
+            "then": {
+                "action": "scheduling.inject_blastpile",
+                "params": {}
+            },
+            "throttleMs": 0
+        },
+        {
+            "id": "R5",
+            "name": "调度状态→KPI",
+            "enabled": true,
+            "note": "调度推进后从快照采样 7 项 KPI 落时序；5s 节流，避免高频写库",
+            "when": {
+                "type": "scheduling:tick"
+            },
+            "then": {
+                "action": "kpi.record_scheduling",
+                "params": {}
+            },
+            "throttleMs": 5000
+        },
+        {
+            "id": "R6",
+            "name": "优化采纳→三维复核",
+            "enabled": true,
+            "note": "记录采纳并存证；前端收到 optimization:review 后进入对比视图",
+            "when": {
+                "type": "optimization:adopted"
+            },
+            "then": {
+                "action": "twin.record_adoption",
+                "params": {}
+            },
+            "throttleMs": 0
+        }
+    ]
+}

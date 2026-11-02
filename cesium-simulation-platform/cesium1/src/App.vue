@@ -3,6 +3,10 @@
 
   <RightSidebar />
 
+  <!-- 常驻孪生状态层：驾驶舱不再作为并列工具，由状态条统一入口 -->
+  <TwinStatusBar v-if="!cockpitVisible" @open-cockpit="cockpitVisible = true" />
+  <CockpitView :visible="cockpitVisible" @close="cockpitVisible = false" />
+
   <!-- 浮动爆破播放器：独立于面板挂载，面板隐藏时依然保留，不随 activeTool 收起 -->
   <PlaybackFloatingPanel
     v-if="dataset"
@@ -63,7 +67,7 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, computed, defineAsyncComponent } from 'vue'
+import { onMounted, onUnmounted, computed, defineAsyncComponent, ref } from 'vue'
 import './assets/styles/app.css'
 import { createAppBootstrap } from './app/createAppBootstrap.js'
 import { logger } from './utils/logger.js'
@@ -71,6 +75,7 @@ import { logger } from './utils/logger.js'
 import RightSidebar from './components/RightSidebar.vue'
 import BasePanel from './components/BasePanel.vue'
 import GlobalMessage from './components/GlobalMessage.vue'
+import TwinStatusBar from './features/twin-cockpit/components/TwinStatusBar.vue'
 import PlaybackFloatingPanel from './features/blasting-simulation/components/PlaybackFloatingPanel.vue'
 import {
   TOOL_REGISTRY,
@@ -124,6 +129,10 @@ const onSpeedChange = v => {
   playbackSpeedMs.value = Number(v || 50)
 }
 const { activeTool, closeTool } = useUI()
+const cockpitVisible = ref(false)
+const CockpitView = defineAsyncComponent(
+  () => import('@/features/twin-cockpit/components/CockpitView.vue')
+)
 
 const lifecycle = useLifecycle()
 const fps = model.fps

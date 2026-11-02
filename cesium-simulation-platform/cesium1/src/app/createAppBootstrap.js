@@ -1,4 +1,5 @@
 import { loadApiConfig } from '@/services/api/initApiConfig.js'
+import twinClient from '@/services/fusion/twinClient.js'
 
 export function createAppBootstrap({
   viewer,
@@ -16,6 +17,9 @@ export function createAppBootstrap({
 
     // 从数据库加载所有配置（模型/设置/监测/应力等）
     await loadApiConfig()
+
+    // 孪生事件流：与视图初始化解耦，连接失败不影响主流程（内部自动重连）
+    twinClient.connect()
 
     const viewerInstance = await viewer.initViewer(containerId)
     if (!viewerInstance) return null

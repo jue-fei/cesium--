@@ -592,6 +592,9 @@ export class MuckPileOutlineRenderer {
   _outsideSection(t, u) {
     const sec = this._section
     if (!sec) return false
+    // 低于底板（穿底漏出）：u<0 时下方各形状判据全部"合法"，必须单独剔除，
+    // 否则巷道下方的穿底碎石会把爆堆包络壳撑偏（与 fragmentRenderer 同构）。
+    if (u < -SECTION_TOLERANCE) return true
     const halfW = Number(sec.width) / 2 || 0
     const wallH = Number(sec.wallHeight) || 0
     const R = Number(sec.archRadius) || 0

@@ -22,6 +22,8 @@ from app.services.scheduling.scenario_config import (
     DEFAULT_SCENARIO,
 )
 from app.services.scheduling.muck_data import list_tasks_for_api, upsert_task
+from app.services.scheduling.geometry import segments_in_zone
+from app.services.fusion.actions import broadcast_action
 
 logger = logging.getLogger(__name__)
 
@@ -169,3 +171,118 @@ def scheduling_blastpile(
     if not ok:
         return {"code": 1, "message": f"未找到装载点 {pile.get('pileId') or pile.get('id')}"}
     return {"code": 0, "message": "爆堆信息已注入", "data": {"pileId": pile.get("pileId") or pile.get("id")}}
+
+
+# ─── 爆破事件 ↔ 采场绑定（R4 注入目标的前置）───────────────
+# 背景：爆破事件表只有爆心经纬高与爆破时间，没有采场外键；
+# 采场侧的 blast_event_id 字段长期为空。若不维护绑定，R4 无法知道爆堆落到哪个采场。
+@router.post("/bind_blast", dependencies=[Depends(require_token)])
+def bind_blast(
+    body: dict = Body(..., description="{eventId, taskId}"),
+    scenario: Optional[str] = None,
+):
+    """把爆破事件绑定到采场任务（写 scheduling_muck_task.blast_event_id）。"""
+    from app.services.scheduling.muck_data import task_exists
+
+    event_id = str(body.get("eventId") or "").strip()
+    task_id = str(body.get("taskId") or "").strip()
+    if not event_id or not task_id:
+        return {"code": 1, "message": "eventId/taskId 必填"}
+    if not task_exists(task_id):
+        return {"code": 1, "message": f"采场任务 {task_id} 不存在（先同步场景任务再绑定）"}
+
+    ok = upsert_task(task_id, {"blast_event_id": event_id}, scenario=scenario or "")
+    if not ok:
+        return {"code": 1, "message": "绑定写入失败（检查数据库）"}
+
+    broadcast_action(
+        "haulage:refresh",
+        {"scenario": scenario or DEFAULT_SCENARIO, "reason": "blast_binding"},
+    )
+    return {"code": 0, "data": {"eventId": event_id, "taskId": task_id}}
+
+
+# ─── 外部封锁（方案 T2.5b / R3）────────────────────────────
+# 与仿真内部自动封锁（岩爆/炮烟）分开记账：外部封锁在到期或显式解除前
+# 不会被自动解除逻辑清除，见 SchedulingSimulator.set_external_block。
+@router.put("/segments/{segment_id}/block", dependencies=[Depends(require_token)])
+def set_segment_block(
+    segment_id: str,
+    body: Optional[dict] = Body(default=None, description="封锁信息 {source, reason, expireAt}"),
+    scenario: Optional[str] = None,
+):
+    """封锁指定巷道段：expireAt 为 epoch 秒，到期后由仿真 tick 自动解除。"""
+    info = body or {}
+    sim = get_simulator(scenario)
+    ok = sim.set_external_block(
+        segment_id,
+        source=info.get("source") or "api",
+        reason=info.get("reason") or "外部封锁",
+        expire_at=info.get("expireAt"),
+    )
+    if not ok:
+        return {"code": 1, "message": f"未找到巷道段 {segment_id}"}
+
+    broadcast_action(
+        "haulage:segments-blocked",
+        {
+            "segIds": [segment_id],
+            "scenario": scenario or DEFAULT_SCENARIO,
+            "reason": info.get("reason") or "外部封锁",
+        },
+    )
+    return {"code": 0, "data": {"segId": segment_id, "blocks": sim.external_block_list()}}
+
+
+@router.delete("/segments/{segment_id}/block", dependencies=[Depends(require_token)])
+def clear_segment_block(segment_id: str, scenario: Optional[str] = None):
+    """解除指定巷道段的外部封锁（内部岩爆/炮烟风险仍在时保持封锁）。"""
+    sim = get_simulator(scenario)
+    ok = sim.clear_external_block(segment_id)
+    if not ok:
+        return {"code": 1, "message": f"巷道段 {segment_id} 无外部封锁记录"}
+
+    broadcast_action(
+        "haulage:segments-blocked",
+        {"segIds": [segment_id], "scenario": scenario or DEFAULT_SCENARIO, "reason": "released"},
+    )
+    return {"code": 0, "data": {"segId": segment_id, "blocks": sim.external_block_list()}}
+
+
+@router.get("/segments/blocks")
+def list_segment_blocks(scenario: Optional[str] = None):
+    """当前外部封锁台账（测评举证：谁在何时以何原因封锁了哪段）。"""
+    sim = get_simulator(scenario)
+    return {"code": 0, "data": {"blocks": sim.external_block_list()}}
+
+
+@router.post("/blocks/from-zone", dependencies=[Depends(require_token)])
+def block_from_zone(
+    body: dict = Body(..., description="危险区 {zone:{polygon,elevationRange,reason,expireAt}}"),
+    scenario: Optional[str] = None,
+):
+    """按危险区多边形批量封锁相交巷道段（R3 的 HTTP 等价入口，便于联调与人工处置）。"""
+    zone = (body or {}).get("zone") or (body or {})
+    polygon = zone.get("polygon") or []
+    if len(polygon) < 3:
+        return {"code": 1, "message": "zone.polygon 至少需要 3 个点"}
+
+    sim = get_simulator(scenario)
+    hits = segments_in_zone(sim.segment_geo, polygon, zone.get("elevationRange"))
+    reason = zone.get("reason") or "爆破危险区"
+    if not hits:
+        return {"code": 0, "data": {"segIds": [], "message": "危险区未与任何巷道段相交"}}
+
+    for seg_id in hits:
+        sim.set_external_block(
+            seg_id,
+            source=zone.get("source") or "blasting",
+            reason=reason,
+            expire_at=zone.get("expireAt"),
+        )
+
+    broadcast_action(
+        "haulage:segments-blocked",
+        {"segIds": hits, "scenario": scenario or DEFAULT_SCENARIO, "reason": reason},
+    )
+    return {"code": 0, "data": {"segIds": hits, "blocks": sim.external_block_list()}}

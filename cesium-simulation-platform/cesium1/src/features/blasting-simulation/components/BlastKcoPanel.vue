@@ -45,6 +45,16 @@
     <div v-if="delayNote" class="mt-2 text-xs delay-note">
       {{ delayNote }}
     </div>
+
+    <!-- 块体形态：几何池按节理族组成（形状由节理间距比决定，非按块度硬映射） -->
+    <div class="mt-2 text-xs shape-note">
+      <span class="shape-note-title">块体形态</span>
+      <span>块状 {{ shapeSummary.blocky }}%</span>
+      <span>不规则 {{ shapeSummary.irregular }}%</span>
+      <span>柱状 {{ shapeSummary.columnar }}%</span>
+      <span>板状 {{ shapeSummary.platy }}%</span>
+      <span class="shape-note-meta">扁平度中位数 {{ shapeSummary.flatnessMedian }}</span>
+    </div>
   </div>
 </template>
 
@@ -61,12 +71,30 @@ import {
   EXPLOSIVE_TYPES
 } from '../services/core/computation/kcoModelCore.js'
 import { calcTunnelArea } from '../services/core/blastDefaults.js'
+import { getRockVariantShapeStats } from '../services/core/rendering/rockGeometryFactory.js'
 import {
   buildBlastPreviewInsights,
   snapshotBaselineParams
 } from '../services/core/computation/blastPreviewInsights.js'
 
 defineOptions({ name: 'BlastKcoPanel' })
+
+// 块体形态占比：几何池按节理族（块状/不规则/柱状/板状/长条）构成，
+// 由节理间距比（Zingg 分类）决定，不再把中块硬映射为板状。
+const shapeSummary = computed(() => {
+  const stats = getRockVariantShapeStats()
+  const total = stats.length || 1
+  const pct = key => Math.round((stats.filter(s => s.family === key).length / total) * 100)
+  const flats = stats.map(s => s.flatness).sort((a, b) => a - b)
+  const mid = flats.length ? flats[Math.floor(flats.length / 2)] : 0
+  return {
+    blocky: pct('blocky'),
+    irregular: pct('irregular'),
+    columnar: pct('columnar'),
+    platy: pct('platy'),
+    flatnessMedian: mid.toFixed(2)
+  }
+})
 
 const props = defineProps({
   dataset: { type: Object, default: null },
@@ -361,3 +389,22 @@ function deletePreset() {
 
 loadPresetList()
 </script>
+
+<style scoped>
+.shape-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: #9fb0c0;
+  line-height: 1.6;
+}
+
+.shape-note-title {
+  color: #c7d5e3;
+  font-weight: 600;
+}
+
+.shape-note-meta {
+  color: #7c8b9a;
+}
+</style>

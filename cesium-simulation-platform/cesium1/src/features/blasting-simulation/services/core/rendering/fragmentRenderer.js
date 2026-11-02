@@ -6,6 +6,10 @@
  */
 import * as THREE from 'three'
 
+// 隧道碰撞体/壳体的半长(m)：与 RapierPhysicsEngine.TUNNEL_HALF_LEN 及
+// sceneBuilder._buildTunnelShell(shellLength=80) 对齐，用于剔除飞出洞口的碎片。
+const TUNNEL_HALF_LEN = 80
+
 /**
  * 碎片渲染器类
  * 管理碎片 InstancedMesh 的生命周期：创建、逐帧更新（从物理引擎同步状态）、释放。
@@ -52,6 +56,9 @@ export class FragmentRenderer {
           rightX: bounds.rightX,
           rightY: bounds.rightY,
           rightZ: bounds.rightZ,
+          forwardX: bounds.forwardX || 0,
+          forwardY: bounds.forwardY || 0,
+          forwardZ: bounds.forwardZ || 0,
           floorY: bounds.floorY,
           halfWidth: Number(bounds.halfWidth) || 0,
           wallHeight: Number(bounds.wallHeight) || 0,
@@ -91,7 +98,9 @@ export class FragmentRenderer {
   /**
    * 判定碎片实例是否"跑出隧道"（应隐藏）：
    *  1) 中心越过断面边界（同轮廓的 _outsideSection，容差一致）→ 隐藏；
-   *  2) 中心在内但 AABB 顶面（中心+竖向支撑）越过净空 + 容差（拱顶尖角
+   *  2) 中心在底板下方（穿底漏出）→ 隐藏；
+   *  3) 轴向超出隧道壳（飞出洞口）→ 隐藏；
+   *  4) 中心在内但 AABB 顶面（中心+竖向支撑）越过净空 + 容差（拱顶尖角
    *     伸出隧道）→ 隐藏。与爆堆轮廓的剔除口径一致：壳不包、石头也不显示。
    * @param {{posX:number,posY:number,posZ:number,qx?:number,qy?:number,qz?:number,qw?:number}} body
    * @param {{variantIndex:number,dispSize:number}|null} spec
@@ -123,7 +132,13 @@ export class FragmentRenderer {
         if (Math.hypot(t, cy) > R + tol) return true
       }
     }
-    // 2) 拱顶尖角探出：AABB 顶面超过净空 + 容差
+    // 2) 低于底板（穿底）：u<0 且 |t|<halfW 时上方判据全部"合法"，
+    //    旧版因此对穿底碎片不做任何剔除（巷道下方大片飘浮碎石）。
+    if (u < -tol) return true
+    // 3) 轴向飞出洞口：隧道壳尽头以外不再显示
+    const s = dx * b.forwardX + dy * b.forwardY + dz * b.forwardZ
+    if (Math.abs(s) > TUNNEL_HALF_LEN) return true
+    // 4) 拱顶尖角探出：AABB 顶面超过净空 + 容差
     const e =
       this._extentTable && spec && spec.variantIndex != null
         ? this._extentTable[spec.variantIndex]

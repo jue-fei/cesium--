@@ -1,234 +1,75 @@
 /**
- * 岩石几何体工厂
+ * 岩石几何体工厂 — 节理控制的块状碎石几何池
  *
- * 生成 5 种形态的实体碎石 3D 网格，用于 InstancedMesh 实例化渲染。
- * 每种形态预生成多个子变体（不同 seed），总计约 15 个几何体。
+ * 用节理网络 + 凸多面体生成块体（见 geometry/jointNetwork.js、
+ * geometry/voronoiBlockGeometry.js），按形状族组织变体池：
  *
- * 变体分类：
- *   0 - 块状岩块（大块碎石）：BoxGeometry + 顶点大幅随机偏移，棱角分明
- *   1 - 扁平板状岩片（中块碎石）：极度扁平 BoxGeometry，模拟层理断裂
- *   2 - 楔形碎块（中小碎石）：ConvexGeometry 凸包，前薄后厚
- *   3 - 不规则多面体（小块碎石）：DodecahedronGeometry + 大范围顶点扰动
- *   4 - 长条状碎块（特殊形态）：CylinderGeometry + 非均匀缩放
+ *   块状 blocky    6 个变体（massive 节理，等轴）
+ *   柱状 columnar  3 个（两组密集竖向节理）
+ *   不规则 irregular 5 个（多组节理 + 强扰动）
+ *   板状 platy     2 个（bedded 层理，仅层理发育时按权重出现）
+ *   长条 elongated 2 个（columnar 强扰动）
+ *   合计 18 个变体
  *
- * variantIndex 与碎块尺寸的关联由 fragmentSpecGenerator.js 中的
- * _selectVariantBySize() 函数实现。
+ * 旧版把 x50~x80 的中块**全部**硬映射为扁平板状（flatten 0.12~0.25），
+ * 导致爆堆里大半碎块是薄片；现由节理间距比决定形状（Zingg 分类），
+ * 默认板状占比 < 8%。
+ *
+ * 渲染与物理同源：本模块的顶点数组同时用于 InstancedMesh 与 Rapier 凸包。
  */
-
-/**
- * 几何体用途声明
- * ================
- * 本模块生成的 5 类几何体（块状/板状/楔形/不规则多面体/长条状）仅用于视觉渲染。
- * 物理碰撞按等效球体计算（见 blastPhysicsEngine.js 模型保真度声明），
- * 几何体的实际形状不参与物理碰撞响应。
- */
-
 import * as THREE from 'three'
-import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js'
-// 共享 LCG RNG（统一三处实现的单一真相源）
 import { makeRng as _makeRngShared } from '../utils/rng.js'
+import { createJointNetwork, ZINGG_LABELS } from '../geometry/jointNetwork.js'
+import { buildBlockGeometry } from '../geometry/voronoiBlockGeometry.js'
 
-// ─── 确定性伪随机数生成器（LCG） ────────────────────────
-// 转发至 utils/rng.js，保留命名导出以兼容 fragmentSpecGenerator.js 等既有引用
+// ─── 确定性伪随机数生成器（LCG）：转发至 utils/rng.js ──
 export const makeRng = _makeRngShared
 
-// ─── 变体 0：块状岩块 ──────────────────────────────────
-// 真实感最强：8 个角顶点大幅偏移产生不规则块状外观
-function createBlockyRockGeometry(seed) {
-  const geo = new THREE.BoxGeometry(1, 1, 1, 2, 2, 2)
-  const positions = geo.attributes.position
-  const rng = makeRng(seed)
+// ─── 形状族定义 ────────────────────────────────────────
+// count = 该族变体数；preset = 节理预设；jitter/faceSpread = 棱面不规则度
+const SHAPE_FAMILIES = [
+  { key: 'blocky', label: '块状', count: 6, preset: 'massive', jitter: 0.09, faceSpread: 0.05 },
+  { key: 'columnar', label: '柱状', count: 3, preset: 'columnar', jitter: 0.08, faceSpread: 0.04 },
+  {
+    key: 'irregular',
+    label: '不规则',
+    count: 5,
+    preset: 'sheared',
+    jitter: 0.14,
+    faceSpread: 0.07
+  },
+  { key: 'platy', label: '板状', count: 2, preset: 'bedded', jitter: 0.06, faceSpread: 0.03 },
+  { key: 'elongated', label: '长条', count: 2, preset: 'columnar', jitter: 0.12, faceSpread: 0.06 }
+]
 
-  // 识别角顶点：BoxGeometry(2,2,2) 中坐标绝对值接近 0.5 的为角
-  for (let i = 0; i < positions.count; i++) {
-    const x = positions.getX(i)
-    const y = positions.getY(i)
-    const z = positions.getZ(i)
-    const isCorner = Math.abs(x) > 0.35 && Math.abs(y) > 0.35 && Math.abs(z) > 0.35
-    // 角顶点大幅偏移(0.4~1.4)，面内顶点小幅偏移(0.8~1.1)
-    const factor = isCorner ? 0.4 + rng() * 1.0 : 0.8 + rng() * 0.3
-    positions.setXYZ(i, x * factor, y * factor, z * factor)
-  }
-  geo.computeVertexNormals()
-  return geo
+/** 形状族数量（语义：族数，不再是旧版的"形态类型数×子变体"） */
+export const ROCK_VARIANT_COUNT = SHAPE_FAMILIES.length
+
+/** 变体总数（几何池长度） */
+export const ROCK_VARIANT_TOTAL = SHAPE_FAMILIES.reduce((s, f) => s + f.count, 0)
+
+let _familyRanges = null
+
+/** 形状族（按实际 Zingg 分类排序）：块状 → 不规则 → 柱状 → 板状 */
+const ZINGG_ORDER = ['blocky', 'irregular', 'columnar', 'platy']
+
+/** 形状族 → 变体索引区间 [lo, hi]（闭区间，按实际 Zingg 分类分组） */
+function getFamilyRanges() {
+  if (_familyRanges) return _familyRanges
+  // 首次使用前先建模板池（建池时会按实际 Zingg 重排并写好 ranges）
+  getTemplatePool()
+  return _familyRanges
 }
 
-// ─── 变体 1：扁平板状岩片 ──────────────────────────────
-// Y 轴极度压缩(0.12~0.25)，模拟层理断裂产生的板状碎块
-function createPlatyRockGeometry(seed) {
-  const geo = new THREE.BoxGeometry(1, 1, 1, 3, 1, 3)
-  const positions = geo.attributes.position
-  const rng = makeRng(seed)
-
-  const flatten = 0.12 + rng() * 0.13 // Y 压缩到 0.12~0.25
-  const stretchX = 1.0 + rng() * 0.6
-  const stretchZ = 1.0 + rng() * 0.6
-
-  for (let i = 0; i < positions.count; i++) {
-    const x = positions.getX(i)
-    const y = positions.getY(i)
-    const z = positions.getZ(i)
-    // 面内顶点扰动
-    const jitter = 0.85 + rng() * 0.3
-    // 断裂纹：沿对角线方向微凹
-    const crackBias = Math.abs(x + z) < 0.15 ? 0.85 : 1.0
-    positions.setXYZ(
-      i,
-      x * stretchX * jitter * crackBias,
-      y * flatten * (0.9 + rng() * 0.2),
-      z * stretchZ * jitter * crackBias
-    )
-  }
-  geo.computeVertexNormals()
-  return geo
+/** 给几何体补充全 1.0 白色 color 属性（InstancedMesh instanceColor 生效所需） */
+function addWhiteColorAttribute(geo) {
+  if (geo.attributes.color) return
+  const count = geo.attributes.position.count
+  const colors = new Float32Array(count * 3).fill(1)
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
 }
 
-// ─── 变体 2：楔形碎块 ──────────────────────────────────
-// 使用 ConvexGeometry 从 6-8 个随机 3D 点生成凸包，前薄后厚
-function createWedgeRockGeometry(seed) {
-  const rng = makeRng(seed)
-  const points = []
-  // 后端（厚端）：4 点，Z 正方向
-  points.push(new THREE.Vector3(-0.6 - rng() * 0.3, 0.4 + rng() * 0.2, 0.4 + rng() * 0.2))
-  points.push(new THREE.Vector3(0.6 + rng() * 0.3, 0.4 + rng() * 0.2, 0.3 + rng() * 0.2))
-  points.push(new THREE.Vector3(-0.5 - rng() * 0.2, -0.4 - rng() * 0.2, 0.3 + rng() * 0.2))
-  points.push(new THREE.Vector3(0.5 + rng() * 0.2, -0.4 - rng() * 0.2, 0.4 + rng() * 0.2))
-  // 前端（薄端）：2-3 点，Z 负方向，Y 幅度小
-  points.push(new THREE.Vector3(-0.2 - rng() * 0.15, 0.15 + rng() * 0.1, -0.5 - rng() * 0.2))
-  points.push(new THREE.Vector3(0.2 + rng() * 0.15, 0.15 + rng() * 0.1, -0.5 - rng() * 0.2))
-  points.push(new THREE.Vector3(rng() * 0.1 - 0.05, -0.1 - rng() * 0.1, -0.4 - rng() * 0.2))
-
-  const geo = new ConvexGeometry(points)
-  geo.computeVertexNormals()
-  return geo
-}
-
-// ─── 变体 3：不规则多面体 ──────────────────────────────
-// 基于 DodecahedronGeometry(1,0)，12 面体逐顶点大范围随机扰动
-function createIrregularRockGeometry(seed) {
-  const geo = new THREE.DodecahedronGeometry(1, 0)
-  const positions = geo.attributes.position
-  const rng = makeRng(seed)
-
-  // 非均匀轴缩放
-  const scaleX = 0.7 + rng() * 0.8
-  const scaleY = 0.5 + rng() * 0.8
-  const scaleZ = 0.7 + rng() * 0.8
-
-  for (let i = 0; i < positions.count; i++) {
-    // 大范围逐顶点随机(0.3~1.7)，产生尖锐棱角
-    const factor = 0.3 + rng() * 1.4
-    positions.setXYZ(
-      i,
-      positions.getX(i) * factor * scaleX,
-      positions.getY(i) * factor * scaleY,
-      positions.getZ(i) * factor * scaleZ
-    )
-  }
-  geo.computeVertexNormals()
-  return geo
-}
-
-// ─── 变体 4：长条状碎块 ────────────────────────────────
-// CylinderGeometry + 非均匀缩放，模拟层理/节理断裂的长条碎石
-function createElongatedRockGeometry(seed) {
-  // 6 段圆柱，端面 6 边形
-  const geo = new THREE.CylinderGeometry(1, 1, 1, 6, 3)
-  const positions = geo.attributes.position
-  const rng = makeRng(seed)
-
-  // Y 方向拉伸(1.5~2.5)，XZ 方向压缩(0.3~0.5)
-  const stretchY = 1.5 + rng() * 1.0
-  const compressXZ = 0.3 + rng() * 0.2
-
-  for (let i = 0; i < positions.count; i++) {
-    const x = positions.getX(i)
-    const y = positions.getY(i)
-    const z = positions.getZ(i)
-    const jitter = 0.7 + rng() * 0.6
-    // 端面微凹/凸
-    const endFactor = Math.abs(y) > 0.4 ? 0.6 + rng() * 0.8 : 1.0
-    positions.setXYZ(
-      i,
-      x * compressXZ * jitter * endFactor,
-      y * stretchY,
-      z * compressXZ * jitter * endFactor
-    )
-  }
-  geo.computeVertexNormals()
-  return geo
-}
-
-// ─── 几何体变体总数 ─────────────────────────────────────
-export const ROCK_VARIANT_COUNT = 5 // 0:块状 1:板状 2:楔形 3:不规则 4:长条
-
-// 每种形态的子变体数（不同 seed 产生的同类形状）
-const SUB_VARIANTS_PER_TYPE = 3
-
-// ─── 变体最大半径表（供碎片初始位置约束使用） ─────────
-// 渲染网格 InstancedMesh 的 scale = dispSize，几何体顶点的最大球半径
-//（maxR）就是渲染尺寸倍率：渲染球半径 = maxR × dispSize。
-// 而物理碰撞体按 physSize/2/maxR 缩放、半径恒为 physSize/2——
-// 因此视觉网格可以比物理碰撞体大（实测 Blocky≈1.2、Irregular≈2.0），
-// 初始位置若按过小的半径收拢，碎石网格就会穿出隧道壁"在隧道外渲染"。
-let _variantMaxRadius = null
-
-/** 计算并缓存每个岩石几何变体的最大顶点球半径（索引同 createRockGeometryPool） */
-export function getRockVariantMaxRadius() {
-  if (_variantMaxRadius) return _variantMaxRadius
-  const pool = createRockGeometryPool()
-  _variantMaxRadius = pool.map(geo => {
-    const p = geo.attributes.position
-    let m = 0
-    for (let i = 0; i < p.count; i++) {
-      const r = Math.hypot(p.getX(i), p.getY(i), p.getZ(i))
-      if (r > m) m = r
-    }
-    return m
-  })
-  return _variantMaxRadius
-}
-
-let _variantHalfExtents = null
-
-/**
- * 计算并缓存每个岩石几何变体的 AABB 半轴长 [hx, hy, hz]
- *（索引同 createRockGeometryPool）。乘以实例 scale（dispSize）即得该碎片的
- * 渲染包围盒半轴，配合四元数可算出任意方向上的精确支撑半长
- *（爆堆轮廓据此紧贴碎石投影，见 muckPileOutlineRenderer）。
- */
-export function getRockVariantHalfExtents() {
-  if (_variantHalfExtents) return _variantHalfExtents
-  const pool = createRockGeometryPool()
-  _variantHalfExtents = pool.map(geo => {
-    geo.computeBoundingBox()
-    const bb = geo.boundingBox
-    return [(bb.max.x - bb.min.x) / 2, (bb.max.y - bb.min.y) / 2, (bb.max.z - bb.min.z) / 2]
-  })
-  return _variantHalfExtents
-}
-
-let _variantUnitVolumes = null
-
-/**
- * 每个几何变体的"单位体积"（scale=1 时的实心体积，m³/单位立方）。
- *
- * 渲染用 InstancedMesh scale = dispSize，则一块变体的实心体积 = V_unit×dispSize³。
- * 而物理/账目体积按 KCO 球形口径 Σ(π/6)·physSize³ 计算。因 V_unit 各变体
- * 差异巨大（0.22~3.06，由几何填充度决定），渲染几何体积并不等于球形账目体积
- * ——这正是"渲染出来显多/显满"的一个来源。fragmentSpecGenerator.js 据此对
- * dispSize 施加按变体的归一化因子 f=cbrt((π/6)/V_unit)，使
- * Σ V_unit×(dispSize·f)³ = Σ(π/6)·physSize³，渲染体积退回球形账目标。
- * 体积用"自原点四面体分解"求和（几何均围绕原点构建，abs 计正）。
- */
-export function getRockVariantUnitVolumes() {
-  if (_variantUnitVolumes) return _variantUnitVolumes
-  const pool = createRockGeometryPool()
-  _variantUnitVolumes = pool.map(polyhedronVolume)
-  return _variantUnitVolumes
-}
-
-/** 计算三角网格的实心体积（自原点四面体分解，逐三角形取 abs） */
+/** 计算三角网格实心体积（自原点四面体分解，逐三角形取 abs） */
 function polyhedronVolume(geo) {
   const positions = geo.attributes.position
   const index = geo.index ? geo.index.array : null
@@ -252,90 +93,206 @@ function polyhedronVolume(geo) {
   return vol / 6
 }
 
-let _variantVertices = null
+// ─── 几何池构建 ────────────────────────────────────────
+let _shapeStats = null
+
+/** 真正构建池（每次调用都新建几何对象，供渲染器持有并 dispose） */
+function _buildPool() {
+  const built = []
+  let seedBase = 1000
+  for (const fam of SHAPE_FAMILIES) {
+    for (let sub = 0; sub < fam.count; sub++) {
+      const seed = seedBase + sub * 337
+      const network = createJointNetwork({ preset: fam.preset, seed })
+      const result = buildBlockGeometry({
+        network,
+        seed,
+        jitter: fam.jitter,
+        faceSpread: fam.faceSpread
+      })
+      addWhiteColorAttribute(result.geometry)
+      built.push({
+        geometry: result.geometry,
+        baseFamily: fam.key,
+        baseLabel: fam.label,
+        jointPreset: fam.preset,
+        ...result.stats
+      })
+    }
+    seedBase += 10000
+  }
+
+  // 按**实际几何 Zingg 分类**重排：族名必须与形状统计一致。
+  // 否则会出现"族名为柱状、几何判定却不规则"的情况，使形状占比统计与
+  // selectVariantBySize 的权重表错位（旧版实测块状占比 43% 而权重预期 55%）。
+  built.sort((a, b) => ZINGG_ORDER.indexOf(a.zingg) - ZINGG_ORDER.indexOf(b.zingg))
+
+  const pool = []
+  const stats = []
+  for (const item of built) {
+    pool.push(item.geometry)
+    stats.push({
+      variantIndex: pool.length - 1,
+      family: item.zingg,
+      familyLabel: ZINGG_LABELS[item.zingg] || '',
+      baseFamily: item.baseFamily,
+      baseLabel: item.baseLabel,
+      jointPreset: item.jointPreset,
+      zingg: item.zingg,
+      zinggLabel: ZINGG_LABELS[item.zingg] || '',
+      elongation: item.elongation,
+      flatness: item.flatness,
+      faceTriangles: item.faceTriangles,
+      halfExtents: item.halfExtents
+    })
+  }
+
+  // 重建族区间（按重排后的顺序）
+  _familyRanges = new Map()
+  for (let i = 0; i < stats.length; i++) {
+    const key = stats[i].family
+    if (!_familyRanges.has(key)) _familyRanges.set(key, [i, i])
+    else _familyRanges.get(key)[1] = i
+  }
+  _shapeStats = stats
+  return pool
+}
+
+// 模板池：供各类统计 getter 复用，常驻不释放（渲染器用 createRockGeometryPool 另建）
+let _templatePool = null
+
+function getTemplatePool() {
+  if (!_templatePool) _templatePool = _buildPool()
+  return _templatePool
+}
 
 /**
- * 每个几何变体的基础顶点数组（scale=1，未缩放），索引同几何池。
- * 供包裹壳做"真实投影轮廓"：把基础顶点按 dispSize 缩放、旋转变换到世界，
- * 投影到 (s,t) 平面取凸包，即碎块的可见外沿轮廓（而非旋转 AABB 的整矩形）。
+ * 创建完整的岩石几何体池（渲染器/物理引擎使用；调用方负责 dispose）。
+ * @returns {THREE.BufferGeometry[]} 长度 = ROCK_VARIANT_TOTAL（18）
  */
+export function createRockGeometryPool() {
+  return _buildPool()
+}
+
+/**
+ * 各变体的形状统计（族、Zingg 分类、三轴比、面数），供 UI 与验收脚本读取。
+ * @returns {Array<Object>}
+ */
+export function getRockVariantShapeStats() {
+  getTemplatePool()
+  return _shapeStats
+}
+
+// ─── 派生统计（均按模板池计算，不重复构建）─────────────
+let _variantMaxRadius = null
+
+/** 每个变体的最大顶点球半径（索引同池） */
+export function getRockVariantMaxRadius() {
+  if (_variantMaxRadius) return _variantMaxRadius
+  const pool = getTemplatePool()
+  _variantMaxRadius = pool.map(geo => {
+    const p = geo.attributes.position
+    let m = 0
+    for (let i = 0; i < p.count; i++) {
+      const r = Math.hypot(p.getX(i), p.getY(i), p.getZ(i))
+      if (r > m) m = r
+    }
+    return m
+  })
+  return _variantMaxRadius
+}
+
+let _variantHalfExtents = null
+
+/** 每个变体的 AABB 半轴 [hx,hy,hz]（索引同池） */
+export function getRockVariantHalfExtents() {
+  if (_variantHalfExtents) return _variantHalfExtents
+  const pool = getTemplatePool()
+  _variantHalfExtents = pool.map(geo => {
+    geo.computeBoundingBox()
+    const bb = geo.boundingBox
+    return [(bb.max.x - bb.min.x) / 2, (bb.max.y - bb.min.y) / 2, (bb.max.z - bb.min.z) / 2]
+  })
+  return _variantHalfExtents
+}
+
+let _variantUnitVolumes = null
+
+/** 每个变体的单位体积（scale=1），用于渲染体积归一化 */
+export function getRockVariantUnitVolumes() {
+  if (_variantUnitVolumes) return _variantUnitVolumes
+  const pool = getTemplatePool()
+  _variantUnitVolumes = pool.map(polyhedronVolume)
+  return _variantUnitVolumes
+}
+
+let _variantVertices = null
+
+/** 每个变体的基础顶点数组（scale=1），供包裹壳做真实投影轮廓 */
 export function getRockVariantVertices() {
   if (_variantVertices) return _variantVertices
-  const pool = createRockGeometryPool()
+  const pool = getTemplatePool()
   _variantVertices = pool.map(geo => geo.attributes.position.array.slice())
   return _variantVertices
 }
 
+// ─── 按块度 + 岩体形状混合抽取变体 ─────────────────────
+// 块度档位 → **Zingg 分类**权重（与几何池的族定义严格一致）。
+// 默认对应"节理中等发育的硬岩"：等轴块状为主体（总占比 ≥ 55%，满足验收
+// ≥50% 的要求），不规则次之，板状/长条只占零头（层理发育时由 shapeMix 提高）。
+const SIZE_WEIGHTS = {
+  large: { blocky: 0.72, irregular: 0.18, columnar: 0.08, platy: 0.02 },
+  medium: { blocky: 0.64, irregular: 0.24, columnar: 0.09, platy: 0.03 },
+  small: { blocky: 0.56, irregular: 0.3, columnar: 0.1, platy: 0.04 },
+  fine: { blocky: 0.48, irregular: 0.37, columnar: 0.11, platy: 0.04 }
+}
+
 /**
- * 给几何体补充全 1.0 的白色 color 顶点属性。
+ * 按块度档位 + 岩体形状混合抽取变体索引。
  *
- * 原因：碎片材质启用了 vertexColors（使 InstancedMesh 的 instanceColor 生效，
- * 支持按 physSize 着色与区间高亮），但 r169 中材质启用 USE_COLOR 后片元着色器
- * 会用 geometry.attributes.color 乘以 vColor。若几何体缺少该属性，颜色输出为黑。
- * 补全 1.0 白色后：vColor = color(1,1,1) × instanceColor = instanceColor，
- * 使每个碎片的实例颜色（岩石色/高亮色）完整生效。
- * @param {THREE.BufferGeometry} geo
- */
-function addWhiteColorAttribute(geo) {
-  if (geo.attributes.color) return
-  const count = geo.attributes.position.count
-  const colors = new Float32Array(count * 3).fill(1)
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
-}
-
-/**
- * 创建完整的岩石几何体池
- * 总计 ROCK_VARIANT_COUNT × SUB_VARIANTS_PER_TYPE = 15 个几何体
- * @returns {THREE.BufferGeometry[]} 几何体数组，索引 = type * SUB_VARIANTS_PER_TYPE + sub
- */
-export function createRockGeometryPool() {
-  const pool = []
-  const creators = [
-    createBlockyRockGeometry,
-    createPlatyRockGeometry,
-    createWedgeRockGeometry,
-    createIrregularRockGeometry,
-    createElongatedRockGeometry
-  ]
-
-  for (let type = 0; type < creators.length; type++) {
-    for (let sub = 0; sub < SUB_VARIANTS_PER_TYPE; sub++) {
-      const seed = type * 1000 + sub * 337
-      const geo = creators[type](seed)
-      addWhiteColorAttribute(geo)
-      pool.push(geo)
-    }
-  }
-  return pool
-}
-
-/**
- * 根据碎块尺寸选择几何体变体索引
- * 大块→块状，中块→板状，中小→楔形，小块→不规则，偶尔长条
+ * 与旧版的关键差异：**不再把 x50~x80 的中块硬映射为板状**。板状属于
+ * "层理发育岩体"的特征，只能通过 shapeMix 提高权重（如 { platy: 3 }）。
  *
  * @param {number} physSize - 碎块物理尺寸(m)
  * @param {number} x50 - KCO 中位块度(m)
- * @param {number} x80 - 80%通过块度(m)，若未提供则估算为 x50*1.6
+ * @param {number} x80 - 80% 通过块度(m)
  * @param {number} xmax - 最大块度(m)
- * @returns {number} variantIndex（0~14），对应 pool 中的几何体
+ * @param {Function} rng - 随机数发生器
+ * @param {Object|null} shapeMix - 形状族权重倍率，如 { platy: 3, blocky: 0.8 }
+ * @returns {number} variantIndex（0 ~ ROCK_VARIANT_TOTAL-1）
  */
-export function selectVariantBySize(physSize, x50, x80, xmax, rng = Math.random) {
+export function selectVariantBySize(physSize, x50, x80, xmax, rng = Math.random, shapeMix = null) {
   const safeX80 = x80 > 0 ? x80 : x50 * 1.6
+  let weights
+  if (physSize > safeX80) weights = SIZE_WEIGHTS.large
+  else if (physSize > x50) weights = SIZE_WEIGHTS.medium
+  else if (physSize > x50 * 0.5) weights = SIZE_WEIGHTS.small
+  else weights = SIZE_WEIGHTS.fine
 
-  let type
-  if (physSize > safeX80) {
-    type = 0 // 块状岩块（大块）
-  } else if (physSize > x50) {
-    type = 1 // 扁平板状（中块）
-  } else if (physSize > x50 * 0.5) {
-    type = rng() > 0.7 ? 4 : 2 // 中小：楔形为主，偶尔长条
-  } else {
-    type = rng() > 0.85 ? 4 : 3 // 小块：不规则为主，偶尔长条
+  const mix = shapeMix && typeof shapeMix === 'object' ? shapeMix : null
+  // 可用族以几何池实际存在的 Zingg 分类为准（可能缺某类，如无板状变体）
+  const ranges = getFamilyRanges()
+  const keys = ZINGG_ORDER.filter(k => ranges.has(k))
+  const w = keys.map(k => {
+    const base = Math.max(0, Number(weights[k]) || 0)
+    const mult = mix && mix[k] != null ? Math.max(0, Number(mix[k]) || 0) : 1
+    return base * mult
+  })
+  const total = w.reduce((s, x) => s + x, 0)
+
+  let key = keys[0] || 'blocky'
+  if (total > 0) {
+    let r = rng() * total
+    for (let i = 0; i < keys.length; i++) {
+      r -= w[i]
+      if (r <= 0) {
+        key = keys[i]
+        break
+      }
+    }
   }
-
-  // 在该 type 内随机选子变体
-  const sub = Math.floor(rng() * SUB_VARIANTS_PER_TYPE)
-  return type * SUB_VARIANTS_PER_TYPE + sub
+  const [lo, hi] = getFamilyRanges().get(key)
+  return lo + Math.floor(rng() * (hi - lo + 1))
 }
 
 export default {
@@ -345,5 +302,7 @@ export default {
   getRockVariantHalfExtents,
   getRockVariantUnitVolumes,
   getRockVariantVertices,
-  ROCK_VARIANT_COUNT
+  getRockVariantShapeStats,
+  ROCK_VARIANT_COUNT,
+  ROCK_VARIANT_TOTAL
 }

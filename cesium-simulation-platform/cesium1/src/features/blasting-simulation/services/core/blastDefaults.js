@@ -7,14 +7,19 @@ export const DEFAULT_TUNNEL_WIDTH = 18
 export const DEFAULT_TUNNEL_WALL_HEIGHT = 6
 export const DEFAULT_TUNNEL_ARCH_RADIUS = 9
 
-export const DEFAULT_RESTITUTION = 0.15
-export const DEFAULT_FRICTION = 0.7
+export const DEFAULT_RESTITUTION = 0.1
+export const DEFAULT_FRICTION = 0.85
 export const DEFAULT_MAX_BOUNCES = 2
 
 // 炮孔驱动模式（隧道全断面/台阶爆破实际使用）：
-// 低恢复系数 + 高摩擦 + 少反弹，使岩块落点处就地堆积，避免沿底板滑散摊平爆堆。
-export const ENHANCED_RESTITUTION = 0.2
-export const ENHANCED_FRICTION = 0.72
+// 低恢复系数 + 高摩擦 + 少反弹，使岩块落点处就地堆积，避免沿底板滑散摊平。
+// 恢复系数 0.1：碎石落地是强非弹性碰撞（碎礁/节理面不可逆破碎耗能），
+// 几乎不反弹；摩擦 0.85：碎石表面粗糙且形状锁互（凸多面体棱面咬合），
+// 实测组合摩擦 ≈ √(0.85×0.85) ≈ 0.85 → 安息角 ≈ 40°，落在文献碎石堆积
+// 35°~42° 区间。旧值 0.72/0.2 下碎片落地后仍沿底板高速滑行，
+// 爆堆被摊平（实测安息角仅 8°）。
+export const ENHANCED_RESTITUTION = 0.1
+export const ENHANCED_FRICTION = 0.85
 export const ENHANCED_MAX_BOUNCES = 2
 
 export function calcHorseshoeArea(width, wallHeight, archRadius) {

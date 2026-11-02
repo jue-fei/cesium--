@@ -274,6 +274,55 @@ def enrich_from_blasting(tasks: list) -> list:
 
 
 # =====================================================================
+# 3.1) 爆破事件 ↔ 采场绑定（R4 注入目标的唯一依据）
+# =====================================================================
+def find_tasks_by_blast_event(event_id: str) -> list:
+    """按爆破事件反查已绑定的采场任务 id。
+
+    绑定关系存于 scheduling_muck_task.blast_event_id，由
+    POST /api/scheduling/bind_blast 维护。R4 注入必须依赖该绑定，
+    不得回退到默认采场（否则会把爆堆放错位置）。
+    """
+    if not event_id or not _DB_AVAILABLE:
+        return []
+    conn = _db_conn()
+    if conn is None:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT task_id FROM scheduling_muck_task WHERE blast_event_id=%s",
+                (event_id,),
+            )
+            return [row["task_id"] for row in cur.fetchall()]
+    except Exception as e:
+        logger.warning("[muck_data] 反查爆破绑定失败: %s", e)
+        return []
+    finally:
+        conn.close()
+
+
+def task_exists(task_id: str) -> bool:
+    """采场任务是否存在（绑定前校验，避免 upsert 插入残缺行）。"""
+    if not task_id or not _DB_AVAILABLE:
+        return False
+    conn = _db_conn()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM scheduling_muck_task WHERE task_id=%s LIMIT 1", (task_id,)
+            )
+            return cur.fetchone() is not None
+    except Exception as e:
+        logger.warning("[muck_data] 校验采场任务失败: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+# =====================================================================
 # 4) 对外统一入口
 # =====================================================================
 def load_muck_tasks(cfg: dict) -> list:

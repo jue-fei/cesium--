@@ -227,6 +227,13 @@ def build_scenario(cfg: dict) -> dict:
         "nodeDump": cfg.get("nodeDump", "S0"),
         "tunnelNodes": cfg.get("tunnelNodes", []),
         "segments": parse_segments(cfg),
+        # 巷道段三维折线（mine 系）：parse_segments 只保留拓扑属性，
+        # 几何单独存放，供 R3 危险区相交判定与三维联动使用
+        "segmentGeo": {
+            s["id"]: s.get("polyline3") or []
+            for s in cfg.get("segments", [])
+            if s.get("id")
+        },
         "levelsMeta": cfg.get("levelsMeta", []),
         "levelSegs": {int(k): list(v) for k, v in cfg.get("levelSegs", {}).items()},
         "levelDepthM": cfg.get("levelDepthM", [0]),

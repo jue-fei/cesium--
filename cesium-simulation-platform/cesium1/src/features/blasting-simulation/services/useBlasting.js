@@ -21,6 +21,8 @@ import {
 import { matchLiteratureEvent } from './core/literatureEvents.js'
 import { BlastingWsConnector, FrameType } from './core/realtime/blastingWsConnector.js'
 import useMessage from '@/composables/useMessage.js'
+import twinClient from '@/services/fusion/twinClient.js'
+import twinClock from '@/services/fusion/clockService.js'
 
 // 本地定义默认播放速度（原 blastingDataCore 已移除）
 const DEFAULT_PLAYBACK_SPEED_MS = 50
@@ -78,6 +80,60 @@ const statsVersion = ref(0)
 const dbEvents = ref([])
 const dbLoading = ref(false)
 const currentEventId = ref(null)
+
+// ─── 孪生融合：爆破完成上报（方案 WP2 T2.3 / R4）────────────
+// 注入目标由后端按 blasting_events.eventId → scheduling_muck_task.blast_event_id 绑定反查；
+// 未绑定则跳过（不默认落到某个采场）；也可用 localStorage 'twin.defaultPileId' 临时覆盖。
+const TWIN_DEFAULT_SCENARIO = 'ashale'
+// 统一时钟开关（方案 T3.3 影子模式）：默认关闭，开启后帧↔秒映射对全局时钟可见
+const TWIN_CLOCK_FLAG = 'twin.timeSync.enabled'
+let twinClockRegistered = false
+
+function isTwinClockEnabled() {
+  try {
+    return localStorage.getItem(TWIN_CLOCK_FLAG) === '1'
+  } catch (_) {
+    return false
+  }
+}
+// 同一次回放只上报一次：WS 完成帧与本地播完可能都触发
+let blastCompletedReported = false
+
+/**
+ * 显式指定的采场（可选）：事件字段 > localStorage 覆盖。
+ * 不再提供默认值——注入目标必须由后端按 blast_event_id 绑定反查，
+ * 否则会把爆堆错误地落到固定采场（假联动）。
+ */
+function resolveTwinPileId(event) {
+  return event.pileId || event.muckPointId || localStorage.getItem('twin.defaultPileId') || ''
+}
+
+/**
+ * 上报「爆破事件完成」：后端按绑定关系决定落到哪个采场，未绑定则跳过。
+ *
+ * 时间语义：
+ *   - 总线事件时间用服务端 now（表示“刚完成回放”这一业务动作）；
+ *   - 真实起爆时间放在 payload.blastTime，供业务侧算“起爆后 elapsed”，
+ *     不拿来当事件 ts，否则历史事件会让事件流时间倒序。
+ */
+function reportBlastCompleted() {
+  if (blastCompletedReported) return
+  blastCompletedReported = true
+  const event = dataset.value?.event || {}
+  const pileId = resolveTwinPileId(event)
+  const blastTime = event.blastTime || null
+  twinClient.publish({
+    type: 'blasting:event:completed',
+    proc: 'blasting',
+    source: 'web',
+    payload: {
+      scenario: localStorage.getItem('twin.defaultScenario') || TWIN_DEFAULT_SCENARIO,
+      eventId: currentEventId.value || event.eventId || null,
+      blastTime,
+      ...(pileId ? { pile: { pileId, source: 'blasting' } } : {})
+    }
+  })
+}
 
 // ─── 单例可变状态（全部收拢到模块级）─────────────────────
 // useBlasting() 会被多处调用（App.vue、面板控制器），此前部分状态定义在函数内，
@@ -254,6 +310,35 @@ export default function useBlasting() {
     return base / rate
   }
 
+  // ─── 孪生统一时钟：影子适配（方案 T3.3）──────────────
+  // 默认不注册（不改变现有播放行为）；启用后向全局时钟暴露「帧 ↔ 秒」映射，
+  // 时钟 seek 即可驱动本模块跳帧。是否接管播放循环由 clockService 决定。
+  const registerTwinClockProvider = () => {
+    if (twinClockRegistered || !isTwinClockEnabled()) return
+    twinClockRegistered = true
+    twinClock.registerProvider('blasting', {
+      label: '爆破回放',
+      getRange: () => {
+        if (!dataset.value) return null
+        const seconds = (maxFrame.value * _effectiveFrameInterval()) / 1000
+        return [0, Math.max(0, seconds)]
+      },
+      seek: seconds => {
+        if (!dataset.value) return
+        const interval = _effectiveFrameInterval()
+        const frame = Math.round((Number(seconds) * 1000) / interval)
+        const next = Math.max(0, Math.min(maxFrame.value, frame))
+        if (next !== currentFrame.value) setFrame(next)
+      }
+    })
+  }
+
+  const unregisterTwinClockProvider = () => {
+    if (!twinClockRegistered) return
+    twinClock.unregisterProvider('blasting')
+    twinClockRegistered = false
+  }
+
   // B1：播放时计算下一帧（处理 AB 区间循环与整体循环）
   const computeNextFrame = () => {
     const cur = currentFrame.value
@@ -299,6 +384,8 @@ export default function useBlasting() {
           if (wsBackendCompleted.value) {
             showMessage('预览播放完成', 'success')
           }
+          // 本地播放到末尾也视为事件完成（纯本地回放不依赖后端 WS 完成帧）
+          reportBlastCompleted()
           return
         }
       }
@@ -309,6 +396,8 @@ export default function useBlasting() {
 
   const startPlayback = () => {
     if (!dataset.value || isPlaying.value) return
+    // 每次起播重置上报标志，允许同一事件重新回放后再次联动
+    blastCompletedReported = false
     // 全速预计算（关键帧烘焙）未完成：提示并等待，完成后自动开始播放。
     // 这样首次播放即进入关键帧回放——倍速/循环/拖拽/进度条时长全部即时、精确。
     if (!replayReady.value) {
@@ -533,6 +622,8 @@ export default function useBlasting() {
       // 设置标志，等本地播放到达最后一帧时才弹窗（双条件同步）。
       // 若本地播放已停止（本地快于后端），直接弹窗。
       wsBackendCompleted.value = true
+      // 孪生融合：通知后端执行 R4（爆堆→装载点）
+      reportBlastCompleted()
       if (!isPlaying.value) {
         showMessage('预览播放完成', 'success')
       }
@@ -558,6 +649,7 @@ export default function useBlasting() {
     stopPrecomputeWatch()
     pendingAutoStart = false
     blastingManager?.clearScene()
+    unregisterTwinClockProvider()
     dataset.value = null
     currentFrame.value = 0
     effectiveDurationS.value = null
@@ -629,6 +721,8 @@ export default function useBlasting() {
     syncLayerVisibility()
     // 监控全速预计算进度；就绪后若请求了自动播放则开始
     startPrecomputeWatch()
+    // 影子时钟：数据集就绪后暴露可寻址区间（开关关闭时为空操作）
+    registerTwinClockProvider()
     if (autoPlay) startPlayback()
   }
 
@@ -759,8 +853,8 @@ export default function useBlasting() {
       ...dataset.value.result,
       // 仅在算法侧未提供 fragmentCount 时兜底使用生成数，避免用渲染统计污染设计结果语义。
       ...(stats &&
-      typeof stats.fragmentCountGenerated === 'number' &&
-      !Number.isFinite(Number(dataset.value.result?.fragmentCount))
+        typeof stats.fragmentCountGenerated === 'number' &&
+        !Number.isFinite(Number(dataset.value.result?.fragmentCount))
         ? { fragmentCount: stats.fragmentCountGenerated }
         : {})
     }

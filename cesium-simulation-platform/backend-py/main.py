@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from app.routes import orebodies, models, boreholes, monitoring, geology, blasting, blasting_ws, scheduling, scheduling_ws, dyna
+from app.routes import orebodies, models, boreholes, monitoring, geology, blasting, blasting_ws, scheduling, scheduling_ws, dyna, twin, datasource
 from app.security import API_TOKEN
 
 # ─── 日志配置 ──────────────────────────────────────────
@@ -144,6 +144,8 @@ app.include_router(blasting_ws.router)
 app.include_router(scheduling.router)
 app.include_router(scheduling_ws.router)
 app.include_router(dyna.router)
+app.include_router(twin.router)
+app.include_router(datasource.router)
 
 # LS-DYNA 子系统页面（随平台一起分发）：访问 /dyna/ 即为 d3plot 可视化应用
 _dyna_web = dyna.web_dir()

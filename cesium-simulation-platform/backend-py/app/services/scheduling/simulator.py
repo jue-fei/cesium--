@@ -322,6 +322,11 @@ class SchedulingSimulator:
             ))
 
         # ---- 段动态 ----
+        # 巷道几何（mine 系折线）：供危险区相交判定使用
+        self.segment_geo = self.cfg.get("segmentGeo", {})
+        # 外部封锁台账（危险区/人工下发）：与仿真自动封锁分开记账，
+        # 避免被“岩爆/炮烟消退即解除”的自动逻辑误清
+        self.external_blocks: dict[str, dict] = {}
         self.segs = {}
         init_b = {b["seg"]: b["reason"] for b in self.initial_blocks}
         for seg in self.segments:
@@ -475,6 +480,46 @@ class SchedulingSimulator:
             "reasons": reasons,
         }
 
+    # ---------- 外部封锁（R3 危险区 / 人工下发）----------
+    def set_external_block(self, seg_id, source="api", reason="外部封锁", expire_at=None):
+        """下发/更新一段巷道的外部封锁。段不存在返回 False。"""
+        sd = self.segs.get(seg_id)
+        if sd is None:
+            return False
+        self.external_blocks[seg_id] = {
+            "source": str(source or "api"),
+            "reason": str(reason or "外部封锁"),
+            "expireAt": float(expire_at) if expire_at is not None else None,
+            "appliedAt": time.time(),
+        }
+        sd.blocked = True
+        sd.blockReason = self.external_blocks[seg_id]["reason"]
+        return True
+
+    def clear_external_block(self, seg_id):
+        """解除外部封锁；若现场仍存在岩爆/炮烟风险，则保持封锁但改回内部原因。"""
+        info = self.external_blocks.pop(seg_id, None)
+        if info is None:
+            return False
+        sd = self.segs.get(seg_id)
+        if sd is not None and sd.rockburst <= RBUNLOCK_THREAT and sd.smoke <= 0.85:
+            sd.blocked = False
+            sd.blockReason = ""
+            sd.blockT = 0.0
+        return True
+
+    def _expire_external_blocks(self):
+        """清理到期封锁（expireAt 用 epoch 秒，与仿真时间无关）。"""
+        now = time.time()
+        for seg_id in list(self.external_blocks.keys()):
+            expire_at = self.external_blocks[seg_id].get("expireAt")
+            if expire_at is not None and now >= expire_at:
+                self.clear_external_block(seg_id)
+
+    def external_block_list(self):
+        """当前外部封锁台账（供接口/测评举证）。"""
+        return [{"segId": seg_id, **info} for seg_id, info in self.external_blocks.items()]
+
     # ---------- 动态环境更新 ----------
     def _update_dynamic(self):
         """推进一帧动态环境：炮烟衰减/脉冲、拥堵慢变、岩爆扰动、定位误差漂移。"""
@@ -510,11 +555,13 @@ class SchedulingSimulator:
                     sd.blockReason = "岩爆预警" if sd.rockburst > RBUNLOCK_THREAT else "炮烟浓度超限"
             if sd.blocked:
                 sd.blockT += self.dt
-                if sd.rockburst < BLOCK_CLEAR_RB and sd.smoke < BLOCK_CLEAR_SMOKE \
-                        and sd.blockT >= BLOCK_HOLD_S:
-                    sd.blocked = False
-                    sd.blockReason = ""
-                    sd.blockT = 0.0
+                # 外部封锁优先：到期或显式解除前，不参与岩爆/炮烟自动解除
+                if seg_id not in self.external_blocks:
+                    if sd.rockburst < BLOCK_CLEAR_RB and sd.smoke < BLOCK_CLEAR_SMOKE \
+                            and sd.blockT >= BLOCK_HOLD_S:
+                        sd.blocked = False
+                        sd.blockReason = ""
+                        sd.blockT = 0.0
             else:
                 sd.blockT = 0.0
 
@@ -1485,6 +1532,7 @@ class SchedulingSimulator:
         """推进一帧仿真相。”
         """
         self.t += self.dt
+        self._expire_external_blocks()
         self._update_dynamic()
         self._update_muck()
         self._move_equipment()

@@ -9,6 +9,7 @@
  * / factors.dynamicEnvironment / factors.muckPile / factors.equipment。
  */
 import { shallowRef, onUnmounted } from 'vue'
+import twinClient from '@/services/fusion/twinClient.js'
 
 const DEFAULT_POLL_MS = 3000
 const MAX_RECONNECT = 6
@@ -218,7 +219,7 @@ export function useScheduling({
       .then(json => {
         if (json && json.code === 0) applySnapshot(json.data)
       })
-      .catch(() => { })
+      .catch(() => {})
   }
 
   // ---------- NSGA-III 多目标选解提交 ----------
@@ -254,7 +255,26 @@ export function useScheduling({
     }
   }
 
-  onUnmounted(stop)
+  /** 主动拉取一次快照（供孪生联动 haulage:refresh 调用，不重建 WS）。 */
+  function refresh() {
+    return fetch(HTTP_URL)
+      .then(r => r.json())
+      .then(json => {
+        if (json && json.code === 0) applySnapshot(json.data)
+      })
+      .catch(() => {})
+  }
+
+  // 孪生融合：后端 R4 注入爆堆后广播 haulage:refresh，这里静默刷新快照
+  const offTwinAction = twinClient.onAction('haulage:refresh', () => refresh())
+  // R3：危险区封锁巷道段后，同步刷新段状态（TunnelMap3D 按 blocked 渲染红段）
+  const offTwinBlock = twinClient.onAction('haulage:segments-blocked', () => refresh())
+
+  onUnmounted(() => {
+    offTwinAction()
+    offTwinBlock()
+    stop()
+  })
 
   if (autoStart) start()
 
@@ -267,6 +287,7 @@ export function useScheduling({
     setInterval,
     stop,
     start,
+    refresh,
     applyAssignment,
     injectBlastPile
   }

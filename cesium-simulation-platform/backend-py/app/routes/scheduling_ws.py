@@ -21,6 +21,7 @@ from collections import defaultdict
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.routes.scheduling import get_simulator
+from app.services.twin.hooks import on_scheduling_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ async def scheduling_stream(ws: WebSocket, channel: str = "main", scenario: str 
     # 连接即推一帧，前端立即有数据
     await ws.send_text(json.dumps({"type": "snapshot", "data": sim.snapshot()}, ensure_ascii=False))
     try:
-        listener_task = asyncio.create_task(_tick_broadcast(ws, interval, sim))
+        listener_task = asyncio.create_task(_tick_broadcast(ws, interval, sim, scenario))
         while True:
             try:
                 raw = await asyncio.wait_for(ws.receive_text(), timeout=HEARTBEAT_TIMEOUT_S)
@@ -90,8 +91,8 @@ async def scheduling_stream(ws: WebSocket, channel: str = "main", scenario: str 
                 if 0.5 <= secs <= 30:
                     interval = secs
                     listener_task.cancel()
-                    time_based = interval
-                    listener_task = asyncio.create_task(_tick_broadcast(ws, time_based))
+                    # 修复：原实现少传 sim，切节流后下一帧会因参数缺失报错
+                    listener_task = asyncio.create_task(_tick_broadcast(ws, interval, sim, scenario))
                     await ws.send_text(json.dumps({"type": "interval", "seconds": interval}))
             else:
                 await ws.send_text(json.dumps({"type": "stale_error", "message": f"unknown type: {ctype}"}))
@@ -104,19 +105,22 @@ async def scheduling_stream(ws: WebSocket, channel: str = "main", scenario: str 
         mgr.disconnect(ws, channel)
 
 
-async def _tick_broadcast(ws: WebSocket, interval: float, sim):
+async def _tick_broadcast(ws: WebSocket, interval: float, sim, scenario: str = "ashale"):
     """定时推进仿真并推送快照。每帧代表 interval 秒的仿真时间。"""
     try:
         while True:
             await asyncio.sleep(interval)
-            snapshot = _advance_and_push(sim, interval)
+            snapshot = _advance_and_push(sim, interval, scenario)
             await ws.send_text(json.dumps({"type": "snapshot", "data": snapshot}, ensure_ascii=False))
     except asyncio.CancelledError:
         raise
 
 
-def _advance_and_push(sim, seconds):
+def _advance_and_push(sim, seconds, scenario: str = "ashale"):
     # 每个推送周期推进 seconds 秒仿真：连续多步，保证一整段的装备/爆堆/环境演进后发一帧
     for _ in range(max(1, int(seconds) // sim.dt)):
         sim.tick()
-    return sim.snapshot()
+    snapshot = sim.snapshot()
+    # 孪生 R5：调度推进 → KPI 采样（事件不落库，规则内部节流）
+    on_scheduling_snapshot(scenario, seconds)
+    return snapshot

@@ -55,6 +55,13 @@ const HOLE_SIGMA_BASE = 0.45 // 基准σ(m)，装药量=平均时的扩散半径
 const HOLE_SIGMA_RATIO_MIN = 0.7 // 最小σ倍数（小装药孔扩散收窄）
 const HOLE_SIGMA_RATIO_MAX = 1.6 // 最大σ倍数（大装药孔扩散放宽）
 
+// 初始位置混合权重：体积守恒（断面低差异分层）为主，孔周高斯为辅。
+// 依据：真实破碎块体原本充满待爆岩体体积，孔周只是“破碎更充分、块度更细”；
+// 旧版纯高斯采样把全部碎块挤在孔轴 σ 范围内，断面边缘与孔间出现空洞，
+// 爆堆初始形态系统性偏“窄而集中”，与现场不符。
+const HOLE_NEAR_WEIGHT = 0.3 // 近孔高斯采样占比（其余走体积守恒分层）
+const HOLE_SIGMA_CAP = 1.2 // 近孔高斯 σ 上限(m)
+
 // ─── 延时场耦合参数 ───
 // 后序孔因前序孔形成新自由面，块度更细、方向偏向已形成自由面（轴向）
 const DELAY_SIZE_DECAY = 0.04 // 每序块度衰减系数
@@ -109,6 +116,9 @@ export function generateFragmentSpecs(options = {}) {
     countLimit = 320,
     holes,
     metrics = {},
+    // 岩体形状混合（形状族权重倍率）：层理发育的岩体传 { platy: 3 }，
+    // 节理稀发的硬岩传 null 即走默认（块状为主、板状 < 8%）
+    shapeMix = null,
     randomSeed = 42 + Math.floor(Math.random() * 1000)
   } = options
   // 创建确定性伪随机数生成器，使同一种子+同一参数可完全复现
@@ -187,7 +197,12 @@ export function generateFragmentSpecs(options = {}) {
   //   - q = 比装药 (kg/m³) = chargeKg / brokenVolume
   //   - E_g = 炸药比能 (J/kg)，ANFO≈2.484e6, emulsion≈3.9e6, dynamite≈3.56e6
   //   - ρ_rock = 岩体密度 (kg/m³)
-  //   - η = 0.15 能量耦合系数（经验，炸药能量转化为碎片动能的比例）
+  //   - η = 能量耦合系数（经验，炸药能量转化为碎片动能的比例）
+  //     默认 0.005：实测标定值。0.15 使 320kg 装药的 vBase≈34 m/s，叠加
+  //     sizeFactor 后峰值 41 m/s，碎片抛到 80m 外（隧道尽头）堆积；
+  //     0.005 在大断面下对应 vBase≈6.2 m/s、现场尺度断面（6m×6m、
+  //     3m 进尺、60kg 装药）对应 vBase≈3.0 m/s，两者的抛距与爆堆高度
+  //     都与现场观测一致。UI 可用 metrics.eta 覆盖。
   //   - 物理依据：炸药总能量 E_total = Q·E_g，转化为碎片动能 E_k = ½·m·v²
   //     假设能量耦合 η，碎片总质量 m = V·ρ_rock，则 v = √(2·η·Q·E_g/(V·ρ_rock)) = √(2·η·q·E_g/ρ_rock)
   //
@@ -206,7 +221,7 @@ export function generateFragmentSpecs(options = {}) {
     const Eg =
       EXPLOSIVE_TYPES[metrics.explosiveType || 'emulsion']?.Eg || EXPLOSIVE_TYPES.emulsion.Eg
     const q = chargeKg / Number(metrics.volumeRoundM3) // 比装药 kg/m³
-    const eta = Number(metrics.eta) > 0 ? Number(metrics.eta) : 0.15 // 能量耦合系数（UI 可配置，默认 0.15）
+    const eta = Number(metrics.eta) > 0 ? Number(metrics.eta) : 0.005 // 能量耦合系数（UI 可配置，默认 0.005）
     vBase = Math.sqrt((2 * eta * q * Eg) / densityBase)
     velocityModel = 'persson1997'
   } else {
@@ -281,6 +296,21 @@ export function generateFragmentSpecs(options = {}) {
   }
   _segGapMs = Math.max(10, _segGapMs)
 
+  // 待爆进尺深度(m)：优先取设计进尺（advanceLength），缺省 2.5m。
+  const roundDepth = Math.max(0.4, Number(metrics.advanceLength) || 2.5)
+  // 体积填充深度：代表碎岩的**松散体积 / 断面面积**。
+  // 代表性碎岩总体积是松散体积（含碎胀），岩体空间是实方；若按实方进尺
+  // 展开，块必重叠 → 分离冲量把碎块挤到轴向远处（实测抛距从 6m 噬到 13m、
+  // 堆高比降到 0.43）。按体积反算深度可保证初始不重叠，同时约束爆堆长度。
+  const sectionArea =
+    Number(face.width) * Number(face.wallHeight) + (Math.PI * Number(face.archRadius) ** 2) / 2
+  const estBulk = Number(metrics.bulkFactor) > 0 ? Number(metrics.bulkFactor) : 1.5
+  const estLooseVol = Number(metrics.volumeRoundM3) * visibleMassFraction * estBulk
+  const volumeDepth =
+    sectionArea > 1e-3 && estLooseVol > 0
+      ? Math.max(roundDepth * 0.6, Math.min(roundDepth * 2.5, estLooseVol / sectionArea))
+      : roundDepth
+
   if (useHoleDriven) {
     // ── 炮孔驱动模式：逐孔生成碎片 ──
     for (const alloc of holeAllocations) {
@@ -327,11 +357,34 @@ export function generateFragmentSpecs(options = {}) {
       const holeLocalCX = _worldToFaceLateral(face, holeWorldPos)
       const holeLocalCY = _worldToFaceHeight(face, holeWorldPos)
 
+      // 初始位置预生成：70% 断面低差异分层（体积守恒）+ 30% 孔周高斯（近孔细化）。
+      // 同时按“到孔心距离”排序得到秩，供下方块度采样使用：近孔小块、远孔大块，
+      // 实现文献中的近孔细粒化。重排只改变 index 分配、不改变块度集合的边缘分布，
+      // 因此不会破坏 KCO/Swebrec 级配与 KL 散度验收。
+      const holePositions = []
+      const holeRanks = new Array(alloc.count)
+      const holeDists = []
+      const sigma = Math.min(HOLE_SIGMA_CAP, sampleSigma)
+      for (let k = 0; k < alloc.count; k++) {
+        const pos =
+          rng() < HOLE_NEAR_WEIGHT
+            ? _sampleNearHole(face, holeWorldPos, sigma, rng)
+            : _sampleFacePositionStratified(face, k, rng)
+        holePositions.push(pos)
+        const dlx = _worldToFaceLateral(face, pos) - holeLocalCX
+        const dly = _worldToFaceHeight(face, pos) - holeLocalCY
+        holeDists.push(Math.hypot(dlx, dly))
+      }
+      const rankOrder = holePositions.map((_, k) => k).sort((a, b) => holeDists[a] - holeDists[b])
+      rankOrder.forEach((k, rank) => {
+        holeRanks[k] = rank
+      })
+
       for (let i = 0; i < alloc.count; i++) {
         // 1. KCO Swebrec 等质量分层采样物理尺寸，叠加孔型粒径系数与延时块度衰减
         const physSize =
           sampleSwebrecMassWeighted(x50, xmax, n, b, rng, {
-            index: i,
+            index: holeRanks[i],
             totalCount: alloc.count
           }) *
           w.sizeFactor *
@@ -340,8 +393,14 @@ export function generateFragmentSpecs(options = {}) {
         // 2. 显示尺寸
         const dispSize = _computeDisplaySize(physSize)
 
-        // 3. 从孔附近高斯采样位置（σ 随装药量变化，模拟炮孔破裂范围）
-        const facePos = _sampleNearHole(face, holeWorldPos, sampleSigma, rng)
+        // 3. 预生成的面内位置 + 块度驱动的轴向分层（大块→深层，落地后滚到坡脚）
+        const depthRank = Math.min(1, physSize / Math.max(0.1, safeXmax))
+        const depthOff = (0.15 + 0.85 * depthRank) * volumeDepth
+        const facePos = {
+          x: holePositions[i].x - face.nx * depthOff,
+          y: holePositions[i].y - face.ny * depthOff,
+          z: holePositions[i].z - face.nz * depthOff
+        }
 
         // 4. 用孔局部 vBase 计算发射速度（叠加轴向偏置）
         const vel = _computeLaunchVelocity(
@@ -377,7 +436,7 @@ export function generateFragmentSpecs(options = {}) {
           restitution: ENHANCED_RESTITUTION,
           friction: ENHANCED_FRICTION,
           maxBounces: ENHANCED_MAX_BOUNCES,
-          variantIndex: selectVariantBySize(physSize, safeX50, estX80, safeXmax, rng),
+          variantIndex: selectVariantBySize(physSize, safeX50, estX80, safeXmax, rng, shapeMix),
           color,
           // 分段起爆延迟（秒）：在所属段标称延时上叠加 [0,_segGapMs) 连续抖动，
           // 打散同段整批齐射，使相邻段抛掷在时间上交叠成连续过程。
@@ -408,8 +467,15 @@ export function generateFragmentSpecs(options = {}) {
       // 2. 显示尺寸
       const dispSize = _computeDisplaySize(physSize)
 
-      // 3. 在掌子面表面采样位置
-      const facePos = _sampleFacePosition(face, rng)
+      // 3. 在掌子面表面采样位置（低差异分层 + 块度驱动的进尺深度分层）
+      const facePos = _sampleVolumeFilling(
+        face,
+        volumeDepth,
+        count,
+        i,
+        Math.min(1, physSize / Math.max(0.1, safeXmax)),
+        rng
+      )
 
       // 4. 计算发射速度
       const vel = _computeLaunchVelocity(
@@ -445,7 +511,7 @@ export function generateFragmentSpecs(options = {}) {
         restitution: DEFAULT_RESTITUTION,
         friction: DEFAULT_FRICTION,
         maxBounces: DEFAULT_MAX_BOUNCES,
-        variantIndex: selectVariantBySize(physSize, safeX50, estX80, safeXmax, rng),
+        variantIndex: selectVariantBySize(physSize, safeX50, estX80, safeXmax, rng, shapeMix),
         color,
         delayTime: 0 // 无延迟，立即起爆
       })
@@ -537,6 +603,7 @@ export function generateFragmentSpecs(options = {}) {
   // 的 physSize/2 大得多），靠近侧墙/拱顶/底板的大块碎片必须按各自变体的真实
   // 渲染半径收进隧道内，否则碎石网格会穿出隧道外壁。
   const variantMaxRadii = getRockVariantMaxRadius()
+
   for (let i = 0; i < positions.length; i++) {
     const maxR = variantMaxRadii[specs[i].variantIndex] || 1.2
     // 物理碰撞体已与渲染尺寸对齐（半径 = maxR×dispSize），推出距离按完整视觉半径
@@ -638,9 +705,25 @@ export function generateFragmentSpecs(options = {}) {
       sizeHistogramGenerated,
       sizeHistogramTarget,
       sizeKLDivergence,
-      velocityHistogramGenerated
+      velocityHistogramGenerated,
+      // 体积守恒误差：代表性碎岩总实心体积 vs 目标松散体积/碎胀系数。
+      // 理论应为 0（k 求解后严格相等）；k 被夹到 [1,3.5] 上限时误差反映
+      // "碎块数不足以还原爆堆体积、单块已被放大到失真上限"，供验收报警。
+      volumeConservationError: computeVolumeConservationError(
+        volumeRoundM3restore,
+        visibleMassFraction,
+        bulkFactor,
+        representativeVolumeM3
+      )
     }
   }
+}
+
+/** 体积守恒相对误差；无体积数据时返回 null */
+function computeVolumeConservationError(volumeRoundM3, visibleMassFraction, bulkFactor, repVolM3) {
+  const target = Number(volumeRoundM3) * Number(visibleMassFraction) * Number(bulkFactor)
+  if (!(target > 1e-6) || !(repVolM3 > 0)) return null
+  return Math.abs(repVolM3 - target) / target
 }
 
 /**
@@ -751,36 +834,77 @@ function _repackHolePositions(
 }
 
 /**
+ * 在掌子面后方待爆棱柱内采样（体积守恒的 3D 分布）：
+ * 断面内用低差异序列均匀铺满，沿法线方向按进尺深度分 5 层。
+ *
+ * 为何需要轴向分层：代表性碎岩的块径被体量还原放大（k≈1.5），若几千块全部
+ * 铺在同一掌子面平面上，物理初始化时深度重叠，Rapier 的分离冲量会把碎块
+ * "炸"到隧道尽头（实测 900 块抛距 P95 = 83m、爆堆被摊平）。
+ *
+ * @param {FaceGeometry} face
+ * @param {number} roundDepth - 进尺深度(m)
+ * @param {number} count - 本组碎片总数（仅用于确定性分层的语义说明）
+ * @param {number} index - 碎片序号
+ * @param {Function} rng
+ * @returns {{x:number,y:number,z:number}}
+ */
+function _sampleVolumeFilling(face, roundDepth, count, index, depthRank = null, rng = Math.random) {
+  const depth = Math.max(0.4, Number(roundDepth) || 2.5)
+  const layers = 5
+  // 初始分布深度由调用方按体积反算传入（volumeDepth）
+  const layerDepth = depth
+  // depthRank ∈ [0,1]：由块度决定分层。大块 → 深层（抛掷末端），
+  // 落地后滚到坡脚，形成文献中的"坡脚粗块"偏析（实测不控时为 0.3）。
+  const rank = depthRank == null ? (index % layers) / layers : Math.min(1, Math.max(0, depthRank))
+  const layerOff = (0.15 + 0.85 * rank) * layerDepth
+  const base = _sampleFacePositionStratified(face, index, rng)
+  // face.n 指向未爆破岩体，-n 为已开挖侧（碎块实际所在空间）
+  return {
+    x: base.x - face.nx * layerOff,
+    y: base.y - face.ny * layerOff,
+    z: base.z - face.nz * layerOff
+  }
+}
+
+/**
  * 在掌子面表面采样一个位置
  * 使用 rejection sampling 确保点位于断面形状内
  * @param {FaceGeometry} face
  * @returns {{x:number,y:number,z:number}}
  */
-function _sampleFacePosition(face, rng = Math.random) {
+function _sampleFacePositionStratified(face, index, rng = Math.random) {
   const shape = face.shape || 'horseshoe'
   const halfW = face.width / 2
   const hw = face.wallHeight
   const r = face.archRadius
   const totalH = hw + r
+  // R2 低差异序列：把 count 个点均匀铺满断面，替代纯随机 rejection 的局部聚集。
+  // 待爆岩体内的碎块体积分布近似均匀，孔周高斯仅作局部修正（HOLE_NEAR_WEIGHT）。
+  const GOLDEN_A = 0.7548776662466927
+  const GOLDEN_B = 0.5698402909980532
+  const INV_PHI = 0.6180339887498949
 
   let lx, ly, valid
   for (let attempt = 0; attempt < 16; attempt++) {
-    lx = (rng() - 0.5) * face.width
-    ly = rng() * totalH
+    const k = index + attempt * INV_PHI
+    // ±0.02 抖动避免网格感；取模回落到 [0,1)
+    const u = (0.5 + k * GOLDEN_A + (rng() - 0.5) * 0.02 + 1) % 1
+    const v = (0.5 + k * GOLDEN_B + (rng() - 0.5) * 0.02 + 1) % 1
+    lx = (u - 0.5) * face.width
+    ly = v * totalH
 
     if (shape === 'circular') {
       const dy = ly - r
       valid = lx * lx + dy * dy <= r * r * 0.95
     } else if (shape === 'rectangular') {
       valid = Math.abs(lx) <= halfW * 0.95 && ly <= hw * 0.98
+    } else if (ly <= hw) {
+      // 马蹄形直墙段
+      valid = Math.abs(lx) <= halfW * 0.95
     } else {
-      // 马蹄形
-      if (ly <= hw) {
-        valid = Math.abs(lx) <= halfW * 0.95
-      } else {
-        const dy = ly - hw
-        valid = lx * lx + dy * dy <= r * r * 0.95
-      }
+      // 马蹄形拱段
+      const dy = ly - hw
+      valid = lx * lx + dy * dy <= r * r * 0.95
     }
     if (valid) break
   }
@@ -917,15 +1041,16 @@ function _sampleFragmentDensity(densityBase, rng = Math.random) {
 }
 
 function _computeVisibleMassFraction(metrics, chargeKg) {
-  // 可见质量分数：控制崩落体中参与渲染的飞石比例
-  // 真实全断面掌子面爆破接近整断面破碎，可见比例应尽量高；
-  // 提至 50%~97% 区间，配合体积还原使碎石量与爆堆饱满
+  // 可见质量分数：代表性碎岩必须还原**全部崩落方量**，否则爆堆体积亏空、
+  // 堆高系统性偏低。旧区间 0.5~0.97 使现场尺度断面（6m×6m、3m 进尺）
+  // 只还原 52% 方量，实测堆高比 0.43（文献 0.8~1.2）。现提高到 0.85~1.0，
+  // 只保留小幅调节项反映破碎充分程度。
   const specificCharge = Number(metrics.specificChargeKgM3) || 0
   const throwAvg = Number(metrics.throwDistanceTargetAvg) || 0
-  const chargeTerm = Math.min(0.2, Math.sqrt(Math.max(1, chargeKg)) * 0.0085)
-  const specificTerm = Math.min(0.15, specificCharge * 0.12)
-  const throwTerm = Math.min(0.12, throwAvg * 0.008)
-  return Math.max(0.5, Math.min(0.97, 0.45 + chargeTerm + specificTerm + throwTerm))
+  const chargeTerm = Math.min(0.12, Math.sqrt(Math.max(1, chargeKg)) * 0.006)
+  const specificTerm = Math.min(0.1, specificCharge * 0.08)
+  const throwTerm = Math.min(0.06, throwAvg * 0.004)
+  return Math.max(0.85, Math.min(1.0, 0.82 + chargeTerm + specificTerm + throwTerm))
 }
 
 function _worldToFaceLateral(face, point) {
@@ -1068,10 +1193,12 @@ function _computeLaunchVelocity(
   // 方位角：窄锥形扩散（贴合隧道轴向自由面，避免向两侧岩墙散开）
   const azimuth = (rng() - 0.5) * AZIMUTH_SPREAD
 
-  // 尺寸因子：动能均分 v ∝ (m_mean/m)^{1/3} = x50/physSize（m ∝ physSize³）
-  // 加上界 MAX_SIZE_FACTOR 防止 physSize→0 时发散；下界不裁剪（小碎片该慢就慢）
-  const MAX_SIZE_FACTOR = 2.2 // 工程经验值：小碎片速度上限 = vBase × 2.2（旧值 3.0 使细小碎片抛距过远）
-  const sizeFactor = Math.min(x50 / Math.max(0.1, physSize), MAX_SIZE_FACTOR)
+  // 尺寸因子：初速与块度**无关**（取 1）。
+  // 文献中块体速度与块度的相关性弱（能量分配、孔距、节理间距等多因素），
+  // 而"小块初速高"会让小块飞得最远，压制"坡脚粗块"的偏析（实测偏析比
+  // 在 0.05~2.6 间剧烈波动）。取消块度-速度耦合后，落点由初始深度分层
+  // （大块→深层）主导，偏析方向稳定。速度散布只由 vVariation 提供。
+  const sizeFactor = 1
   const vVariation = V_VARIATION_BASE + rng() * V_VARIATION_RANGE
   // VELOCITY_SCALE：抛掷速度收缩系数（UI 可调，默认 1.0 = 不收缩·纯物理量级）。
   // 历史 0.42 原是面向"隧道舱内近景视域"的视觉收缩——把特征抛速压到物理实测量级，

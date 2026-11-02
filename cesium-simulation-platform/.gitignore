@@ -8,6 +8,12 @@
 课题*实施方案*.pdf
 /基于多工序集成与多要素协同的数智一体化模型构建技术.docx
 /基于*.docx
+# 内部实施方案/任务规划/审查意见（含考核指标与排期）
+/方案.md
+/建议.md
+*实施方案*.md
+*任务书*.md
+*审查意见*.md
 
 # ── 凭据与隐私 ──
 .env
@@ -29,6 +35,7 @@ credentials/
 *.bak-*
 
 # 本地开发运行日志与 pid
+_runtime/
 backend-py/_backend.out
 backend-py/_backend.err
 backend-py/_backend.pid

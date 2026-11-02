@@ -640,8 +640,8 @@ export class SceneBuilder {
     const roundDepth = Math.max(
       0.6,
       Number(this.designParams?.advanceLength) ||
-      (Number(this.designParams?.holeDepth) || 2.5) *
-      (Number(this.designParams?.utilization) || 0.85)
+        (Number(this.designParams?.holeDepth) || 2.5) *
+          (Number(this.designParams?.utilization) || 0.85)
     )
 
     // 洞身截断几何（爆破振动场用）：空腔 = 自爆心沿洞轴向 roundDepth 长的马蹄柱，
@@ -1649,8 +1649,7 @@ export class SceneBuilder {
       if (!u) continue
       if (u.uSadoskyK && kVal !== null) u.uSadoskyK.value = kVal
       if (u.uSadoskyAlpha && alphaVal !== null) u.uSadoskyAlpha.value = alphaVal
-      if (u.uSadoskyBeta && has('beta'))
-        u.uSadoskyBeta.value = Number(params.beta) || 0.012
+      if (u.uSadoskyBeta && has('beta')) u.uSadoskyBeta.value = Number(params.beta) || 0.012
       if (u.uPpvVisualBeta && has('ppvVisualBeta'))
         u.uPpvVisualBeta.value = Number(params.ppvVisualBeta) || 0
       if (u.uChargeKg && has('chargeKg')) u.uChargeKg.value = Number(params.chargeKg) || 0
