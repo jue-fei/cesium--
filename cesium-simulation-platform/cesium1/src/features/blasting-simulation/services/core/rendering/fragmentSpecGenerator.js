@@ -18,11 +18,13 @@ import {
   computeKLDivergence,
   EXPLOSIVE_TYPES
 } from '../computation/kcoModelCore.js'
+import { swebrecCdf } from '../computation/kcoFormulas.js'
 import {
   makeRng,
   selectVariantBySize,
   getRockVariantMaxRadius,
-  getRockVariantUnitVolumes
+  getRockVariantUnitVolumes,
+  getRockVariantShapeStats
 } from './rockGeometryFactory.js'
 import {
   DEFAULT_RESTITUTION,
@@ -69,6 +71,30 @@ const DELAY_SIZE_FLOOR = 0.8 // 块度衰减下限
 const DELAY_DIR_BIAS_PER_ORDER = (5 * Math.PI) / 180 // 每序方向偏移 5°（弧度）
 const DELAY_DIR_BIAS_MAX = (20 * Math.PI) / 180 // 方向偏移上限 20°（弧度）
 
+// ─── 逐实例形状变异（morph）───
+// 真实爆堆中不存在两颗完全相同的块体，而模板几何池只有 22 个固定轮廓
+// （同变体实例轮廓一致 → 观感"规整、刻意"）。为此给每颗碎片叠加一个
+// 沿径向的低频噪声鼓包/凹陷（渲染端顶点着色器逐实例位移），幅度由
+// 爆破参数与碎片位置驱动：
+//   - 近孔（rank 小，破碎充分、破裂面杂乱）→ 变异强；远孔 → 弱
+//   - 掏槽孔夹制作用强 → 强；周边孔光面爆破、低损伤成形 → 弱
+//   - 延时后段（新自由面使破碎更碎）→ 随序号略增
+//   - 中块（sizeNorm≈0.45）表面破裂面最杂乱 → 强；
+//     细粒被磨圆、大块保持节理面 → 弱
+//   - 浑圆族本身已圆 → 再打折，避免变异成"疙瘩球"
+// 变异沿径向、零均值：不改变块体三轴比与体积口径（块度统计/爆堆指标
+// 不受影响）；物理碰撞体仍用模板凸包（幅度 ≤ MORPH_AMP_MAX·maxR，与
+// 视觉的微差远小于断面净空容差 0.15m），不参与物理积分。
+const MORPH_AMP_BASE = 0.05 // 基准变异幅度（占最大半径比例）
+const MORPH_AMP_NEAR_HOLE = 0.04 // 近孔细碎附加（distRank=0 时全额计入）
+const MORPH_AMP_HOLE_TYPE = { cut: 0.02, auxiliary: 0, perimeter: -0.015, empty: 0 }
+const MORPH_AMP_DELAY_PER_ORDER = 0.006 // 每延时序号附加
+const MORPH_AMP_MID_PEAK = 0.025 // 中块表面杂乱附加（sizeNorm≈0.45 峰值）
+const MORPH_AMP_RANDOM_JITTER = 0.25 // ±25% 随机抖动
+const MORPH_AMP_MAX = 0.11 // 幅度上限（物理近似余量）
+const MORPH_ROUNDED_FACTOR = 0.7 // 浑圆族变异折扣
+const MORPH_TWO_PI = Math.PI * 2
+
 /**
  * @typedef {Object} FragmentSpec
  * @property {number} physSize - 真实物理直径(m)
@@ -77,7 +103,9 @@ const DELAY_DIR_BIAS_MAX = (20 * Math.PI) / 180 // 方向偏移上限 20°（弧
  * @property {number} restitution - 弹性恢复系数
  * @property {number} friction - 表面摩擦系数
  * @property {number} maxBounces - 最大反弹次数
- * @property {number} variantIndex - 几何体变体索引(0-14，5种形态×3子变体)
+ * @property {number} variantIndex - 几何体变体索引(0~21，6 种形态族共 22 个变体)
+ * @property {number[]} [morphSeed] - 形状变异噪声种子(3 个弧度值，逐实例)
+ * @property {number} [morphAmp] - 形状变异幅度(0~0.11，占最大半径比例，由爆破参数驱动)
  * @property {{r:number,g:number,b:number}} color - 岩石颜色
  */
 
@@ -123,6 +151,8 @@ export function generateFragmentSpecs(options = {}) {
   } = options
   // 创建确定性伪随机数生成器，使同一种子+同一参数可完全复现
   const rng = makeRng(randomSeed)
+  // 变体形状统计表（识别浑圆族，用于变异幅度折扣；模板池模块级缓存）
+  const shapeStatsTable = getRockVariantShapeStats()
   if (!kco || !face) {
     throw new Error('[FragmentSpecGenerator] 缺少必要参数 kco 或 face')
   }
@@ -133,6 +163,23 @@ export function generateFragmentSpecs(options = {}) {
   const safeX50 = Math.max(0.01, x50)
   const safeXmax = Math.max(safeX50 * 1.01, xmax)
   const estX80 = Number(kco?.x80) > 0 ? kco.x80 : safeX50 * 1.5
+
+  /**
+   * 初始体积沿轴向的"深度秩"（0=最浅层，1=最深层），用于把碎块铺进待爆棱柱。
+   *
+   * 取块度的 Swebrec 通过率（CDF）而非 physSize/xmax 归一化：
+   *  - 方向不变：块度越大 → 秩越大 → 越靠里（保留"大块→深层→滚到坡脚"偏析）；
+   *  - 分布均匀：块度采样是**质量加权**的（绝大多数是细粒），按 physSize/xmax
+   *    归一化会把 90% 的碎块压进首层 0.15×深度内 → 初始体积被压成 1m 薄片，
+   *    求解器分离冲量把碎块弹飞 5~10m（爆堆脱离掌子面、空腔填不满）。
+   *    CDF 是均匀分布的分位函数，各深度层的碎块数量近似相等，初始堆积密实。
+   * @param {number} size - 碎块块度(m)
+   * @returns {number} 深度秩 ∈ [0,1]
+   */
+  const depthRankOf = size => {
+    const u = swebrecCdf(Math.max(1e-4, Number(size) || 0), safeX50, safeXmax, n, b)
+    return Number.isFinite(u) ? Math.max(0, Math.min(1, u)) : Math.min(1, (size || 0) / safeXmax)
+  }
 
   // n 因子：块度均匀时减少碎片数，分散时增加
   const nFactor = 1 + (1.2 - n) * 0.5
@@ -221,7 +268,12 @@ export function generateFragmentSpecs(options = {}) {
     const Eg =
       EXPLOSIVE_TYPES[metrics.explosiveType || 'emulsion']?.Eg || EXPLOSIVE_TYPES.emulsion.Eg
     const q = chargeKg / Number(metrics.volumeRoundM3) // 比装药 kg/m³
-    const eta = Number(metrics.eta) > 0 ? Number(metrics.eta) : 0.005 // 能量耦合系数（UI 可配置，默认 0.005）
+    // 能量耦合系数 η（炸药能量中转化为岩块动能的份额，UI 可配置）。
+    // 旧默认 0.005（0.5%）：单耗 ~0.7 kg/m³ 时初速仅 ~3 m/s，抛距 ~3m，
+    // 小于进尺（2.55m）→ 碎块抛不出待爆棱柱，爆堆堵在空腔里（观感"没爆破"）。
+    // 取 0.02（2%）：初速 5~7 m/s、抛距 6~10m，爆堆长度/堆高回到文献区间
+    // （18m 断面 10~25m 长、峰高 1~3m），且仍在文献能量分配 2%~20% 的下沿。
+    const eta = Number(metrics.eta) > 0 ? Number(metrics.eta) : 0.02
     vBase = Math.sqrt((2 * eta * q * Eg) / densityBase)
     velocityModel = 'persson1997'
   } else {
@@ -302,14 +354,23 @@ export function generateFragmentSpecs(options = {}) {
   // 代表性碎岩总体积是松散体积（含碎胀），岩体空间是实方；若按实方进尺
   // 展开，块必重叠 → 分离冲量把碎块挤到轴向远处（实测抛距从 6m 噬到 13m、
   // 堆高比降到 0.43）。按体积反算深度可保证初始不重叠，同时约束爆堆长度。
+  //
+  // 下限用绝对值 0.5m 而非 roundDepth×0.6：大断面（18m×15m，面积 235m²）
+  // 按松散体积反算的真实深度仅 ~0.65m，旧下限 1.5m 把初始云团强行稀释
+  // 2.3 倍 → 碎片冻结后保留云团足迹（充满整个断面、脱离掌子面、爆堆
+  // 体积虚胖数倍）。0.5m 绝对下限仅防退化薄层。
   const sectionArea =
     Number(face.width) * Number(face.wallHeight) + (Math.PI * Number(face.archRadius) ** 2) / 2
   const estBulk = Number(metrics.bulkFactor) > 0 ? Number(metrics.bulkFactor) : 1.5
   const estLooseVol = Number(metrics.volumeRoundM3) * visibleMassFraction * estBulk
-  const volumeDepth =
-    sectionArea > 1e-3 && estLooseVol > 0
-      ? Math.max(roundDepth * 0.6, Math.min(roundDepth * 2.5, estLooseVol / sectionArea))
-      : roundDepth
+  // 轴向分层深度上限 = 进尺深度（留 0.25m 余量）：碎块初始体积必须整体落在
+  // 待爆棱柱 [掌子面, 新掌子面] 内。越过新掌子面就会被物理层的封堵板顶住、
+  // 在分离冲量下弹飞（渲染上表现为"碎石从实心岩体里冒出来/消失"）。
+  // 旧实现允许铺到 2.5×进尺，超出部分直接嵌进未爆破岩体。
+  const maxFillDepth = Math.max(0.3, roundDepth - 0.25)
+  const volumeDepthRaw =
+    sectionArea > 1e-3 && estLooseVol > 0 ? estLooseVol / sectionArea : roundDepth
+  const volumeDepth = Math.max(0.3, Math.min(maxFillDepth, volumeDepthRaw))
 
   if (useHoleDriven) {
     // ── 炮孔驱动模式：逐孔生成碎片 ──
@@ -394,15 +455,25 @@ export function generateFragmentSpecs(options = {}) {
         const dispSize = _computeDisplaySize(physSize)
 
         // 3. 预生成的面内位置 + 块度驱动的轴向分层（大块→深层，落地后滚到坡脚）
-        const depthRank = Math.min(1, physSize / Math.max(0.1, safeXmax))
+        // 轴向取 +n：face.n 指向未爆破岩体，待爆岩体位于掌子面**后方**
+        // （sceneBuilder 的岩体前缘在 faceOffset，空腔占据 [faceOffset, faceOffset+进尺]）。
+        // 旧实现用 -n 把整片碎块放到掌子面前方的已开挖隧道里 → 初始碎石悬在
+        // 掌子面前 1~3m、爆破后爆堆整体前移一个进尺，空腔永远是空的。
+        const depthRank = depthRankOf(physSize)
         const depthOff = (0.15 + 0.85 * depthRank) * volumeDepth
         const facePos = {
-          x: holePositions[i].x - face.nx * depthOff,
-          y: holePositions[i].y - face.ny * depthOff,
-          z: holePositions[i].z - face.nz * depthOff
+          x: holePositions[i].x + face.nx * depthOff,
+          y: holePositions[i].y + face.ny * depthOff,
+          z: holePositions[i].z + face.nz * depthOff
         }
 
-        // 4. 用孔局部 vBase 计算发射速度（叠加轴向偏置）
+        // 4. 用孔局部 vBase 计算发射速度（叠加轴向偏置 + 孔型面前梯度）
+        // 面前梯度（孔型）：周边孔光面爆破、装药量低，其碎块被掀起后原地
+        // 翻滚坠落，在掌子面处形成爆堆坡脚；掏槽/辅助孔碎块全速抛入隧道。
+        // 这是真实爆堆"坡脚起于掌子面"的成因。按初始深度做梯度会与
+        // "尺寸→深度"分层强耦合（小块浅层却全速飞出），坡脚失守（实测
+        // 1m 内仅 44 块）且偏析比爆表。
+        const frontFactor = h.holeType === 'perimeter' ? 0.2 : 1.0
         const vel = _computeLaunchVelocity(
           physSize,
           x50,
@@ -413,7 +484,8 @@ export function generateFragmentSpecs(options = {}) {
           face,
           totalAxialBias,
           rng,
-          velocityScale
+          velocityScale,
+          frontFactor
         )
 
         // 5. 岩石颜色
@@ -424,6 +496,16 @@ export function generateFragmentSpecs(options = {}) {
           g: Math.max(0.12, brown * 0.72),
           b: Math.max(0.08, brown * 0.45)
         }
+
+        // 5.5 变体抽取（morphAmp 计算需要先知道是否浑圆族）
+        const _variantIdxHole = selectVariantBySize(
+          physSize,
+          safeX50,
+          estX80,
+          safeXmax,
+          rng,
+          shapeMix
+        )
 
         // 6. 岩石密度
         const density = _sampleFragmentDensity(densityBase, rng)
@@ -436,7 +518,18 @@ export function generateFragmentSpecs(options = {}) {
           restitution: ENHANCED_RESTITUTION,
           friction: ENHANCED_FRICTION,
           maxBounces: ENHANCED_MAX_BOUNCES,
-          variantIndex: selectVariantBySize(physSize, safeX50, estX80, safeXmax, rng, shapeMix),
+          variantIndex: _variantIdxHole,
+          // 逐实例形状变异：近孔程度（rank 越小越近孔）+ 孔型 + 延时序 + 块度
+          morphAmp: _computeMorphAmp({
+            distRank: alloc.count > 1 ? holeRanks[i] / (alloc.count - 1) : 0.5,
+            holeType: h.holeType,
+            delayOrder,
+            physSize,
+            xmax: safeXmax,
+            isRounded: shapeStatsTable[_variantIdxHole]?.zingg === 'rounded',
+            rng
+          }),
+          morphSeed: [rng() * MORPH_TWO_PI, rng() * MORPH_TWO_PI, rng() * MORPH_TWO_PI],
           color,
           // 分段起爆延迟（秒）：在所属段标称延时上叠加 [0,_segGapMs) 连续抖动，
           // 打散同段整批齐射，使相邻段抛掷在时间上交叠成连续过程。
@@ -466,18 +559,13 @@ export function generateFragmentSpecs(options = {}) {
 
       // 2. 显示尺寸
       const dispSize = _computeDisplaySize(physSize)
+      // 3. 在掌子面表面采样位置（低差异分层 + 块度分位数驱动的进尺深度分层）
+      const facePos = _sampleVolumeFilling(face, volumeDepth, count, i, depthRankOf(physSize), rng)
 
-      // 3. 在掌子面表面采样位置（低差异分层 + 块度驱动的进尺深度分层）
-      const facePos = _sampleVolumeFilling(
-        face,
-        volumeDepth,
-        count,
-        i,
-        Math.min(1, physSize / Math.max(0.1, safeXmax)),
-        rng
-      )
-
-      // 4. 计算发射速度
+      // 4. 计算发射速度（传统模式无孔型信息，用轻度深度梯度 [0.5,1]）
+      // 与 _sampleVolumeFilling 的 layerOff 同式：depthRank = physSize/safeXmax
+      const layerOffLocal = (0.15 + 0.85 * depthRankOf(physSize)) * volumeDepth
+      const frontFactorLegacy = 0.5 + 0.5 * Math.min(1, layerOffLocal / Math.max(0.1, volumeDepth))
       const vel = _computeLaunchVelocity(
         physSize,
         x50,
@@ -488,7 +576,8 @@ export function generateFragmentSpecs(options = {}) {
         face,
         0,
         rng,
-        velocityScale
+        velocityScale,
+        frontFactorLegacy
       )
 
       // 5. 岩石颜色（大块深褐色，小块浅灰色）
@@ -499,6 +588,25 @@ export function generateFragmentSpecs(options = {}) {
         g: Math.max(0.12, brown * 0.72),
         b: Math.max(0.08, brown * 0.45)
       }
+
+      // 5.5 变体抽取 + 逐实例形状变异（无炮孔数据，近孔程度退化为随机分布）
+      const _variantIdxLegacy = selectVariantBySize(
+        physSize,
+        safeX50,
+        estX80,
+        safeXmax,
+        rng,
+        shapeMix
+      )
+      const morphAmpLegacy = _computeMorphAmp({
+        distRank: rng(),
+        holeType: null,
+        delayOrder: 0,
+        physSize,
+        xmax: safeXmax,
+        isRounded: shapeStatsTable[_variantIdxLegacy]?.zingg === 'rounded',
+        rng
+      })
 
       // 6. 岩石密度（花岗岩典型范围）
       const density = _sampleFragmentDensity(densityBase, rng)
@@ -511,7 +619,9 @@ export function generateFragmentSpecs(options = {}) {
         restitution: DEFAULT_RESTITUTION,
         friction: DEFAULT_FRICTION,
         maxBounces: DEFAULT_MAX_BOUNCES,
-        variantIndex: selectVariantBySize(physSize, safeX50, estX80, safeXmax, rng, shapeMix),
+        variantIndex: _variantIdxLegacy,
+        morphAmp: morphAmpLegacy,
+        morphSeed: [rng() * MORPH_TWO_PI, rng() * MORPH_TWO_PI, rng() * MORPH_TWO_PI],
         color,
         delayTime: 0 // 无延迟，立即起爆
       })
@@ -858,11 +968,13 @@ function _sampleVolumeFilling(face, roundDepth, count, index, depthRank = null, 
   const rank = depthRank == null ? (index % layers) / layers : Math.min(1, Math.max(0, depthRank))
   const layerOff = (0.15 + 0.85 * rank) * layerDepth
   const base = _sampleFacePositionStratified(face, index, rng)
-  // face.n 指向未爆破岩体，-n 为已开挖侧（碎块实际所在空间）
+  // face.n 指向未爆破岩体：碎块沿 +n 铺进待爆棱柱（掌子面 → 新掌子面之间），
+  // 与 sceneBuilder 的岩体前缘/开挖空腔区间一致。取 -n 会把碎块放到已开挖隧道，
+  // 造成"初始碎石不在岩体位置、爆破后爆堆整体前移"。
   return {
-    x: base.x - face.nx * layerOff,
-    y: base.y - face.ny * layerOff,
-    z: base.z - face.nz * layerOff
+    x: base.x + face.nx * layerOff,
+    y: base.y + face.ny * layerOff,
+    z: base.z + face.nz * layerOff
   }
 }
 
@@ -923,15 +1035,22 @@ function _sampleFacePositionStratified(face, index, rng = Math.random) {
 }
 
 /**
- * 将掌子面表面的采样位置沿面法线反向（已开挖侧）推出，使碎片初始
- * 完全位于掌子面前方，避免半个碎片嵌进岩体（"卡在掌子面"）。
+ * 沿面法线把碎块朝已开挖侧微调（≈0.7×视觉半径 + 0.03m）。
+ *
+ * 初始体积已整体铺进掌子面后方的待爆棱柱（见 _sampleVolumeFilling），本函数
+ * 只做块径量级的贴面修正：首层碎块略微探出掌子面，呈现"待爆岩面"的破碎外观，
+ * 同时避免体积还原后的大块把整片碎块推进岩体深处而完全看不见。
+ * 位移量恒小于一个块径，不改变"碎块位于待爆岩体内"的整体位置关系。
  * @param {FaceGeometry} face
- * @param {{x:number,y:number,z:number}} pos - 掌子面表面位置
- * @param {number} radius - 碎片视觉/碰撞半径（maxR × dispSize，完整尺寸推出）
+ * @param {{x:number,y:number,z:number}} pos - 待爆棱柱内的位置
+ * @param {number} radius - 碎片视觉半径（maxR × dispSize）
  * @returns {{x:number,y:number,z:number}}
  */
 function _nudgeOffFace(face, pos, radius) {
-  const push = (Number(radius) || 0.1) + 0.05
+  // 0.15×半径（≥3cm）：只留一个极小的贴面间隙，避免首层碎块与掌子面薄板共面
+  // 抖动；旧值 0.7×半径会把大块沿轴向拉回 1m 以上，直接抹掉"大块→深层"的
+  // 体积分层（初始体积被压成 1m 薄片、重叠严重 → 起爆瞬间互相弹飞）。
+  const push = (Number(radius) || 0.1) * 0.15 + 0.03
   return {
     x: pos.x - face.nx * push,
     y: pos.y - face.ny * push,
@@ -1010,6 +1129,43 @@ function _computeDisplaySize(physSize) {
   if (size >= visibleFloor) return size
   // 仅对很小的碎石做温和视觉补偿，避免整体体积被系统性放大。
   return visibleFloor * Math.sqrt(size / visibleFloor)
+}
+
+/**
+ * 计算单颗碎片的形状变异幅度（占最大半径比例，0~MORPH_AMP_MAX）。
+ * 由爆破参数与碎片位置驱动（见 MORPH_* 常量注释）：
+ * 近孔强 / 掏槽孔强 / 延时后段强 / 中块强（两端弱）/ 浑圆族打折。
+ * @param {Object} p
+ * @param {number} [p.distRank=0.5] - 归一化孔心距离秩（0=离孔心最近，1=最远）
+ * @param {string|null} [p.holeType] - 孔型（cut/auxiliary/perimeter；无孔数据传 null）
+ * @param {number} [p.delayOrder=0] - 延时序号（0 起）
+ * @param {number} p.physSize - 碎块物理尺寸(m)
+ * @param {number} p.xmax - KCO 最大块度(m)
+ * @param {boolean} [p.isRounded=false] - 是否浑圆族变体
+ * @param {Function} [rng] - 随机数发生器
+ * @returns {number} morphAmp
+ */
+function _computeMorphAmp({
+  distRank = 0.5,
+  holeType = null,
+  delayOrder = 0,
+  physSize,
+  xmax,
+  isRounded = false,
+  rng = Math.random
+}) {
+  const sizeNorm = Math.min(1, Math.max(0, physSize / Math.max(0.1, xmax)))
+  // 中块峰值因子：sizeNorm≈0.45 时 ≈1，细粒/大块两侧衰减（最低 0.4）
+  const midFactor = Math.max(0.4, 1 - Math.abs(sizeNorm - 0.45) * 1.2)
+  let amp =
+    MORPH_AMP_BASE +
+    MORPH_AMP_NEAR_HOLE * Math.max(0, 1 - distRank) +
+    (MORPH_AMP_HOLE_TYPE[holeType] || 0) +
+    MORPH_AMP_DELAY_PER_ORDER * Math.max(0, delayOrder) +
+    MORPH_AMP_MID_PEAK * midFactor
+  amp *= 1 + (rng() - 0.5) * 2 * MORPH_AMP_RANDOM_JITTER
+  if (isRounded) amp *= MORPH_ROUNDED_FACTOR
+  return Math.max(0, Math.min(MORPH_AMP_MAX, amp))
 }
 
 function _computeFragmentMassKg(size, density) {
@@ -1148,6 +1304,8 @@ function _projectWorldPointToFace(face, point) {
  * @param {number} nx/ny/nz - 抛掷方向（已开挖侧）
  * @param {FaceGeometry} face
  * @param {number} [axialBias=0] - 轴向偏置（弧度），由孔型权重与延时场耦合叠加
+ * @param {number} [axialFactor=1] - 面前梯度系数(0.25~1)：贴面块低速原地堆积，
+ *                                   深层块全速抛出（消除堆体与掌子面脱空）
  * @returns {{x:number,y:number,z:number}}
  */
 function _computeLaunchVelocity(
@@ -1160,7 +1318,8 @@ function _computeLaunchVelocity(
   face,
   axialBias = 0,
   rng = Math.random,
-  velocityScale = 1
+  velocityScale = 1,
+  axialFactor = 1
 ) {
   // ─── 发射运动学常量（来源标注：文献/标定/经验值）───
   // 隧道掌子面爆破的抛掷几何：自由面只在"已开挖的隧道空腔"这条唯一的轴向开口上，
@@ -1206,7 +1365,10 @@ function _computeLaunchVelocity(
   // 现默认 1.0 不做视觉降速，物理引擎按 Persson 初速的原生量级积分抛掷；
   // 调小该系数 → 抛距收缩、爆堆更贴掌子面。
   const VELOCITY_SCALE = Number(velocityScale) > 0 ? Number(velocityScale) : 1
-  const speed = Math.max(0.5, vBase * sizeFactor * vVariation * VELOCITY_SCALE) // 下界 0.5 m/s 防静止
+  const speed = Math.max(
+    0.3,
+    vBase * sizeFactor * vVariation * VELOCITY_SCALE * Math.max(0.1, axialFactor)
+  ) // 下界 0.3 m/s 防静止（贴面梯度下块体仍缓慢翻滚坠落）
 
   // 速度分解：轴向（掌子面法向反向指向开挖空腔）主导，横向收窄，竖向被抑制
   // 使用 cos 保证轴向始终指向隧道内（launchAngle 已钳制在 [0, LAUNCH_ANGLE_MAX]）

@@ -163,6 +163,68 @@ export class FragmentRenderer {
   }
 
   /**
+   * 材质补丁：注入逐实例形状变异（morph）顶点位移。
+   *
+   * 背景：几何池只有 22 个模板轮廓，同变体实例完全一致 → 爆堆观感"规整"。
+   * 通过 aMorph(xyz=噪声种子, w=幅度) 逐实例沿径向做低频噪声鼓包/凹陷：
+   *  - 位移只依赖物体空间 position（径向），ConvexGeometry 非索引的重复顶点
+   *    位移一致 → 网格不裂面；
+   *  - flatShading 用屏幕空间导数求法线，位移后明暗自动跟随，无需重算法线；
+   *  - 幅度 ≤ 0.11·maxR：物理碰撞体仍用模板凸包，视觉与碰撞的微差远小于
+   *    断面净空容差（0.15m），不参与物理积分。
+   * @param {THREE.MeshStandardMaterial} material
+   */
+  _patchRockMaterial(material) {
+    material.onBeforeCompile = shader => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute vec4 aMorph;')
+        .replace(
+          '#include <begin_vertex>',
+          [
+            'vec3 transformed = vec3( position );',
+            '{',
+            '  float mL = length( position );',
+            '  vec3 mDir = mL > 1e-4 ? position / mL : vec3( 0.0 );',
+            '  float mN = sin( position.x * 5.3 + aMorph.x ) * sin( position.y * 4.9 + aMorph.y ) * sin( position.z * 5.7 + aMorph.z )',
+            '    + 0.5 * sin( position.x * 9.7 + aMorph.y ) * sin( position.y * 10.3 + aMorph.z ) * sin( position.z * 9.1 + aMorph.x );',
+            '  transformed += mDir * ( aMorph.w * mN * 0.66 );',
+            '}'
+          ].join('\n')
+        )
+    }
+    // 固定 program 缓存键：onBeforeCompile 补丁全局一致，避免逐材质重复编译
+    material.customProgramCacheKey = () => 'fragment-morph-v1'
+  }
+
+  /**
+   * 为变体几何写入逐实例 morph 属性（aMorph：xyz=噪声种子，w=幅度）。
+   * 几何池为本渲染器独占（createRockGeometryPool 每实例新建）；重播重建时
+   * 实例数可能变化：长度一致则原地更新，否则重建 attribute。
+   * spec 未携带 morph 参数（旧数据）时全部填 0 → 保持模板原状。
+   * @param {THREE.BufferGeometry} geometry
+   * @param {Array<{spec:Object}>} group
+   */
+  _applyMorphAttribute(geometry, group) {
+    const arr = new Float32Array(group.length * 4)
+    group.forEach(({ spec }, localIdx) => {
+      const seed = spec?.morphSeed
+      const o = localIdx * 4
+      arr[o] = Array.isArray(seed) && Number.isFinite(seed[0]) ? seed[0] : 0
+      arr[o + 1] = Array.isArray(seed) && Number.isFinite(seed[1]) ? seed[1] : 0
+      arr[o + 2] = Array.isArray(seed) && Number.isFinite(seed[2]) ? seed[2] : 0
+      arr[o + 3] = Math.max(0, Number(spec?.morphAmp) || 0)
+    })
+    const prev = geometry.getAttribute('aMorph')
+    if (prev && prev.array.length === arr.length) {
+      prev.array.set(arr)
+      prev.needsUpdate = true
+      return
+    }
+    if (prev) geometry.deleteAttribute('aMorph')
+    geometry.setAttribute('aMorph', new THREE.InstancedBufferAttribute(arr, 4))
+  }
+
+  /**
    * 构建碎片 InstancedMesh（接受 FragmentSpec[]）
    * @param {FragmentSpec[]} specs - 碎片规格数组
    */
@@ -182,6 +244,7 @@ export class FragmentRenderer {
         flatShading: true,
         vertexColors: true // 启用顶点颜色，使 USE_INSTANCING_COLOR 生效
       })
+      this._patchRockMaterial(this.rockMaterial)
     }
 
     const variantCount = this.rockGeometries.length
@@ -195,6 +258,7 @@ export class FragmentRenderer {
     groups.forEach((group, variant) => {
       if (group.length === 0) return
       const geometry = this.rockGeometries[variant]
+      this._applyMorphAttribute(geometry, group)
       const mesh = new THREE.InstancedMesh(geometry, this.rockMaterial, group.length)
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
       mesh.castShadow = true

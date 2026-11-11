@@ -181,7 +181,6 @@ watch(
 const kcoParams = ref({
   ...DEFAULT_KCO_PARAMS,
   sourceMode: 'design',
-  velocityScale: 0.42, // 抛掷速度收缩系数（UI 可调）。隧道受限空腔：压缩初速使爆堆紧贴掌子面成形（历史 0.42 量级），勿改回 1.0 否则碎片抛满整条隧道、散开不成堆
   fragmentCountRenderLimit: DEFAULT_FRAGMENT_RENDER_LIMIT
 })
 
@@ -853,8 +852,8 @@ export default function useBlasting() {
       ...dataset.value.result,
       // 仅在算法侧未提供 fragmentCount 时兜底使用生成数，避免用渲染统计污染设计结果语义。
       ...(stats &&
-        typeof stats.fragmentCountGenerated === 'number' &&
-        !Number.isFinite(Number(dataset.value.result?.fragmentCount))
+      typeof stats.fragmentCountGenerated === 'number' &&
+      !Number.isFinite(Number(dataset.value.result?.fragmentCount))
         ? { fragmentCount: stats.fragmentCountGenerated }
         : {})
     }
@@ -1062,7 +1061,7 @@ export default function useBlasting() {
 
   // 重置 KCO 参数为默认值
   const resetKcoParams = () => {
-    kcoParams.value = { ...DEFAULT_KCO_PARAMS, sourceMode: 'design', velocityScale: 0.42 }
+    kcoParams.value = { ...DEFAULT_KCO_PARAMS, sourceMode: 'design' }
     showMessage('KCO 参数已重置为默认值', 'info')
   }
 

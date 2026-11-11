@@ -64,14 +64,15 @@ describe('几何池与预计算性能', () => {
     await RAPIER.init()
   })
 
-  it('几何池初始化 < 300ms，且变体数为 18（draw call 增量 +3）', () => {
+  it('几何池初始化 < 300ms，且变体数为 22（含 4 个浑圆变体）', () => {
     const t0 = performance.now()
     const pool = createRockGeometryPool()
     const ms = performance.now() - t0
     // eslint-disable-next-line no-console
     console.log(`[perf] pool init ${ms.toFixed(1)}ms variants=${pool.length}`)
     expect(pool.length).toBe(ROCK_VARIANT_TOTAL)
-    expect(ROCK_VARIANT_TOTAL - 15).toBeLessThanOrEqual(3)
+    // 相对 18 变体基线的 draw call 增量 ≤ 4（浑圆族 +4）
+    expect(ROCK_VARIANT_TOTAL - 18).toBeLessThanOrEqual(4)
     // 阈值留出并行测试竞争余量（单文件实测 12ms，全量并行可能 100ms+）
     expect(ms).toBeLessThan(500)
     pool.forEach(g => g.dispose())

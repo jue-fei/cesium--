@@ -32,6 +32,13 @@ const TUNNEL_GROUPS = 0x00010002 // group=0x0002, mask=0x0001（仅与碎片碰�
 // 隧道碰撞体半长(m)：与视觉隧道壳长度（sceneBuilder._buildTunnelShell shellLength=80）
 // 对齐，避免碎片在壳内但无墙约束的"裸奔段"横向跑出视觉边界。
 const TUNNEL_HALF_LEN = 80
+// 悬浮检测周期（步）：每 30 步（1.5s）对已冻结（Fixed）块做一次几何悬空检测。
+// 冻结块已不参与求解，支撑丢失（支撑它的动态块滚走）后不会自行下落，故仍需
+// 周期性几何检测兜底；判据只在"周边确实没有可依托碎块"时才解除冻结。
+const FLOAT_CHECK_INTERVAL = 30
+// 单块最多因悬空解冻次数：支撑判据正确时每次解冻都会落到真实支撑上，
+// 个别卡在拱顶角落"几何陷阱"的块物理上无法落稳，超过次数后接受其位置。
+const MAX_FLOAT_WAKE = 2
 // 底板厚度(m)：0.5m 薄板在 dt=0.05 的爆破初速下会被深穿透——穿透深度越过板厚
 // 一半后求解器按"最近面"把碎片推向板底（实测 2.5s 内 37 块穿底、最远自由落体
 // 1700m+，即截图中"碎石漏到巷道外"）。加厚后最近面恒为顶面，碎片被推回上方。
@@ -121,6 +128,10 @@ export class RapierPhysicsEngine {
     this._lastSampleTime = 0
     this.onBodyLanded = null
     this.activeCount = 0
+    // 待激活延迟块计数 / 上一步醒着体计数（供 step() 全体休眠早退判定）
+    this._pendingDelayed = 0
+    this._awakeCount = 0
+    this._stepCount = 0
   }
 
   /**
@@ -136,7 +147,8 @@ export class RapierPhysicsEngine {
     // 求解器迭代次数：8 → 4（Rapier 默认值）。4500+ 凸包刚体互撞时，
     // 迭代次数是单步耗时的主要乘数：8 次迭代的堆叠稳定增益对数千刚体
     // 而言已过剩，降到 4 次可换取 ~1.5-2x 的预计算提速（等待"关键帧
-    // 回放就绪"的时间减半）。堆积稳定性由下方 _applySettling 低速冻结兜底。
+    // 回放就绪"的时间减半）。堆积稳定性由 _applySettling 的"停稳即静态化"
+    // 兜底：残余求解误差只影响停止前的姿态，不会累积成弹跳。
     this._world.integrationParameters.numSolverIterations = 4
   }
 
@@ -250,11 +262,24 @@ export class RapierPhysicsEngine {
         bounceCount: 0,
         lowSpeedFrames: 0,
         landTriggered: false,
-        variantIndex
+        variantIndex,
+        // ── 已停稳标记：true 表示刚体已转为 Fixed（静态），不再参与求解 ──
+        // 落地后跳动/爆堆体积回缩的根因是"冻结只是 sleep，仍会被邻居唤醒"：
+        // 休眠期间不生成接触流形，积压的穿透修正在唤醒步一次性释放 →
+        // 分离冲量把块弹起（实测竖向峰值 10.2 m/s、单块弹起 5.5m），落回时
+        // 又被压进更密的接触 → 堆体逐次收紧（体积不自然减小）。改为停稳即
+        // 静态化：静止块不可被推动、不会被唤醒，堆体成形后彻底静止。
+        _static: false,
+        // 冻结时位置（悬空检测/纠位基准）
+        _frozenPos: null,
+        floatWakeCount: 0 // 悬空解冻次数（≥MAX_FLOAT_WAKE 不再解冻，防几何陷阱死循环）
       }
       this._fragmentBodies.push(entry)
     }
     this.activeCount = count
+    // 待激活延迟块计数：step() 的"全体静止早退"必须知道还有没有延迟块要起爆，
+    // 否则全部分片静止时会在延迟块激活前就跳过求解步（与本轮新增的静态化早退配合）。
+    this._pendingDelayed = this._fragmentBodies.filter(b => b._delayed).length
     // 按初始分布厚度自适应穿透容差（需在碎片创建后调用，用到 collisionRadius）
     this._tuneSolverForInitialOverlap(positions)
   }
@@ -329,6 +354,7 @@ export class RapierPhysicsEngine {
         if (this.simTime >= b.delayTime) {
           b.flags |= FLAG_ALIVE
           b._delayed = false
+          this._pendingDelayed--
           b.rigidBody.setEnabled(true)
           b.rigidBody.wakeUp()
         }
@@ -340,10 +366,18 @@ export class RapierPhysicsEngine {
     // 与 linvel 读取都是纯浪费。被撞醒后 isSleeping()=false，本循环下一步即照常
     // reset+加阻力，无陈旧力泄漏（冻结前残留的阻力在唤醒步开头即被清掉）。
     // 尾段（99% 碎片已冻结）每体每步省 ~3 次 WASM 边界调用。
+    this._awakeCount = 0
     for (const b of this._fragmentBodies) {
       if (!(b.flags & FLAG_ALIVE)) continue
+      // 已静态化的停稳块：不施加任何力、不计入醒着体（Rapier 不积静态体的力）
+      if (b._static) continue
       const rb = b.rigidBody
+      // 未启用的刚体（起爆前的延迟块/待激活块）不参与求解：既不加力也不计入
+      // 醒着体——否则起爆前（全部分片静止悬在岩体内）会走不到早退分支，
+      // 白跑 world.step()，且被 _applySettling 误判为"已停稳"而提前静态化。
+      if (!rb.isEnabled()) continue
       if (rb.isSleeping()) continue
+      this._awakeCount++
       rb.resetForces(true)
       rb.resetTorques(true)
 
@@ -355,11 +389,23 @@ export class RapierPhysicsEngine {
       rb.addForce({ x: drag.ax * b.mass, y: drag.ay * b.mass, z: drag.az * b.mass }, true)
     }
 
+    // 2.5 悬空检测（周期性）：已静止（Fixed）块的支撑被移走（支撑它的动态块
+    // 滚落/被撞飞）时不会自行下落 → 每 30 步用空间网格做一次几何检测，
+    // 确认周边没有任何可依托碎块才恢复为动态体重新下落。检测仅在早退判定
+    // 之前执行，全体静止后仍生效；判据"周边确有邻块"宁可漏检不可误判。
+    this._stepCount++
+    if (this._stepCount % FLOAT_CHECK_INTERVAL === 0) this._performFloatCheck()
+
+    // 2.6 全体静止早退：所有存活体均已静态化/睡眠且无待激活延迟块时，跳过求解步。
+    // 堆体成形后物理彻底停摆（落地堆积严格静止），同时省掉尾段每步的世界步进开销。
+    // simTime 照常推进，关键帧录制不受影响。
+    if (this._awakeCount === 0 && this._pendingDelayed <= 0) return
+
     // 3. 步进世界（Rapier 内部处理重力、碰撞、约束求解）
     this._world.timestep = dt
     this._world.step()
 
-    // 4. 安息角堆积检测（低速冻结 + 悬空解除）
+    // 4. 堆积判定：低速 + 有支撑 + 无深度穿透 → 静态化（停稳即 Fixed）
     this._applySettling()
 
     // 4.5 激活初期速度钳制：代表性碎岩块径被体积还原放大后，初始位置仍会
@@ -385,9 +431,13 @@ export class RapierPhysicsEngine {
 
   /**
    * 隧道外碎石检查与消除：每步扫描存活碎片，中心越出隧道断面的碎片
-   * （被挤到侧墙外/拱顶外侧/底板下方）立即传送回断面内最近的合法点，
-   * 速度清零并赋予轻微下落速度，使其落回爆堆重新停稳。
+   * （被挤到侧墙外/拱顶外侧/底板下方）立即传送回断面内最近的合法点。
    * 容差允许贴墙/贴拱正常堆积（与轮廓剔除口径一致）。
+   *
+   * 纠位一律"静默"（wake=false、不注入下落速度）：旧版 setTranslation(wake=true)
+   * + setLinvel(-1) 会给越界块重新注入动能，形成"传送→坠落→再越界→再传送"
+   * 的持续跳动循环。静默纠位对已静止（Fixed）块只改位置、不产生任何运动；
+   * 对动态块则交由重力自然落回堆体。
    *
    * 底板下方的越界必须单独判定：u<0 且 |t|<halfW 的碎片在侧墙/拱顶判据下
    * 完全"合法"，旧版因此对穿底碎片彻底失管（一路自由落体到巷道外）。
@@ -428,11 +478,7 @@ export class RapierPhysicsEngine {
           if (u < 0) {
             rb.setTranslation({ x: p.x, y: fc.y + fragR, z: p.z }, false)
           }
-          rb.setLinvel({ x: 0, y: 0, z: 0 }, false)
-          rb.setAngvel({ x: 0, y: 0, z: 0 }, false)
-          rb.sleep()
-          b.flags |= FLAG_LANDED
-          b.lowSpeedFrames = 0
+          this._freeze(b, 0)
         }
         continue
       }
@@ -464,17 +510,25 @@ export class RapierPhysicsEngine {
       const minU = Math.max(0.02, fragR)
       const maxU = Math.max(minU, ceilU - fragR)
       const cu = Math.max(minU, Math.min(maxU, u))
-      rb.setTranslation(
-        {
-          x: fc.x + rx * ct + fx * s,
-          y: fc.y + ry * ct + cu + fy * s,
-          z: fc.z + rz * ct + fz * s
-        },
-        true
-      )
-      rb.setLinvel({ x: 0, y: -1, z: 0 }, true) // 轻微下落，落回堆体
-      rb.setAngvel({ x: 0, y: 0, z: 0 }, true)
-      // 被挤出去的冻结块必须解除冻结，否则传送后仍以休眠体停在原处
+      const corrected = {
+        x: fc.x + rx * ct + fx * s,
+        y: fc.y + ry * ct + cu + fy * s,
+        z: fc.z + rz * ct + fz * s
+      }
+      // 已静态化（Fixed）的停稳块被堆体挤压轻微越界：静默纠位——不唤醒、
+      // 不给下落速度、保持静止。静态体不参与求解，纠位一次即终止"挤压-越界"
+      // 循环；旧路径 setTranslation(wake=true)+赋 -1m/s 会让块反复传送-坠落
+      // （实测 561 次传送事件），是落地后持续跳动的推手之一。
+      if (b._static || rb.isFixed()) {
+        rb.setTranslation(corrected, false)
+        b._frozenPos = { x: corrected.x, y: corrected.y, z: corrected.z }
+        continue
+      }
+      // 动态块越界：同样静默纠位（不 wake、不注入速度），速度清零后由重力
+      // 自然落回堆体——给 -1m/s 会让块在断面外"抛起再掉下"，形成可见跳动。
+      rb.setTranslation(corrected, false)
+      rb.setLinvel({ x: 0, y: 0, z: 0 }, false)
+      rb.setAngvel({ x: 0, y: 0, z: 0 }, false)
       b.flags &= ~FLAG_LANDED
       b.lowSpeedFrames = 0
     }
@@ -491,6 +545,7 @@ export class RapierPhysicsEngine {
     const ANG_CAP = 12 // 角速度上限(rad/s)
     for (const b of this._fragmentBodies) {
       if (!(b.flags & FLAG_ALIVE)) continue
+      if (b._static) continue
       const rb = b.rigidBody
       if (rb.isSleeping()) continue
       const v = rb.linvel()
@@ -510,130 +565,225 @@ export class RapierPhysicsEngine {
   }
 
   /**
-   * 安息角堆积判定：低速冻结 + 悬空解除
-   * Rapier 的多接触点求解器天然支持稳定堆积，
-   * 此处仅做低速冻结（停止模拟以节省 CPU）和悬空检测。
+   * 周期性几何悬空检测：对已静态化（Fixed）的停稳块，用空间网格确认
+   * 周边是否还有可依托的碎块（或本身贴底板）；确实悬空的块恢复为动态体
+   * 重新下落。
    *
-   * 关键修正：冻结必须要求"贴靠支撑"（底板或下方接触物）。此前仅凭低速
-   * 就 sleep 冻结，碎片在掌子面/拱腰/侧墙处短暂减速即被冻在半空，重力停止
-   * 作用 → 永久悬空，表现为"碎石卡在掌子面/卡在半空"。现改为：
-   *  - 未冻结：低速 + 有支撑才累计冻结；无支撑低速则继续下落
-   *  - 已冻结：被唤醒后（受扰）若无支撑则解除冻结重新下落
+   * 为什么需要：静态块不参与求解，支撑它的动态块滚走/被撞飞后它不会自行
+   * 下落 → 半空永久悬停。每 FLOAT_CHECK_INTERVAL 步检测一次，空间网格使
+   * 4500 体开销可控。
+   *
+   * 判据（宽口径，宁可漏检不可误判）：只要存在任一存活邻块与自身包围球
+   * 相交（含 10% 容差）即视为有依托——爆堆内部块体互相咬合，个别块即使
+   * 略高于支撑面也算被楔住。旧判据（要求邻块中心明显低于自身）会在堆顶
+   * 误判"无支撑"，制造 1.5s 一次的规律性误唤醒（= 用户看到的周期弹起）。
+   */
+  _performFloatCheck() {
+    const tb = this._tunnelBounds
+    if (!tb || this._fragmentBodies.length === 0) return
+    const bodies = this._fragmentBodies
+    const n = bodies.length
+    const CELL = 2
+    const floorY = tb.floorY
+    // 建格（仅存活体），并缓存本步快照位置
+    const grid = new Map()
+    for (let i = 0; i < n; i++) {
+      const b = bodies[i]
+      if (!(b.flags & FLAG_ALIVE)) continue
+      const p = b.rigidBody.translation()
+      b._fcX = p.x
+      b._fcY = p.y
+      b._fcZ = p.z
+      const k = `${Math.floor(p.x / CELL)},${Math.floor(p.y / CELL)},${Math.floor(p.z / CELL)}`
+      const arr = grid.get(k)
+      if (arr) arr.push(i)
+      else grid.set(k, [i])
+    }
+    let woken = 0
+    for (let i = 0; i < n; i++) {
+      const b = bodies[i]
+      if (!(b.flags & FLAG_ALIVE) || !b._static) continue
+      if ((b.floatWakeCount || 0) >= MAX_FLOAT_WAKE) continue
+      const px = b._fcX
+      const py = b._fcY
+      const pz = b._fcZ
+      const rB = b.collisionRadius || b.physSize * 0.5
+      // 底板快速路径：底部贴近底板即视为有支撑
+      if (py - rB * 0.7 <= floorY + 0.25) continue
+      const reach = rB + 3.5 // 邻居半径兜底
+      const cx0 = Math.floor((px - reach) / CELL)
+      const cx1 = Math.floor((px + reach) / CELL)
+      const cy0 = Math.floor((py - reach) / CELL)
+      const cy1 = Math.floor((py + reach) / CELL)
+      const cz0 = Math.floor((pz - reach) / CELL)
+      const cz1 = Math.floor((pz + reach) / CELL)
+      let supported = false
+      outer: for (let cx = cx0; cx <= cx1; cx++) {
+        for (let cy = cy0; cy <= cy1; cy++) {
+          for (let cz = cz0; cz <= cz1; cz++) {
+            const arr = grid.get(`${cx},${cy},${cz}`)
+            if (!arr) continue
+            for (let a = 0; a < arr.length; a++) {
+              const j = arr[a]
+              if (j === i) continue
+              const oj = bodies[j]
+              if (!(oj.flags & FLAG_ALIVE)) continue
+              const rJ = oj.collisionRadius || oj.physSize * 0.5
+              const dy = Math.abs(py - oj._fcY)
+              if (dy > (rB + rJ) * 1.1) continue
+              const dh = Math.hypot(px - oj._fcX, pz - oj._fcZ)
+              if (dh > (rB + rJ) * 1.1) continue
+              supported = true
+              break outer
+            }
+          }
+        }
+      }
+      if (supported) continue
+      // 真悬空：恢复为动态体重新下落。次数上限防"几何陷阱"死循环
+      // （卡在拱顶角落的块物理上无法落稳，超过次数后接受其位置，
+      //  渲染层按断面剔除口径隐藏明显出界块）。
+      b.floatWakeCount = (b.floatWakeCount || 0) + 1
+      b.rigidBody.setBodyType(RAPIER.RigidBodyType.Dynamic, true)
+      b._static = false
+      b.flags &= ~FLAG_LANDED
+      b.lowSpeedFrames = 0
+      b._frozenPos = null
+      woken++
+    }
+    if (woken > 0) this._awakeCount += woken
+  }
+
+  /**
+   * 停稳判定：低速 + 有支撑 + 无深度穿透 → 静态化（转 Fixed 刚体）。
+   *
+   * 为什么必须"静态化"而不是仅仅 sleep：
+   *  - sleep 只是让刚体暂不参与积分，邻居的接触仍会把它唤醒；
+   *  - 休眠体对之间不生成接触流形，休眠期间堆体挤压造成的穿透被积压，
+   *    一旦唤醒由求解器一次性释放 → 分离冲量把块弹起（实测单块弹起 5.5m、
+   *    竖向峰值 10.2m/s），落回时又被压进更密接触 → 堆体逐次收紧、
+   *    体积不自然减小；
+   *  - 转 Fixed 后刚体不再被推动/唤醒，同时仍作为静态碰撞体支撑后续落石，
+   *    爆堆一旦成形即完全静止。
+   *
+   * 冻结门控（缺一不可，避免"悬空卡石"与"穿透固化弹跳"）：
+   *  - 速度低于随块径缩放的阈值并持续 SETTLE_FRAMES 帧（大块滚动阻力小，
+   *    阈值更高 → 落到坡面后继续滚向坡脚，形成坡脚粗块偏析）；
+   *  - 接触查询确认存在位于自身中心下方的接触点（真支撑，侧墙/掌子面不算）；
+   *  - 最大穿透不超过 0.2×碰撞半径（深穿透时先让求解器推出，否则冻结会把
+   *    穿透固化，唤醒即弹跳）。
    */
   _applySettling() {
     for (const b of this._fragmentBodies) {
       if (!(b.flags & FLAG_ALIVE)) continue
+      // 已静态化：不再参与任何判定（Fixed 体速度恒为 0，也不会被唤醒）
+      if (b._static) continue
       const rb = b.rigidBody
-      // 【性能】睡眠体短路：本引擎冻结（sleep）或 Rapier 自动睡眠的体速度恒为
-      // 0——跳过 linvel()+开方。尾段绝大多数碎片处于睡眠，每体每步省 2 次调用。
-      // 注意补齐语义：Rapier 自动睡眠的"未冻结"体（落在堆上静止、尚未走完
-      // "低速 3 帧"门控）直接标记 LANDED，否则 99% 落地门控可能永远不触发，
-      // 关键帧录制被拖到 40s 硬上限（预计算反而更慢）；冻结体（LANDED）睡眠中
-      // 不可能有速度（被顶飞必先被唤醒 → isSleeping()=false），跳过是安全的。
+      // 起爆前的待激活块：未启用（不在求解中），不得判为"已停稳"——
+      // 否则整片待爆破岩体会在 t=0 被静态化，起爆后碎片纹丝不动。
+      if (!rb.isEnabled()) {
+        b.lowSpeedFrames = 0
+        continue
+      }
+      // Rapier 自动睡眠：速度连续 ~0.5s 低于睡眠阈值，等价于"已停稳"，
+      // 直接静态化（旧版仅标记 LANDED，之后仍会被邻居唤醒 → 弹跳）。
       if (rb.isSleeping()) {
-        if (!(b.flags & FLAG_LANDED)) {
-          b.flags |= FLAG_LANDED
-          b.lowSpeedFrames = 0
-          if (this.onBodyLanded && !b.landTriggered) {
-            b.landTriggered = true
-            const pos = rb.translation()
-            this.onBodyLanded({ posX: pos.x, posY: pos.y, posZ: pos.z }, 0)
-          }
-        }
+        this._freeze(b, 0)
         continue
       }
       const vel = rb.linvel()
       const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z)
 
-      if (b.flags & FLAG_LANDED) {
-        // 已冻结碎片：若 Rapier 因受扰将其唤醒（有速度）且失去支撑
-        // （被顶飞/支撑滑走），解除冻结让其重新下落，避免残影悬空。
-        if (speed > 0.05 && !this._bodyHasSupport(b)) {
-          b.flags &= ~FLAG_LANDED
-          b.lowSpeedFrames = 0
-          b.rigidBody.wakeUp()
-        }
+      // 冻结阈值随块径降低：大块滚动阻力相对小（转动惯量 ∝ R²、接触微凸体
+      // 相对高度小），落地后会继续沿坡面滚到坡脚，形成"坡脚粗块"的粒度偏析。
+      // 下限 0.4 m/s：过低会让大块在密集堆体中永久"蠕动"。
+      const sizeScale = Math.min(1.4, Math.max(0.45, 0.55 / Math.max(0.12, b.physSize)))
+      const settleSpeed = Math.max(0.4, SETTLE_SPEED * sizeScale)
+      if (speed >= settleSpeed) {
+        b.lowSpeedFrames = 0
         continue
       }
-
-      // 未冻结碎片：低速 + 贴靠支撑才冻结（禁止悬空卡石）
-      // 冻结阈值随块径降低：大块滚动阻力相对小（转动惯量 ∝ R²、接触微凸体相对高度小），
-      // 落地后会继续沿坡面滚到坡脚，形成"坡脚粗块"的粒度偏析（文献中典型现象）。
-      // 旧版对所有尺寸用同一阈值，实测偏析比 0.49（粗块全部停在堆顶）。
-      const sizeScale = Math.min(1.4, Math.max(0.45, 0.55 / Math.max(0.12, b.physSize)))
-      // 下限 0.4 m/s：过低会让大块在密集堆体中永久"蠕动"，失去冻结门控后
-      // 塔除分离冲量持续堆叠（实测大断面场景堆高 10.5m、坡角 71.7°）
-      const settleSpeed = Math.max(0.4, SETTLE_SPEED * sizeScale)
-      if (speed < settleSpeed) {
-        if (this._bodyHasSupport(b)) {
-          b.lowSpeedFrames = (b.lowSpeedFrames || 0) + 1
-          if (b.lowSpeedFrames >= SETTLE_FRAMES) {
-            b.flags |= FLAG_LANDED
-            b.rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true)
-            b.rigidBody.setAngvel({ x: 0, y: 0, z: 0 }, true)
-            b.rigidBody.sleep()
-            if (this.onBodyLanded && !b.landTriggered) {
-              b.landTriggered = true
-              const pos = b.rigidBody.translation()
-              this.onBodyLanded({ posX: pos.x, posY: pos.y, posZ: pos.z }, speed)
-            }
-          }
-        } else {
-          // 悬空无支撑：不冻结，清空计数，让它继续下落
-          b.lowSpeedFrames = 0
-        }
-      } else {
+      const info = this._contactInfo(b)
+      const penLimit = 0.2 * (b.collisionRadius || b.physSize * 0.5)
+      if (!info.supported || info.maxPen > penLimit) {
+        // 悬空无支撑或深度穿透：不冻结，清空计数，继续下落/被推出
         b.lowSpeedFrames = 0
+        continue
       }
+      b.lowSpeedFrames = (b.lowSpeedFrames || 0) + 1
+      if (b.lowSpeedFrames >= SETTLE_FRAMES) this._freeze(b, speed)
     }
   }
 
   /**
-   * 检查碎片是否贴靠支撑（底板或下方接触物）。
-   * 用于禁止"悬空冻结"：无支撑的半空碎片不应被标记 LANDED，
-   * 否则碎片会在拱腰/掌子面处永久悬浮（重力停止作用），表现为"卡石"。
-   *
-   * 判定方式：
-   *  - 快速路径：碎片底部贴近底板（含底板上薄层堆积）
-   *  - 接触判定：Rapier 接触检测，存在接触点位于碎片中心下方的支撑物
-   *    （接触点在下方半球 → 支撑在底部；侧壁/掌子面接触点约在中心高度，
-   *     不会被误判为支撑）
-   * @param {Object} b - 碎片 entry（含 rigidBody/physSize）
-   * @returns {boolean}
+   * 冻结：把已停稳碎片转为静态刚体（Fixed），并记录冻结位置。
+   * @param {Object} b - 碎片 entry
+   * @param {number} impactSpeed - 落地冲击速度（仅用于落地事件特效）
    */
-  _bodyHasSupport(b) {
+  _freeze(b, impactSpeed) {
+    const rb = b.rigidBody
+    const p = rb.translation()
+    rb.setLinvel({ x: 0, y: 0, z: 0 }, false)
+    rb.setAngvel({ x: 0, y: 0, z: 0 }, false)
+    rb.sleep()
+    // 转静态：不再被求解器唤醒/推挤（这是"落地后停止跳动"的关键）
+    rb.setBodyType(RAPIER.RigidBodyType.Fixed, false)
+    b._static = true
+    b.flags |= FLAG_LANDED
+    b.lowSpeedFrames = 0
+    b._frozenPos = { x: p.x, y: p.y, z: p.z }
+    if (this.onBodyLanded && !b.landTriggered) {
+      b.landTriggered = true
+      this.onBodyLanded({ posX: p.x, posY: p.y, posZ: p.z }, Number(impactSpeed) || 0)
+    }
+  }
+
+  /**
+   * 接触信息查询：支撑判定 + 最大穿透深度。
+   * 穿透深度供冻结门控使用——深度穿透的块不冻结（求解器尚未把块推出，
+   * 冻结会把穿透"固化"，唤醒时一次性释放 → 分离冲量把块弹起，实测
+   * 峰值速度 124 m/s）。穿透深度用几何接触对的 contactDist（负值=穿透）。
+   * @param {Object} b - 碎片 entry
+   * @returns {{supported: boolean, maxPen: number}} maxPen 为正值(米)
+   */
+  _contactInfo(b) {
     const pos = b.rigidBody.translation()
     const tb = this._tunnelBounds
     const fragR = b.collisionRadius || b.physSize * 0.5
     const floorY = tb ? tb.floorY : 0
     // 底板下方（中心低于顶面）不算"有支撑"：旧版只看"底部贴近/低于底板"，
     // 把已经穿到底板下的碎片也判为贴地→就地冻结，形成巷道外的静止碎堆。
-    if (pos.y - fragR <= floorY + 0.2 && pos.y >= floorY - 0.05) return true
+    if (pos.y - fragR <= floorY + 0.2 && pos.y >= floorY - 0.05) {
+      return { supported: true, maxPen: 0 }
+    }
 
     const collider = b.rigidBody.collider(0)
-    if (!collider || !this._world) return false
+    if (!collider || !this._world) return { supported: false, maxPen: 0 }
     const centerY = pos.y
     const pt = { x: 0, y: 0, z: 0 }
     let supported = false
+    let maxPen = 0
     try {
       this._world.contactPairsWith(collider, other => {
-        if (supported) return
         this._world.contactPair(collider, other, manifold => {
-          if (supported) return
           const n = manifold.numSolverContacts()
           for (let i = 0; i < n; i++) {
             const p = manifold.solverContactPoint(i, pt)
             if (p && p.y < centerY - 0.02) {
               supported = true
-              return
             }
+          }
+          const nc = manifold.numContacts()
+          for (let i = 0; i < nc; i++) {
+            const d = manifold.contactDist(i)
+            if (d < 0 && -d > maxPen) maxPen = -d
           }
         })
       })
     } catch (_) {
       // 接触查询失败时保守视为无支撑（不冻结），避免卡石
     }
-    return supported
+    return { supported, maxPen }
   }
 
   /** 能量统计采样 */
@@ -786,6 +936,11 @@ export class RapierPhysicsEngine {
       const b = this._fragmentBodies[i]
       const p = positions[i]
       const v = velocities[i]
+      // 上一轮已静态化的块必须先恢复为动态体，否则重播时永远是固定不动的
+      if (b._static || b.rigidBody.isFixed()) {
+        b.rigidBody.setBodyType(RAPIER.RigidBodyType.Dynamic, false)
+      }
+      b._static = false
       b.rigidBody.setTranslation({ x: p.x, y: p.y, z: p.z }, true)
       b.rigidBody.setLinvel({ x: v.x, y: v.y, z: v.z }, true)
       b.rigidBody.setAngvel({ x: 0, y: 0, z: 0 }, true)
@@ -795,11 +950,17 @@ export class RapierPhysicsEngine {
       b.bounceCount = 0
       b.lowSpeedFrames = 0
       b.landTriggered = false
+      // 停稳状态一并复位（否则循环重播会带着上一轮的静态冻结状态）
+      b._frozenPos = null
+      b.floatWakeCount = 0
     }
     this.activeCount = this._fragmentBodies.length
     this.simTime = 0
     this._energyTimeSeries = []
     this._lastSampleTime = 0
+    // 待激活延迟块计数（step() 全体休眠早退判定：为 0 才允许跳过求解步）
+    this._pendingDelayed = this._fragmentBodies.filter(b => b._delayed).length
+    this._awakeCount = 0
   }
 
   // ─── 内部方法 ─────────────────────────────────────────
@@ -807,6 +968,8 @@ export class RapierPhysicsEngine {
   /** 清除所有刚体和碰撞体 */
   _clearBodies() {
     if (!this._world) return
+    this._pendingDelayed = 0
+    this._awakeCount = 0
     for (const b of this._fragmentBodies) {
       try {
         this._world.removeRigidBody(b.rigidBody)
@@ -943,10 +1106,14 @@ export class RapierPhysicsEngine {
     this._world.createCollider(floorCol, floorBody)
     this._tunnelColliderBodies.push(floorBody)
 
-    // 掌子面封堵板：在掌子面（局部 z = -faceOffset）加一块与该断面同形的平板，
-    // 阻止碎片反向飞进未爆破岩体（视觉上表现为"嵌进/卡在掌子面"）。
-    // 低摩擦 + 近零恢复：贴面碎片不会反弹弹回后方，而是沿面滑落入堆。
-    const zFace = -Math.max(1, Number(tb.faceOffset) || 3)
+    // 新掌子面封堵板：碎块初始填充在待爆棱柱 [faceOffset, faceOffset+faceDepth] 内，
+    // 其后侧是新暴露的未爆破岩体（实心）。必须在**进尺末端**加一块与该断面同形的
+    // 平板，阻止初始重叠分离冲量/回弹把碎块射进岩体深处（实测无此板时 20% 碎块
+    // 飞到岩体内部 8~21m 处，渲染被岩体遮挡 → 堆体凭空少一块、空腔填不满）。
+    // 旧实现把板放在掌子面处（z=-faceOffset），那是碎块的自由面，反而堵住抛出通道。
+    // 低摩擦 + 近零恢复：贴面碎块不反弹，而是沿面滑落入堆。
+    const faceDepth = Number(tb.faceDepth) > 0 ? Number(tb.faceDepth) : 2.5
+    const zFace = -Math.max(1, Number(tb.faceOffset) || 3) - faceDepth
     // 计算轮廓质心（fan 三角剖分中心）
     let cxx = 0
     let cyy = 0

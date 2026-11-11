@@ -145,9 +145,10 @@ export function classifyZingg(elongation, flatness) {
   return 'irregular'
 }
 
-/** 中文名（供 UI / 报告使用） */
+/** 中文名（供 UI / 报告使用）。rounded 由浑圆几何生成器直接指定，不走节理分类 */
 export const ZINGG_LABELS = {
   blocky: '等轴块状',
+  rounded: '浑圆状',
   platy: '板状',
   columnar: '柱状',
   irregular: '不规则'

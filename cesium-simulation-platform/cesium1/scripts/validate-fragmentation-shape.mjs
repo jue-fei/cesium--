@@ -181,7 +181,7 @@ async function runScenario(sc) {
         randomSeed: 2026
     })
     const shapeStats = getRockVariantShapeStats()
-    const counts = { blocky: 0, irregular: 0, columnar: 0, platy: 0, elongated: 0 }
+    const counts = { blocky: 0, rounded: 0, irregular: 0, columnar: 0, platy: 0, elongated: 0 }
     const flatness = []
     for (const s of out.specs) {
         const st = shapeStats[s.variantIndex]
@@ -234,14 +234,14 @@ function buildMarkdown(rows, stamp) {
     lines.push('')
     lines.push('## 一、块体形状分布（Zingg 分类）')
     lines.push('')
-    lines.push('| 场景 | 碎片数 | 扁平度中位数 | 等轴块状 | 不规则 | 柱状 | 板状 | 长条 | 块度 KL |')
-    lines.push('|---|---|---|---|---|---|---|---|---|')
+    lines.push('| 场景 | 碎片数 | 扁平度中位数 | 等轴块状 | 浑圆 | 不规则 | 柱状 | 板状 | 长条 | 块度 KL |')
+    lines.push('|---|---|---|---|---|---|---|---|---|---|')
     for (const r of rows) {
         lines.push(
             `| ${r.name} | ${r.fragmentCount} | ${fmt(r.flatnessMedian)} |` +
-            ` ${fmt(r.shapePct.blocky, 1)}% | ${fmt(r.shapePct.irregular, 1)}% |` +
-            ` ${fmt(r.shapePct.columnar, 1)}% | ${fmt(r.shapePct.platy, 1)}% |` +
-            ` ${fmt(r.shapePct.elongated, 1)}% | ${fmt(r.kl, 3)} |`
+            ` ${fmt(r.shapePct.blocky, 1)}% | ${fmt(r.shapePct.rounded, 1)}% |` +
+            ` ${fmt(r.shapePct.irregular, 1)}% | ${fmt(r.shapePct.columnar, 1)}% |` +
+            ` ${fmt(r.shapePct.platy, 1)}% | ${fmt(r.shapePct.elongated, 1)}% | ${fmt(r.kl, 3)} |`
         )
     }
     lines.push('')

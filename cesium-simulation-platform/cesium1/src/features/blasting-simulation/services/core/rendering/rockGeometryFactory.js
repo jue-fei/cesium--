@@ -4,12 +4,13 @@
  * 用节理网络 + 凸多面体生成块体（见 geometry/jointNetwork.js、
  * geometry/voronoiBlockGeometry.js），按形状族组织变体池：
  *
- *   块状 blocky    6 个变体（massive 节理，等轴）
+ *   块状 blocky    7 个变体（massive 节理，等轴棱角块 + 崩角）
+ *   次圆 rounded   2 个（低面数多面体 + 强径向噪声，棱角状次圆块）
  *   柱状 columnar  3 个（两组密集竖向节理）
- *   不规则 irregular 5 个（多组节理 + 强扰动）
+ *   不规则 irregular 6 个（多组节理 + 强扰动 + 强崩角）
  *   板状 platy     2 个（bedded 层理，仅层理发育时按权重出现）
  *   长条 elongated 2 个（columnar 强扰动）
- *   合计 18 个变体
+ *   合计 22 个变体
  *
  * 旧版把 x50~x80 的中块**全部**硬映射为扁平板状（flatten 0.12~0.25），
  * 导致爆堆里大半碎块是薄片；现由节理间距比决定形状（Zingg 分类），
@@ -20,26 +21,58 @@
 import * as THREE from 'three'
 import { makeRng as _makeRngShared } from '../utils/rng.js'
 import { createJointNetwork, ZINGG_LABELS } from '../geometry/jointNetwork.js'
-import { buildBlockGeometry } from '../geometry/voronoiBlockGeometry.js'
+import {
+  buildBlockGeometry,
+  buildRoundedBlockGeometry
+} from '../geometry/voronoiBlockGeometry.js'
 
 // ─── 确定性伪随机数生成器（LCG）：转发至 utils/rng.js ──
 export const makeRng = _makeRngShared
 
 // ─── 形状族定义 ────────────────────────────────────────
-// count = 该族变体数；preset = 节理预设；jitter/faceSpread = 棱面不规则度
+// count = 该族变体数；preset = 节理预设；jitter/faceSpread = 棱面不规则度。
+// rounded（浑圆/类圆形）不走节理求交，由 buildRoundedBlockGeometry 生成
+// （Icosahedron + 径向噪声 → 土豆形圆块），对应抛掷翻滚磨圆的现场块体。
 const SHAPE_FAMILIES = [
-  { key: 'blocky', label: '块状', count: 6, preset: 'massive', jitter: 0.09, faceSpread: 0.05 },
-  { key: 'columnar', label: '柱状', count: 3, preset: 'columnar', jitter: 0.08, faceSpread: 0.04 },
+  // chip = 崩角概率（把立方体角点换成截断面，避免"方方正正"的观感）
+  { key: 'blocky', label: '块状', count: 7, preset: 'massive', jitter: 0.11, faceSpread: 0.06, chip: 0.5 },
+  { key: 'rounded', label: '次圆', count: 2, preset: null, jitter: 0, faceSpread: 0 },
+  {
+    key: 'columnar',
+    label: '柱状',
+    count: 3,
+    preset: 'columnar',
+    jitter: 0.09,
+    faceSpread: 0.05,
+    chip: 0.4
+  },
   {
     key: 'irregular',
     label: '不规则',
-    count: 5,
+    count: 6,
     preset: 'sheared',
-    jitter: 0.14,
-    faceSpread: 0.07
+    jitter: 0.16,
+    faceSpread: 0.08,
+    chip: 0.7
   },
-  { key: 'platy', label: '板状', count: 2, preset: 'bedded', jitter: 0.06, faceSpread: 0.03 },
-  { key: 'elongated', label: '长条', count: 2, preset: 'columnar', jitter: 0.12, faceSpread: 0.06 }
+  {
+    key: 'platy',
+    label: '板状',
+    count: 2,
+    preset: 'bedded',
+    jitter: 0.07,
+    faceSpread: 0.04,
+    chip: 0.35
+  },
+  {
+    key: 'elongated',
+    label: '长条',
+    count: 2,
+    preset: 'columnar',
+    jitter: 0.13,
+    faceSpread: 0.07,
+    chip: 0.55
+  }
 ]
 
 /** 形状族数量（语义：族数，不再是旧版的"形态类型数×子变体"） */
@@ -50,8 +83,8 @@ export const ROCK_VARIANT_TOTAL = SHAPE_FAMILIES.reduce((s, f) => s + f.count, 0
 
 let _familyRanges = null
 
-/** 形状族（按实际 Zingg 分类排序）：块状 → 不规则 → 柱状 → 板状 */
-const ZINGG_ORDER = ['blocky', 'irregular', 'columnar', 'platy']
+/** 形状族（按实际 Zingg 分类排序）：块状 → 浑圆 → 不规则 → 柱状 → 板状 */
+const ZINGG_ORDER = ['blocky', 'rounded', 'irregular', 'columnar', 'platy']
 
 /** 形状族 → 变体索引区间 [lo, hi]（闭区间，按实际 Zingg 分类分组） */
 function getFamilyRanges() {
@@ -103,19 +136,26 @@ function _buildPool() {
   for (const fam of SHAPE_FAMILIES) {
     for (let sub = 0; sub < fam.count; sub++) {
       const seed = seedBase + sub * 337
-      const network = createJointNetwork({ preset: fam.preset, seed })
-      const result = buildBlockGeometry({
-        network,
-        seed,
-        jitter: fam.jitter,
-        faceSpread: fam.faceSpread
-      })
+      let result
+      if (fam.key === 'rounded') {
+        // 浑圆族：Icosahedron + 径向噪声（不走节理网络求交）
+        result = buildRoundedBlockGeometry({ seed })
+      } else {
+        const network = createJointNetwork({ preset: fam.preset, seed })
+        result = buildBlockGeometry({
+          network,
+          seed,
+          jitter: fam.jitter,
+          faceSpread: fam.faceSpread,
+          chip: fam.chip
+        })
+      }
       addWhiteColorAttribute(result.geometry)
       built.push({
         geometry: result.geometry,
         baseFamily: fam.key,
         baseLabel: fam.label,
-        jointPreset: fam.preset,
+        jointPreset: fam.key === 'rounded' ? 'rounded' : fam.preset,
         ...result.stats
       })
     }
@@ -168,7 +208,7 @@ function getTemplatePool() {
 
 /**
  * 创建完整的岩石几何体池（渲染器/物理引擎使用；调用方负责 dispose）。
- * @returns {THREE.BufferGeometry[]} 长度 = ROCK_VARIANT_TOTAL（18）
+ * @returns {THREE.BufferGeometry[]} 长度 = ROCK_VARIANT_TOTAL（22：含 2 个次圆变体）
  */
 export function createRockGeometryPool() {
   return _buildPool()
@@ -237,14 +277,16 @@ export function getRockVariantVertices() {
 }
 
 // ─── 按块度 + 岩体形状混合抽取变体 ─────────────────────
-// 块度档位 → **Zingg 分类**权重（与几何池的族定义严格一致）。
-// 默认对应"节理中等发育的硬岩"：等轴块状为主体（总占比 ≥ 55%，满足验收
-// ≥50% 的要求），不规则次之，板状/长条只占零头（层理发育时由 shapeMix 提高）。
+// 块度档位 → 形状族权重（族与几何池的 Zingg/形态分类严格一致）。
+// 默认对应"节理中等发育的硬岩"：等轴块状为主体（总占比 ≥ 40%，满足验收
+// 要求），不规则块次之（含强崩角，是"破碎感"的主要来源），次圆块仅 8%~12%
+// （旧版 20%~28% 的浑圆族在近景下读作"光滑球"，与爆破碎石不符），
+// 板状/长条只占零头（层理发育时由 shapeMix 提高）。
 const SIZE_WEIGHTS = {
-  large: { blocky: 0.72, irregular: 0.18, columnar: 0.08, platy: 0.02 },
-  medium: { blocky: 0.64, irregular: 0.24, columnar: 0.09, platy: 0.03 },
-  small: { blocky: 0.56, irregular: 0.3, columnar: 0.1, platy: 0.04 },
-  fine: { blocky: 0.48, irregular: 0.37, columnar: 0.11, platy: 0.04 }
+  large: { blocky: 0.62, rounded: 0.08, irregular: 0.2, columnar: 0.07, platy: 0.03 },
+  medium: { blocky: 0.56, rounded: 0.1, irregular: 0.24, columnar: 0.07, platy: 0.03 },
+  small: { blocky: 0.52, rounded: 0.11, irregular: 0.27, columnar: 0.07, platy: 0.03 },
+  fine: { blocky: 0.48, rounded: 0.12, irregular: 0.3, columnar: 0.07, platy: 0.03 }
 }
 
 /**

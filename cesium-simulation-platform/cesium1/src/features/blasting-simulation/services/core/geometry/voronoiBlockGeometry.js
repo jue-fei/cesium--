@@ -15,6 +15,7 @@
  */
 import * as THREE from 'three'
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js'
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { makeRng } from '../utils/rng.js'
 import { deriveShapeStats, classifyZingg } from './jointNetwork.js'
 
@@ -73,8 +74,9 @@ function buildFallbackGeometry(seed) {
 }
 
 /**
- * 生成一个节理控制的块体几何。
- * @param {{ network: Object, seed?: number, jitter?: number, faceSpread?: number }} options
+ * 生成一个节理控制的块体几何（半空间求交：3 组节理面 + 随机崩落切面）。
+ * @param {{ network: Object, seed?: number, jitter?: number, faceSpread?: number, chip?: number }} options
+ *   chip: 崩落切面数量系数（0~1，实际切面数 = round(chip×8)）
  * @returns {{ geometry: THREE.BufferGeometry, vertices: Float32Array, stats: Object }}
  */
 export function buildBlockGeometry(options = {}) {
@@ -83,6 +85,7 @@ export function buildBlockGeometry(options = {}) {
   const rng = makeRng(seed)
   const jitter = Number.isFinite(Number(options.jitter)) ? Number(options.jitter) : 0.1
   const faceSpread = Number.isFinite(Number(options.faceSpread)) ? Number(options.faceSpread) : 0.05
+  const chip = Number.isFinite(Number(options.chip)) ? Number(options.chip) : 0.5
 
   const sets = (network?.sets || []).slice(0, 3)
   if (sets.length < 3) return fallbackResult(seed)
@@ -90,13 +93,12 @@ export function buildBlockGeometry(options = {}) {
   const normals = sets.map(s => normalize(s.normal))
   const spacings = sets.map(s => Math.max(0.05, Number(s.spacing) || 1))
   const sizeScale = (spacings[0] + spacings[1] + spacings[2]) / 3
-  // 共面检测：det(A) = b0·(b1×b2)
   const b0 = { x: normals[0].x, y: normals[1].x, z: normals[2].x }
   const b1 = { x: normals[0].y, y: normals[1].y, z: normals[2].y }
   const b2 = { x: normals[0].z, y: normals[1].z, z: normals[2].z }
   if (Math.abs(dot(b0, cross(b1, b2))) < 1e-4) return fallbackResult(seed)
 
-  // ── 1. 8 个顶点（平行六面体）──
+  // ── 1. 8 个角点（平行六面体）──
   const grid = []
   for (const i1 of [-1, 1]) {
     for (const i2 of [-1, 1]) {
@@ -115,7 +117,7 @@ export function buildBlockGeometry(options = {}) {
     }
   }
 
-  // ── 2. 顶点扰动（棱角不规则化）──
+  // ── 2. 顶点扰动（棱线不规则化）──
   const points = grid.map(g => {
     const r = jitter * sizeScale * (0.25 + rng() * 0.75)
     const theta = rng() * Math.PI * 2
@@ -127,7 +129,37 @@ export function buildBlockGeometry(options = {}) {
     )
   })
 
-  // ── 3. 面心外凸点（把 6 面切成 12~24 个面，模拟节理面起伏）──
+  // ── 3. 棱角崩落（corner chipping）──
+  // 真实爆破碎块表面 = 节理面 + 断裂面，棱角处普遍有崩口/截断，极少出现完整
+  // 立方体。按概率把角点替换为沿其三条棱的截断点：凸包在该角处形成一张三角形
+  // 崩落面（棱线依旧锐利），轮廓不再读作"方块"。
+  // 用"角点→截断点"而非"随机半空间求交"：块体始终包含其余角点，绝不会被
+  // 削成刀片/尖刺（后者在薄板/细柱上会直接削穿厚度）。
+  const keep = []
+  const chipped = []
+  for (let ci = 0; ci < grid.length; ci++) {
+    const g = grid[ci]
+    if (rng() >= chip) {
+      keep.push(points[ci])
+      continue
+    }
+    const t = 0.18 + rng() * 0.32
+    const p = points[ci]
+    for (const [d1, d2, d3] of [
+      [-g.i1, g.i2, g.i3],
+      [g.i1, -g.i2, g.i3],
+      [g.i1, g.i2, -g.i3]
+    ]) {
+      const ni = grid.findIndex(h => h.i1 === d1 && h.i2 === d2 && h.i3 === d3)
+      if (ni < 0) continue
+      const q = points[ni]
+      chipped.push(
+        new THREE.Vector3(p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t, p.z + (q.z - p.z) * t)
+      )
+    }
+  }
+
+  // ── 4. 面心外凸点（把 6 面切成 12~24 个面，模拟节理面起伏）──
   const faces = []
   for (let axis = 0; axis < 3; axis++) {
     for (const sign of [-1, 1]) {
@@ -142,10 +174,10 @@ export function buildBlockGeometry(options = {}) {
     }
   }
 
-  // ── 4. 凸包 ──
+  // ── 4.5 凸包 ──
   let geo
   try {
-    geo = new ConvexGeometry(points.concat(faces))
+    geo = new ConvexGeometry(keep.concat(chipped, faces))
   } catch (_) {
     return fallbackResult(seed)
   }
@@ -225,6 +257,120 @@ function fallbackResult(seed) {
       flatness: 1,
       zingg: 'blocky',
       jointPreset: 'fallback'
+    }
+  }
+}
+
+/**
+ * 方向连贯的径向噪声（确定性）：同一单位方向永远得到同一噪声值。
+ * 三层正弦叠加（频率 2 / 4 / 8），低频决定整体"土豆形"鼓包，
+ * 高频叠加少量表面起伏；幅度逐层衰减避免出现高频锯齿。
+ */
+function _radialNoise(x, y, z, s) {
+  let v =
+    Math.sin(x * 2.1 + s) * Math.sin(y * 1.7 - s * 0.7) * Math.sin(z * 1.9 + s * 0.3) +
+    0.5 * Math.sin(x * 4.3 - s) * Math.sin(y * 3.9 + s) * Math.sin(z * 4.1 - s * 0.5) +
+    0.25 * Math.sin(x * 8.7 + s * 1.3) * Math.sin(y * 8.1 - s * 0.9) * Math.sin(z * 9.3 + s)
+  return v / 1.75 // 归一到约 [-1, 1]
+}
+
+/**
+ * 生成浑圆（类圆形）块体几何 — 与节理块体互补的形态族。
+ *
+ * 真实爆破块体中相当一部分是"浑圆状"：节理面密集切割后棱角在抛掷翻滚
+ * 过程中被磨圆，细粒径块尤为明显（现场筛分常见次圆/浑圆颗粒）。旧几何池
+ * 全部由节理平面求交生成，骨架必为棱角块 → 爆堆里没有一颗圆块。
+ *
+ * 算法：
+ *  1. IcosahedronGeometry(1, 1) 焊接顶点（mergeVertices，保证法线平滑）；
+ *  2. 每个顶点沿径向做方向连贯噪声位移（r = 1 + 0.13·noise），
+ *     三层正弦叠加 → 浑圆"土豆形" + 轻微表面起伏；
+ *  3. 各向异性缩放（sx, sy, sz ∈ [0.82, 1.22]）制造椭球度差异，
+ *     使族内既有近球形也有轻微长/扁的圆块；
+ *  4. 居中 + 归一化到最大半径 1（与节理块体 maxR 语义一致）。
+ *
+ * 渲染与物理同源：返回顶点数组同样交给 Rapier convexHull 做凸包碰撞体
+ * （近凸形，凸包与真实形状几乎重合，碰撞精度不受影响）。
+ *
+ * @param {{ seed?: number, detail?: number }} options
+ * @returns {{ geometry: THREE.BufferGeometry, vertices: Float32Array, stats: Object }}
+ */
+export function buildRoundedBlockGeometry(options = {}) {
+  const seed = Number(options.seed) || 1
+  // detail=0：二十面体 20 面 → 面片大、棱线明显（"棱角状次圆块"）；
+  // detail=1（80 面）在 flatShading 下仍读作"球"，故不再作为默认。
+  const detail = Number.isFinite(Number(options.detail)) ? Number(options.detail) : 0
+  const rng = makeRng(seed)
+
+  // 噪声种子 & 各向异性缩放（族内形状差异来源）
+  const ns = rng() * 100
+  // 0.20~0.32：足够强的径向起伏，让次圆块也有明显崩口/凸棱，不再是光滑球
+  const amp = 0.32 + rng() * 0.18
+  const sx = 0.82 + rng() * 0.4
+  const sy = 0.82 + rng() * 0.4
+  const sz = 0.82 + rng() * 0.4
+
+  let geo
+  try {
+    geo = new THREE.IcosahedronGeometry(1, detail)
+    geo = mergeVertices(geo) // 焊接共享顶点 → 后续位移方向一致、法线平滑
+  } catch (_) {
+    return fallbackResult(seed)
+  }
+  if (!geo || !geo.attributes.position || geo.attributes.position.count < 12) {
+    return fallbackResult(seed)
+  }
+
+  const pos = geo.attributes.position
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i)
+    const y = pos.getY(i)
+    const z = pos.getZ(i)
+    const len = Math.hypot(x, y, z) || 1
+    const n = _radialNoise(x / len, y / len, z / len, ns)
+    // 逐顶点随机位移（0.55 权重）压过多面体的"球面感"：12 个顶点各自乱走，
+    // 20 个面变成大小不一的不规则三角面 → 棱角状次圆块（旧版纯平滑噪声
+    // 只是把球捏成"土豆"，在近景里仍是一颗球）。
+    const rnd = rng() * 2 - 1
+    const r = 1 + amp * (0.45 * n + 0.55 * rnd)
+    pos.setXYZ(i, x * r * sx, y * r * sy, z * r * sz)
+  }
+
+  // 居中 + 归一化到最大半径 1
+  geo.computeBoundingBox()
+  const bb = geo.boundingBox
+  geo.translate(-(bb.min.x + bb.max.x) / 2, -(bb.min.y + bb.max.y) / 2, -(bb.min.z + bb.max.z) / 2)
+  const p2 = geo.attributes.position
+  let maxR = 0
+  for (let i = 0; i < p2.count; i++) {
+    const r = Math.hypot(p2.getX(i), p2.getY(i), p2.getZ(i))
+    if (r > maxR) maxR = r
+  }
+  if (!(maxR > 1e-6)) return fallbackResult(seed)
+  geo.scale(1 / maxR, 1 / maxR, 1 / maxR)
+  geo.computeBoundingBox()
+  geo.computeVertexNormals() // 平滑法线 → 渲染呈浑圆面，而非多面体面片
+
+  const half = geo.boundingBox
+  const hx = (half.max.x - half.min.x) / 2
+  const hy = (half.max.y - half.min.y) / 2
+  const hz = (half.max.z - half.min.z) / 2
+  const sorted = [hx, hy, hz].sort((a, b) => b - a)
+  const geomElongation = sorted[0] > 1e-6 ? sorted[1] / sorted[0] : 1
+  const geomFlatness = sorted[1] > 1e-6 ? sorted[2] / sorted[1] : 1
+
+  return {
+    geometry: geo,
+    vertices: geo.attributes.position.array.slice(),
+    stats: {
+      faceTriangles: Math.floor(
+        geo.index ? geo.index.count / 3 : geo.attributes.position.count / 3
+      ),
+      halfExtents: [hx, hy, hz],
+      elongation: geomElongation,
+      flatness: geomFlatness,
+      zingg: 'rounded', // 独立形态族：不走节理 Zingg 分类
+      jointPreset: 'rounded'
     }
   }
 }

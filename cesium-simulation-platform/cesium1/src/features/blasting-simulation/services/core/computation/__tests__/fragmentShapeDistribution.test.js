@@ -48,16 +48,17 @@ function median(arr) {
 }
 
 describe('碎石形状分布与初始位置', () => {
-    it('几何池为 18 个节理块体变体，族与 Zingg 分类严格一致', () => {
+    it('几何池为 22 个块体变体（含 4 个浑圆），族与 Zingg 分类严格一致', () => {
         const stats = getRockVariantShapeStats()
-        expect(ROCK_VARIANT_TOTAL).toBe(18)
-        expect(stats).toHaveLength(18)
+        expect(ROCK_VARIANT_TOTAL).toBe(22)
+        expect(stats).toHaveLength(22)
         // 族名必须是实际几何 Zingg 分类（避免"族名柱状、几何不规则"的错位）
         for (const s of stats) {
             expect(s.family).toBe(s.zingg)
         }
-        // 四类 Zingg 均存在，且块状为主体（≥8/18）
+        // 五类形态均存在，且块状为主体（≥8/22）
         expect(stats.filter(s => s.zingg === 'blocky').length).toBeGreaterThanOrEqual(8)
+        expect(stats.some(s => s.zingg === 'rounded')).toBe(true)
         expect(stats.some(s => s.zingg === 'platy')).toBe(true)
         expect(stats.some(s => s.zingg === 'columnar')).toBe(true)
         expect(stats.some(s => s.zingg === 'irregular')).toBe(true)
@@ -84,7 +85,7 @@ describe('碎石形状分布与初始位置', () => {
         expect(blocky / out.specs.length).toBeGreaterThanOrEqual(0.4)
     })
 
-    it('变体索引全部合法（0 ~ 17）', () => {
+    it('变体索引全部合法（0 ~ 21），且次圆块占比受控（8%~12% 设计值）', () => {
         const out = generateFragmentSpecs({
             kco: KCO,
             face: FACE,
@@ -96,7 +97,73 @@ describe('碎石形状分布与初始位置', () => {
         for (const s of out.specs) {
             expect(s.variantIndex).toBeGreaterThanOrEqual(0)
             expect(s.variantIndex).toBeLessThan(ROCK_VARIANT_TOTAL)
+            // 传统模式同样携带逐实例形状变异参数（有界）
+            expect(s.morphAmp).toBeGreaterThanOrEqual(0)
+            expect(s.morphAmp).toBeLessThanOrEqual(0.11)
+            expect(s.morphSeed).toHaveLength(3)
         }
+        const stats = getRockVariantShapeStats()
+        const rounded = out.specs.filter(s => stats[s.variantIndex].zingg === 'rounded').length
+        // 权重设计值 8%~12%（近景下"光滑球"观感失真，旧值 20%~28% 已下调）；
+        // 单种子抽样噪声下给 4%~22% 的容差带
+        expect(rounded / out.specs.length).toBeGreaterThanOrEqual(0.04)
+        expect(rounded / out.specs.length).toBeLessThanOrEqual(0.22)
+    })
+
+    it('逐实例形状变异由爆破参数驱动：掏槽孔 > 周边孔，且幅度有界', () => {
+        // 炮孔驱动模式：4 个掏槽孔（delayMs=0，夹制作用强）+ 8 个周边孔
+        // （delayMs=150ms，光面爆破低损伤）→ 变异幅度应有可测差异
+        const holes = []
+        for (let i = 0; i < 4; i++) {
+            holes.push({
+                x: (i % 2 ? 1 : -1) * 1.2,
+                y: 2.5 + Math.floor(i / 2) * 2,
+                chargeKg: 20,
+                delayMs: 0,
+                holeType: 'cut',
+                isEmpty: false
+            })
+        }
+        for (let i = 0; i < 8; i++) {
+            const ang = (i / 8) * Math.PI * 2
+            holes.push({
+                x: Math.cos(ang) * 7.2,
+                y: 2.6 + Math.sin(ang) * 1.4,
+                chargeKg: 10,
+                delayMs: 150,
+                holeType: 'perimeter',
+                isEmpty: false
+            })
+        }
+        const out = generateFragmentSpecs({
+            kco: KCO,
+            face: FACE,
+            chargeKg: 320,
+            targetCount: 600,
+            countLimit: 800,
+            holes,
+            randomSeed: 11
+        })
+        expect(out.specs.length).toBeGreaterThan(100)
+
+        // 延时段划分：段间隔 150ms → 掏槽 delayTime ∈ [0,0.15)，周边 ∈ [0.15,0.3)
+        const cut = out.specs.filter(s => s.delayTime < 0.15)
+        const peri = out.specs.filter(s => s.delayTime >= 0.15)
+        expect(cut.length).toBeGreaterThan(30)
+        expect(peri.length).toBeGreaterThan(30)
+
+        for (const s of out.specs) {
+            expect(s.morphAmp).toBeGreaterThanOrEqual(0)
+            expect(s.morphAmp).toBeLessThanOrEqual(0.11)
+            expect(s.morphSeed).toHaveLength(3)
+            for (const v of s.morphSeed) {
+                expect(v).toBeGreaterThanOrEqual(0)
+                expect(v).toBeLessThan(Math.PI * 2)
+            }
+        }
+        const avg = arr => arr.reduce((sum, x) => sum + x.morphAmp, 0) / arr.length
+        // 掏槽孔破碎充分、破裂面杂乱 → 平均变异幅度显著高于周边光面孔
+        expect(avg(cut)).toBeGreaterThan(avg(peri))
     })
 
     it('初始位置在断面内按体积均匀铺满（左右均衡、竖向全覆盖）', () => {

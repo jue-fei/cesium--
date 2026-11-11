@@ -342,16 +342,29 @@ export class ThreeBlastingRenderer {
     const right = new THREE.Vector3().crossVectors(dir, up).normalize()
     const forward = new THREE.Vector3().crossVectors(up, right).normalize()
 
+    // 待爆进尺（掌子面 → 新掌子面的轴向距离）：碎块初始体积与开挖空腔都落在
+    // [faceOffset, faceOffset+roundDepth]，物理层据此把封堵板放在进尺末端
+    // （岩体一侧），爆堆轮廓按新掌子面裁剪。与 sceneBuilder.buildBenchGeometry
+    // 同一套参数推导，避免两边进尺不一致。
+    const designParams = this._sceneBuilder?.designParams || {}
+    const roundDepth = Math.max(
+      0.6,
+      Number(designParams.advanceLength) ||
+        (Number(designParams.holeDepth) || 2.5) * (Number(designParams.utilization) || 0.85)
+    )
+
     // 配置爆堆轮廓渲染器局部基：轴向 forward、侧向 right、竖直 up、爆堆中心、
     // 底板高度、掌子面轴向距离（裁掉穿模进未爆破岩体的碎片，否则包裹壳
-    // 会被撑进岩体内部、贴不住真实爆堆）
+    // 会被撑进岩体内部、贴不住真实爆堆）。裁剪面用**新掌子面**
+    // （faceOffset + 进尺）：待爆棱柱内（掌子面→新掌子面）的碎块属于爆堆，
+    // 只有越过新掌子面进入完整岩体的才算穿模。
     this._muckPileOutline?.configure?.({
       forward,
       right,
       up,
       center: this.center,
       floorY: this.center.y,
-      faceOffset: FACEOFFSET_FROM_TUNNEL_CENTER,
+      faceOffset: FACEOFFSET_FROM_TUNNEL_CENTER + roundDepth,
       // 隧道断面参数：剔除"卡在隧道外"的碎石，不参与爆堆轮廓
       section: {
         width: this.tunnelWidth,
@@ -524,6 +537,7 @@ export class ThreeBlastingRenderer {
       archRadius: this.tunnelArchRadius,
       floorY: this.center.y,
       faceOffset: FACEOFFSET_FROM_TUNNEL_CENTER, // 掌子面到隧道中心的轴向距离(m)
+      faceDepth: roundDepth, // 掌子面 → 新掌子面（进尺），封堵板位置
       shape: this.tunnelSection.shape
     }
 
@@ -544,6 +558,7 @@ export class ThreeBlastingRenderer {
       archRadius: this.tunnelArchRadius,
       floorY: this.center.y,
       faceOffset: FACEOFFSET_FROM_TUNNEL_CENTER,
+      faceDepth: roundDepth,
       shape: this.tunnelSection.shape
     })
     this._physicsEngine.onBodyLanded = (body, impactSpeed) => {

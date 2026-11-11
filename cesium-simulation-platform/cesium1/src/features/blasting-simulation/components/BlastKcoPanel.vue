@@ -46,10 +46,11 @@
       {{ delayNote }}
     </div>
 
-    <!-- 块体形态：几何池按节理族组成（形状由节理间距比决定，非按块度硬映射） -->
+    <!-- 块体形态：几何池按节理族 + 浑圆族组成（形状由节理间距比/翻滚磨圆决定，非按块度硬映射） -->
     <div class="mt-2 text-xs shape-note">
       <span class="shape-note-title">块体形态</span>
       <span>块状 {{ shapeSummary.blocky }}%</span>
+      <span>浑圆 {{ shapeSummary.rounded }}%</span>
       <span>不规则 {{ shapeSummary.irregular }}%</span>
       <span>柱状 {{ shapeSummary.columnar }}%</span>
       <span>板状 {{ shapeSummary.platy }}%</span>
@@ -79,8 +80,8 @@ import {
 
 defineOptions({ name: 'BlastKcoPanel' })
 
-// 块体形态占比：几何池按节理族（块状/不规则/柱状/板状/长条）构成，
-// 由节理间距比（Zingg 分类）决定，不再把中块硬映射为板状。
+// 块体形态占比：几何池按节理族（块状/不规则/柱状/板状/长条）+ 浑圆族构成，
+// 由节理间距比（Zingg 分类）与抛掷磨圆形态共同决定，不再把中块硬映射为板状。
 const shapeSummary = computed(() => {
   const stats = getRockVariantShapeStats()
   const total = stats.length || 1
@@ -89,6 +90,7 @@ const shapeSummary = computed(() => {
   const mid = flats.length ? flats[Math.floor(flats.length / 2)] : 0
   return {
     blocky: pct('blocky'),
+    rounded: pct('rounded'),
     irregular: pct('irregular'),
     columnar: pct('columnar'),
     platy: pct('platy'),
